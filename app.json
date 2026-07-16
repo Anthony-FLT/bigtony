@@ -20,6 +20,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "scheme": "bigtony",
+    "plugins": [
+      "expo-audio",
+      "expo-status-bar"
+    ]
   }
 }
