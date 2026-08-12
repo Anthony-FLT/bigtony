@@ -3,7 +3,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { GoogleGenAI, Type } = require("@google/genai");
 const textToSpeech = require("@google-cloud/text-to-speech");
-const ffmpegPath = require("ffmpeg-static");
+const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const fs = require("fs/promises");
@@ -124,7 +124,7 @@ You receive: the conversation so far (text) and the person's latest answer (audi
 Respond ONLY with JSON matching the schema. Fields:
 - "transcript": verbatim transcript of what the person said in the audio, in English, including their mistakes. If the audio contains no intelligible speech (silence, breathing, background noise only), set it to "" exactly — NEVER invent words that were not spoken.
 - "reply_en": your next line, in character. 1 to 3 sentences of natural spoken English. Your goal is to make the LEARNER talk as much as possible: ask OPEN questions (what, why, how, tell me about…) that require a full sentence to answer. Avoid yes/no questions and avoid giving instructions they just obey. Draw them out.
-- "feedback_fr": 1 à 2 phrases EN FRANÇAIS, ton bienveillant mais précis et honnête (jamais de faux compliments). Pointe UNE chose concrète à améliorer (erreurs typiques des francophones : "th", h aspiré, faux amis, intonation plate, calques du français) et, si mérité, UNE chose réussie. Parle directement à la personne ("tu").
+- "feedback_fr": 1 à 2 phrases EN FRANÇAIS, ton bienveillant et honnête. Commente UNIQUEMENT ce que tu as réellement entendu. Concentre-toi sur ce que tu évalues de façon fiable : la construction de la phrase, la grammaire, le choix des mots, et encourage l'effort. Si la réponse était très courte (un ou deux mots), invite gentiment à faire une phrase complète. Pour la prononciation, NE donne PAS de correction phonétique détaillée et n'invente JAMAIS une erreur sur un son (le système mesure déjà la prononciation à part, séparément) — signale un souci de prononciation seulement si un mot a été rendu vraiment incompréhensible. Ne mentionne jamais un son précis qui n'a pas réellement posé problème. Parle directement à la personne ("tu").
 - "reply_fr": a natural French translation of your "reply_en" line, for a learner who needs help understanding.
 - "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.
 ${isLastTurn ? `
@@ -192,6 +192,38 @@ async function assessPronunciation(wavBuffer, azureKey) {
       .filter((w) => wordScore(w) !== undefined && wordScore(w) < 75)
       .map((w) => ({ word: w.Word, score: Math.round(wordScore(w)) })),
   };
+}
+
+// Compare ce que la personne voulait dire (Gemini) à ce que l'ASR a entendu (Azure)
+// et remonte les mots mal prononcés qui ont changé de sens.
+async function compareMisheard(ai, intended, heard) {
+  if (!intended || !heard) return [];
+  try {
+    const r = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [{ role: "user", parts: [{ text: `Intended: "${intended}"\nRecognized by the speech engine: "${heard}"` }] }],
+      config: {
+        systemInstruction: `A French learner spoke English. "Intended" is what they meant to say (clean). "Recognized" is what an automatic speech recognizer actually heard from their audio. Find the words where a MISPRONUNCIATION made the recognizer hear a DIFFERENT, meaning-changing word. Ignore trivial differences (articles, contractions, fillers, punctuation, plural/tense variants, word order). Return JSON {"pairs":[{"said":"<the intended word>","heard":"<what was recognized instead>"}]} with 0 to 3 of the most important pairs, most significant first. Return an empty array if the pronunciation was essentially fine.`,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            pairs: {
+              type: Type.ARRAY,
+              items: { type: Type.OBJECT, properties: { said: { type: Type.STRING }, heard: { type: Type.STRING } }, required: ["said", "heard"] },
+            },
+          },
+          required: ["pairs"],
+        },
+        temperature: 0,
+        thinkingConfig: { thinkingLevel: "low" },
+      },
+    });
+    return JSON.parse(r.text).pairs || [];
+  } catch (e) {
+    console.warn("compareMisheard error", e);
+    return [];
+  }
 }
 
 exports.spikeTurn = onCall(
@@ -313,12 +345,18 @@ exports.spikeTurn = onCall(
 
     const t1 = Date.now();
     let ttsResponse;
+    let misheard = [];
     try {
-      [ttsResponse] = await ttsClient.synthesizeSpeech({
-        input: { text: parsed.reply_en },
-        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
-        audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
-      });
+      const [tts, mh] = await Promise.all([
+        ttsClient.synthesizeSpeech({
+          input: { text: parsed.reply_en },
+          voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+          audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+        }),
+        compareMisheard(ai, parsed.transcript, pronunciation?.azureText || ""),
+      ]);
+      ttsResponse = tts[0];
+      misheard = mh;
     } catch (e) {
       console.error("TTS error", e);
       throw new HttpsError("internal", `TTS: ${e.message}`);
@@ -331,6 +369,7 @@ exports.spikeTurn = onCall(
       reply_fr: parsed.reply_fr,
       feedback_fr: parsed.feedback_fr,
       hard_words: parsed.hard_words ?? [],
+      misheard,
       pronunciation,
       replyAudioBase64: Buffer.from(ttsResponse.audioContent).toString("base64"),
       timings: { conv_ms: convMs, gemini_ms: geminiMs, azure_ms: azureMs, tts_ms: ttsMs, total_ms: Date.now() - tConv },
@@ -755,3 +794,195 @@ async function isContextSafe(ai, text) {
     return false; // en cas de doute, on refuse
   }
 }
+
+// Première discussion après l'onboarding : accueil simple et personnel, pour révéler le produit en douceur.
+exports.welcomeOpening = onCall(
+  { region: "europe-west1", secrets: [GEMINI_API_KEY], memory: "256MiB", timeoutSeconds: 30, maxInstances: 2 },
+  async (request) => {
+    const { level = "B1", name = null, interests = [], goals = [], job = null } = request.data || {};
+
+    const bits = [];
+    if (name) bits.push(`their name: ${name}`);
+    if (job) bits.push(`their job: ${job}`);
+    if (interests.length) bits.push(`their interests: ${interests.join(", ")}`);
+    if (goals.length) bits.push(`why they're learning English: ${goals.join(", ")}`);
+    const profileLine = bits.length ? `What you already know about them: ${bits.join("; ")}.` : "";
+
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+    const prompt = `You are a warm, friendly English conversation coach meeting a French learner for their VERY FIRST conversation in the app. This first chat must feel EASY, light and encouraging — the goal is to make them think "oh, I can actually do this, and it's fun", NOT to test or challenge them.
+
+${profileLine}
+
+This is a gentle GET-TO-KNOW-YOU chat, NOT a roleplay scene and NOT a topical quiz. Your opening's job is to make them INTRODUCE THEMSELVES and feel at ease — do NOT dive into a specific narrow topic yet (that comes later, built on their answer). Greet them warmly by first name, add ONE light personal touch as a soft question (an interest or their job — e.g. "I see you're into science — do you work in tech?"), then invite them to tell you a bit about themselves and what brings them here to practise English. Keep the English very simple and easy for their level.
+Vibe example: "Hi Jhon! Great to meet you. I see you like science and tech — do you work in that field? Tell me a bit about yourself and what brings you here."
+Respond ONLY with JSON:
+- "context_fr": 1 phrase EN FRANÇAIS, légère, qui pose l'ambiance ("Première discussion : on apprend à se connaître, tranquillement.").
+- "reply_en": your warm opening: 2-3 short simple sentences — greet by first name, one light personal touch (interest or job as a gentle question), and an invitation to introduce themselves / say what brings them here. NOT a narrow topical question.
+- "reply_fr": a natural French translation of reply_en.
+- "hard_words": array of {word, fr} for words a French learner at this level might not know (0 to 3 items, usually few since it stays simple).`;
+
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: "Start the welcome chat." }] }],
+        config: {
+          systemInstruction: prompt,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              context_fr: { type: Type.STRING },
+              reply_en: { type: Type.STRING },
+              reply_fr: { type: Type.STRING },
+              hard_words: {
+                type: Type.ARRAY,
+                items: { type: Type.OBJECT, properties: { word: { type: Type.STRING }, fr: { type: Type.STRING } }, required: ["word", "fr"] },
+              },
+            },
+            required: ["context_fr", "reply_en", "reply_fr", "hard_words"],
+          },
+          temperature: 1.0,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("welcomeOpening error", e);
+      throw new HttpsError("internal", `Welcome: ${e.message}`);
+    }
+    const parsed = JSON.parse(result.text);
+
+    let ttsResponse;
+    try {
+      [ttsResponse] = await ttsClient.synthesizeSpeech({
+        input: { text: parsed.reply_en },
+        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+        audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+      });
+    } catch (e) {
+      console.error("TTS error", e);
+      throw new HttpsError("internal", `TTS: ${e.message}`);
+    }
+
+    return {
+      context_fr: parsed.context_fr,
+      reply_en: parsed.reply_en,
+      reply_fr: parsed.reply_fr,
+      hard_words: parsed.hard_words ?? [],
+      replyAudioBase64: Buffer.from(ttsResponse.audioContent).toString("base64"),
+    };
+  }
+);
+
+// Expression du jour : une expression/idiome utile, ancrée sur le profil, renouvelée chaque jour.
+exports.dailyExpression = onCall(
+  { region: "europe-west1", secrets: [GEMINI_API_KEY], memory: "256MiB", timeoutSeconds: 20, maxInstances: 2 },
+  async (request) => {
+    const { level = "B1", interests = [], goals = [], job = null, seed = "" } = request.data || {};
+
+    const bits = [];
+    if (job) bits.push(`job: ${job}`);
+    if (interests.length) bits.push(`interests: ${interests.join(", ")}`);
+    if (goals.length) bits.push(`goals: ${goals.join(", ")}`);
+    const profileLine = bits.length
+      ? `Tailor it to this learner when relevant (${bits.join("; ")}) — e.g. meeting/office expressions for someone targeting work English.`
+      : `Pick a broadly useful everyday expression.`;
+
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+    const prompt = `Give ONE useful English expression or idiom a French learner would love to know — natural, commonly used by native speakers, not textbook-stiff.
+${profileLine}
+Pick a DIFFERENT one each time; vary register and theme. Keep it doable for their level.${levelBlock(level)}
+Respond ONLY with JSON:
+- "en": the expression itself (short, a few words).
+- "fr": its natural French meaning/translation.
+- "example_en": one short natural example sentence using it.
+- "example_fr": the French translation of that example.
+Variation token (ignore in output, just use it to vary): ${seed}`;
+
+    try {
+      const r = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: "Give today's expression." }] }],
+        config: {
+          systemInstruction: prompt,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              en: { type: Type.STRING },
+              fr: { type: Type.STRING },
+              example_en: { type: Type.STRING },
+              example_fr: { type: Type.STRING },
+            },
+            required: ["en", "fr", "example_en", "example_fr"],
+          },
+          temperature: 1.15,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+      return JSON.parse(r.text);
+    } catch (e) {
+      console.error("dailyExpression error", e);
+      throw new HttpsError("internal", `Expression: ${e.message}`);
+    }
+  }
+);
+
+// Fiche de prononciation d'un mot : explication FR + phonétique + audio modèle.
+exports.wordCoaching = onCall(
+  { region: "europe-west1", secrets: [GEMINI_API_KEY], memory: "256MiB", timeoutSeconds: 25, maxInstances: 3 },
+  async (request) => {
+    const { word = "" } = request.data || {};
+    if (!word || typeof word !== "string") throw new HttpsError("invalid-argument", "word manquant");
+
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+    const prompt = `You help a FRENCH speaker pronounce an English word. Word: "${word}".
+Respond ONLY with JSON:
+- "ipa": the IPA transcription, US English, with slashes (e.g. "/ʃuːt/").
+- "meaning_fr": a very short French meaning (a few words).
+- "how_to_fr": 2 to 3 sentences IN FRENCH explaining concretely HOW to pronounce this word right — position de la bouche/langue, découpage en syllabes, le(s) son(s) difficile(s) pour un francophone. Pratique et imagé, jamais théorique. Tutoie.
+- "trap_fr": one short French sentence naming THE most common French-speaker mistake on this exact word (ce qu'il ne faut PAS faire).`;
+
+    let coaching;
+    try {
+      const r = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: `Coach the word "${word}".` }] }],
+        config: {
+          systemInstruction: prompt,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              ipa: { type: Type.STRING },
+              meaning_fr: { type: Type.STRING },
+              how_to_fr: { type: Type.STRING },
+              trap_fr: { type: Type.STRING },
+            },
+            required: ["ipa", "meaning_fr", "how_to_fr", "trap_fr"],
+          },
+          temperature: 0.5,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+      coaching = JSON.parse(r.text);
+    } catch (e) {
+      console.error("wordCoaching error", e);
+      throw new HttpsError("internal", `Coaching: ${e.message}`);
+    }
+
+    let audioBase64 = "";
+    try {
+      const [tts] = await ttsClient.synthesizeSpeech({
+        input: { text: word },
+        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+        audioConfig: { audioEncoding: "MP3", speakingRate: 0.9 },
+      });
+      audioBase64 = Buffer.from(tts.audioContent).toString("base64");
+    } catch (e) {
+      console.warn("wordCoaching TTS error", e);
+    }
+
+    return { ...coaching, audioBase64 };
+  }
+);

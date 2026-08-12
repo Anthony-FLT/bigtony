@@ -1,19 +1,22 @@
 import { useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useAudioRecorder, RecordingPresets, setAudioModeAsync } from "expo-audio";
+import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { T } from "../../lib/theme";
 import { Goal, Feeling, Gender, saveProfile } from "../../lib/profile";
 import { GOALS, FEELINGS, GENDERS, INTERESTS } from "../../lib/onboardingData";
 import { Level, LEVEL_OPTIONS, calibrateLevel } from "../../lib/level";
 import { assessDrill } from "../../lib/labo";
+import TimeWheel from "../../components/TimeWheel";
+import { requestNotifPermission, scheduleDailyReminder } from "../../lib/notifications";
 
 // Écrans (steps) : q = question, v = validation
 // 0 accroche · 1 objectifs · 2 ressenti · 3 auto-éval · 4 test · 5 VALIDATION
 // 6 diagnostic(+courbe) · 7 prénom · 8 genre · 9 intérêts · 10 VALIDATION finale
-type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
-const TOTAL = 11;
+// 6 diagnostic(+courbe) · 7 prénom · 8 genre · 9 intérêts · 10 rappel · 11 VALIDATION finale
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+const TOTAL = 12;
 
 const TEST_SENTENCE = "I think this is worth thirty-three dollars";
 const MIN_REC_MS = 700;
@@ -40,7 +43,8 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
   const [testStatus, setTestStatus] = useState<"idle" | "recording" | "processing" | "done">("idle");
   const [saving, setSaving] = useState(false);
   const recStartRef = useRef(0);
-
+  const [remHour, setRemHour] = useState(() => new Date().getHours());
+  const [remMinute, setRemMinute] = useState(() => new Date().getMinutes());
   const finalLevel: Level = declaredLevel ? calibrateLevel(declaredLevel, testScore) : "B1";
   const goalTarget = targetLevel(finalLevel);
 
@@ -54,6 +58,11 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
   const startTest = async () => {
     if (testStatus !== "idle" && testStatus !== "done") return;
     try {
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        console.warn("Permission micro refusée");
+        return;
+      }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
@@ -86,6 +95,12 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
   };
 
   const finishToLaunch = async () => {
+    try {
+      const granted = await requestNotifPermission();
+      if (granted) await scheduleDailyReminder(remHour, remMinute);
+    } catch (e) {
+      console.warn("Rappel onboarding échoué:", e);
+    }
     setSaving(true);
     try {
       await saveProfile({
@@ -117,7 +132,8 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
     (step === 7 && name.trim().length > 0) ||
     (step === 8 && !!gender) ||
     step === 9 ||
-    step === 10;
+    step === 10 ||
+    step === 11;
 
   // Progression continue (0 → 1)
   const progress = step / (TOTAL - 1);
@@ -144,7 +160,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
     );
   }
 
-  const isValidation = step === 5 || step === 10;
+ const isValidation = step === 5 || step === 11;
 
   return (
     <View style={styles.container}>
@@ -343,8 +359,17 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
           </View>
         )}
 
-        {/* 10 — VALIDATION finale */}
-        {step === 10 && (
+      {/* 10 — Rappel quotidien */}
+      {step === 10 && (
+        <View>
+          <Text style={styles.title}>Ton rendez-vous quotidien.</Text>
+          <Text style={styles.sub}>Choisis l'heure de ton rappel — dix minutes par jour, à ton moment à toi.</Text>
+          <TimeWheel hour={remHour} minute={remMinute} onChange={(h, m) => { setRemHour(h); setRemMinute(m); }} />
+        </View>
+      )}
+
+        {/* 11 — VALIDATION finale */}
+        {step === 11 && (
           <View style={styles.validWrap}>
             <View style={styles.validIcon}>
               <Feather name="check" size={40} color="#fff" />

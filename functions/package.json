@@ -8,6 +8,6 @@
     "firebase-functions": "^6.4.0",
     "@google/genai": "^1.9.0",
     "@google-cloud/text-to-speech": "^6.0.0",
-    "ffmpeg-static": "^5.2.0"
+    "@ffmpeg-installer/ffmpeg": "^1.1.0"
   }
 }

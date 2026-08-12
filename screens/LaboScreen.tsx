@@ -1,191 +1,146 @@
-import { useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, TextInput, Modal } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useAudioRecorder, RecordingPresets, AudioModule, setAudioModeAsync } from "expo-audio";
-import * as FileSystem from "expo-file-system/legacy";
 import { T } from "../lib/theme";
-import { DRILLS, Drill, LabResult, assessDrill } from "../lib/labo";
+import { getDailySelection, listPracticeWords, addManualWord, removeWord, setMastered, PracticeWord } from "../lib/practiceWords";
+import WordPracticeScreen from "./WordPracticeScreen";
 
-const MIN_RECORDING_MS = 600;
+export default function LaboScreen({ refreshKey }: { refreshKey: number }) {
+  const [daily, setDaily] = useState<PracticeWord[] | null>(null);
+  const [all, setAll] = useState<PracticeWord[]>([]);
+  const [practiceWord, setPracticeWord] = useState<PracticeWord | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newWord, setNewWord] = useState("");
+  const [showMastered, setShowMastered] = useState(false);
 
-// Couleur d'un score : rouge < 60, miel 60-79, menthe ≥ 80
-function scoreColor(s: number) {
-  if (s < 60) return T.corail;
-  if (s < 80) return T.miel;
-  return T.menthe;
-}
-
-export default function LaboScreen() {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const [drill, setDrill] = useState<Drill>(DRILLS[0]);
-  const [result, setResult] = useState<LabResult | null>(null);
-  const [status, setStatus] = useState<"idle" | "recording" | "processing">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const recordStartRef = useRef(0);
-
-  const pickDrill = (d: Drill) => {
-    setDrill(d);
-    setResult(null);
-    setError(null);
+  const load = () => {
+    getDailySelection(5).then(setDaily);
+    listPracticeWords().then(setAll);
   };
+  useEffect(load, [refreshKey]);
 
-  const startRecording = async () => {
-    if (status !== "idle") return;
-    setError(null);
-    try {
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      recordStartRef.current = Date.now();
-      setStatus("recording");
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      setStatus("idle");
-    }
+  const submitWord = async () => {
+    const w = newWord.trim();
+    if (w.length < 2) return;
+    await addManualWord(w);
+    setNewWord(""); setShowAdd(false);
+    load();
   };
+  const onRemove = async (w: string) => { await removeWord(w); load(); };
 
-  const stopAndAssess = async () => {
-    if (status !== "recording") return;
-    setStatus("processing");
-    try {
-      await recorder.stop();
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      if (Date.now() - recordStartRef.current < MIN_RECORDING_MS) {
-        setStatus("idle");
-        return;
-      }
-      const uri = recorder.uri;
-      if (!uri) throw new Error("Aucun enregistrement");
-      const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const r = await assessDrill(drill.text, audioBase64);
-      setResult(r);
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-    } finally {
-      setStatus("idle");
-    }
-  };
+  const renderWordCard = (pw: PracticeWord) => (
+    <Pressable key={pw.word} style={styles.wordCard} onPress={() => setPracticeWord(pw)}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.word}>{pw.word}</Text>
+        {pw.heardAs ? <Text style={styles.heard}>on a entendu « {pw.heardAs} »</Text> : null}
+      </View>
+      <Pressable onPress={() => onRemove(pw.word)} hitSlop={10} style={{ padding: 6, marginRight: 2 }}>
+        <Feather name="x" size={16} color={T.inkSoft} />
+      </Pressable>
+      <Feather name="chevron-right" size={20} color="#D9B78E" />
+    </Pressable>
+  );
+
+  if (!daily) return <View style={styles.center}><ActivityIndicator size="large" color={T.abricotDeep} /></View>;
+
+  const masteredList = all.filter((w) => w.mastered);
+  const others = all.filter((w) => !w.mastered && !daily.some((d) => d.word === w.word));
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
       <View style={styles.head}>
         <Text style={styles.h1}>Le labo</Text>
-        <Text style={styles.sub}>Lis la phrase à voix haute. On note chaque son.</Text>
+        <Text style={styles.sub}>Travaille les mots qui te résistent, un par un.</Text>
       </View>
 
-      {/* Sélecteur de phrases */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsRow} contentContainerStyle={{ paddingHorizontal: 26, gap: 8 }}>
-        {DRILLS.map((d) => (
-          <Pressable key={d.id} onPress={() => pickDrill(d)} style={[styles.chip, drill.id === d.id && styles.chipActive]}>
-            <Text style={[styles.chipText, drill.id === d.id && styles.chipTextActive]}>{d.id}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      {/* Carte phrase */}
-      <View style={styles.drillCard}>
-        <Text style={styles.drillFocus}>{drill.focus.toUpperCase()}</Text>
-        {result ? (
-          <Text style={styles.drillPhrase}>
-            {result.words.map((w, i) => (
-              <Text key={i} style={{ color: scoreColor(w.score) }}>
-                {w.word}
-                {i < result.words.length - 1 ? " " : ""}
-              </Text>
-            ))}
-          </Text>
-        ) : (
-          <Text style={[styles.drillPhrase, { color: T.night }]}>{drill.text}</Text>
-        )}
-      </View>
-
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      {/* Détail par mot après évaluation */}
-      {result && (
-        <View style={styles.resultBlock}>
-          <View style={styles.globalRow}>
-            <Text style={styles.globalScore}>{Math.round(result.pronScore)}</Text>
-            <Text style={styles.globalOutOf}>/100</Text>
-            <Text style={styles.globalDetail}>
-              précision {Math.round(result.accuracyScore)} · fluidité {Math.round(result.fluencyScore)}
-            </Text>
-          </View>
-
-          {result.words
-            .filter((w) => w.score < 80)
-            .map((w, i) => (
-              <View key={i} style={styles.wordCard}>
-                <View style={styles.wordHeader}>
-                  <Text style={styles.wordText}>{w.word}</Text>
-                  <Text style={[styles.wordScore, { color: scoreColor(w.score) }]}>{w.score}</Text>
-                </View>
-                <View style={styles.phonemeRow}>
-                  {w.phonemes.map((p, j) => (
-                    <View key={j} style={[styles.phonemeChip, { backgroundColor: scoreColor(p.score) + "22" }]}>
-                      <Text style={[styles.phonemeText, { color: scoreColor(p.score) }]}>{p.phoneme}</Text>
-                      <Text style={[styles.phonemeScore, { color: scoreColor(p.score) }]}>{p.score}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ))}
-          {result.words.every((w) => w.score >= 80) && (
-            <Text style={styles.perfect}>Impeccable. Un Américain t'aurait compris sans effort.</Text>
-          )}
+      {daily.length > 0 ? (
+        <>
+          <Text style={styles.grp}>TA SÉLECTION DU JOUR</Text>
+          {daily.map(renderWordCard)}
+        </>
+      ) : (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>Ton labo se remplit tout seul.</Text>
+          <Text style={styles.emptyBody}>Les mots que tu écorches en discussion arrivent ici pour que tu les retravailles. Tu peux aussi en ajouter toi-même.</Text>
         </View>
       )}
 
-      {status === "processing" && <ActivityIndicator size="large" color={T.abricot} style={{ marginVertical: 16 }} />}
+      <Pressable style={styles.addCard} onPress={() => setShowAdd(true)}>
+        <View style={styles.addIcon}><Feather name="plus" size={20} color={T.night} /></View>
+        <Text style={styles.addText}>Ajouter un mot à travailler</Text>
+      </Pressable>
 
-      {/* Micro */}
-      <View style={styles.micZone}>
-        <Pressable
-          onPressIn={startRecording}
-          onPressOut={stopAndAssess}
-          disabled={status === "processing"}
-          style={[styles.mic, status === "recording" && styles.micActive]}
-        >
-          <Feather name="mic" size={30} color={status === "recording" ? "#fff" : T.night} />
+      {others.length > 0 && (
+        <>
+          <Text style={styles.grp}>TOUS TES MOTS</Text>
+          {others.map(renderWordCard)}
+        </>
+      )}
+
+      {masteredList.length > 0 && (
+        <>
+          <Pressable style={styles.masteredHeader} onPress={() => setShowMastered((v) => !v)}>
+            <Feather name="check-circle" size={16} color={T.menthe} />
+            <Text style={styles.masteredHeaderText}>Mots maîtrisés ({masteredList.length})</Text>
+            <Feather name={showMastered ? "chevron-up" : "chevron-down"} size={18} color={T.inkSoft} style={{ marginLeft: "auto" }} />
+          </Pressable>
+          {showMastered && masteredList.map((w) => (
+            <View key={w.word} style={styles.masteredRow}>
+              <Text style={styles.masteredWord}>{w.word}</Text>
+              <Pressable onPress={async () => { await setMastered(w.word, false); load(); }} hitSlop={8}>
+                <Text style={styles.masteredRevive}>Retravailler</Text>
+              </Pressable>
+            </View>
+          ))}
+        </>
+      )}
+
+      <Modal visible={showAdd} transparent animationType="fade" onRequestClose={() => setShowAdd(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowAdd(false)}>
+          <Pressable style={styles.addModal} onPress={() => {}}>
+            <Text style={styles.addModalTitle}>Un mot à travailler</Text>
+            <TextInput value={newWord} onChangeText={setNewWord} placeholder="Ex. thorough, schedule…" placeholderTextColor={T.inkSoft} style={styles.addInput} autoFocus autoCapitalize="none" />
+            <Pressable onPress={submitWord} disabled={newWord.trim().length < 2} style={[styles.addSubmit, newWord.trim().length < 2 && { opacity: 0.4 }]}>
+              <Text style={styles.addSubmitText}>Ajouter</Text>
+            </Pressable>
+          </Pressable>
         </Pressable>
-        <Text style={styles.micLabel}>
-          {status === "recording" ? "Relâche quand tu as fini" : result ? "Réessaie" : "Maintiens et lis la phrase"}
-        </Text>
-      </View>
+      </Modal>
+
+      <Modal visible={!!practiceWord} animationType="slide" onRequestClose={() => { setPracticeWord(null); load(); }}>
+        {practiceWord && (
+          <WordPracticeScreen word={practiceWord.word} heardAs={practiceWord.heardAs} onClose={() => { setPracticeWord(null); load(); }} />
+        )}
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.cream },
-  head: { paddingTop: 56, paddingHorizontal: 26, paddingBottom: 16 },
+  center: { flex: 1, backgroundColor: T.cream, alignItems: "center", justifyContent: "center" },
+  head: { paddingTop: 56, paddingHorizontal: 26, paddingBottom: 12 },
   h1: { fontSize: 28, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
   sub: { color: T.inkSoft, fontSize: 15, fontWeight: "600", lineHeight: 22, marginTop: 8 },
-  chipsRow: { marginBottom: 16 },
-  chip: { backgroundColor: T.card, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 16 },
-  chipActive: { backgroundColor: T.night },
-  chipText: { color: T.inkSoft, fontSize: 13, fontWeight: "700" },
-  chipTextActive: { color: "#fff" },
-  drillCard: { marginHorizontal: 26, backgroundColor: T.card, borderRadius: 22, padding: 22, alignItems: "center" },
-  drillFocus: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10 },
-  drillPhrase: { fontSize: 22, fontWeight: "800", textAlign: "center", lineHeight: 30, letterSpacing: -0.3 },
-  error: { color: T.corail, marginHorizontal: 26, marginTop: 12, fontWeight: "600" },
-  resultBlock: { marginHorizontal: 26, marginTop: 16 },
-  globalRow: { flexDirection: "row", alignItems: "baseline", marginBottom: 14 },
-  globalScore: { fontSize: 40, fontWeight: "800", color: T.night, letterSpacing: -1 },
-  globalOutOf: { fontSize: 16, fontWeight: "700", color: T.inkSoft, marginLeft: 2 },
-  globalDetail: { fontSize: 13, fontWeight: "600", color: T.inkSoft, marginLeft: 12 },
-  wordCard: { backgroundColor: T.card, borderRadius: 16, padding: 14, marginBottom: 10 },
-  wordHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 },
-  wordText: { fontSize: 17, fontWeight: "800", color: T.night },
-  wordScore: { fontSize: 17, fontWeight: "800" },
-  phonemeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  phonemeChip: { borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10, alignItems: "center" },
-  phonemeText: { fontSize: 14, fontWeight: "800" },
-  phonemeScore: { fontSize: 10, fontWeight: "700", marginTop: 1 },
-  perfect: { color: T.menthe, fontSize: 14, fontWeight: "700", textAlign: "center", marginTop: 4 },
-  micZone: { alignItems: "center", marginTop: 24 },
-  mic: { width: 76, height: 76, borderRadius: 38, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
-  micActive: { backgroundColor: T.corail },
-  micLabel: { color: T.inkSoft, fontSize: 13, fontWeight: "600", marginTop: 9 },
+  grp: { color: T.abricotDeep, fontSize: 12, fontWeight: "800", letterSpacing: 1, marginHorizontal: 26, marginTop: 18, marginBottom: 10 },
+  emptyCard: { backgroundColor: T.card, borderRadius: 20, padding: 20, marginHorizontal: 26, marginTop: 10 },
+  emptyTitle: { fontSize: 17, fontWeight: "800", color: T.night },
+  emptyBody: { fontSize: 14, fontWeight: "600", color: T.inkSoft, lineHeight: 21, marginTop: 6 },
+  wordCard: { flexDirection: "row", alignItems: "center", backgroundColor: T.card, borderRadius: 18, padding: 16, marginHorizontal: 26, marginBottom: 10 },
+  word: { fontSize: 19, fontWeight: "800", color: T.night },
+  heard: { fontSize: 12.5, fontWeight: "600", color: T.corail, marginTop: 2 },
+  addCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: T.miel, borderRadius: 18, padding: 14, marginHorizontal: 26, marginTop: 10 },
+  addIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(27,42,74,0.12)", alignItems: "center", justifyContent: "center" },
+  addText: { color: T.night, fontSize: 15, fontWeight: "800" },
+  masteredHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 26, marginTop: 22, marginBottom: 8 },
+  masteredHeaderText: { color: T.night, fontSize: 14, fontWeight: "800" },
+  masteredRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: T.card, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 16, marginHorizontal: 26, marginBottom: 8 },
+  masteredWord: { color: T.inkSoft, fontSize: 15, fontWeight: "700" },
+  masteredRevive: { color: T.abricotDeep, fontSize: 13, fontWeight: "800" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.6)", alignItems: "center", justifyContent: "center", padding: 34 },
+  addModal: { backgroundColor: T.cream, borderRadius: 22, padding: 22, width: "100%" },
+  addModalTitle: { fontSize: 18, fontWeight: "800", color: T.night, marginBottom: 14 },
+  addInput: { backgroundColor: T.card, borderRadius: 14, padding: 15, fontSize: 16, fontWeight: "600", color: T.night },
+  addSubmit: { backgroundColor: T.abricot, borderRadius: 14, padding: 15, alignItems: "center", marginTop: 14 },
+  addSubmitText: { color: T.night, fontSize: 15, fontWeight: "800" },
 });

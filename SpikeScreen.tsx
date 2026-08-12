@@ -18,14 +18,18 @@ import { startSession, addTurn, closeSession, SessionTurn } from "./lib/sessions
 import { loadProfile, markFirstSessionDone, markTranslateHintSeen } from "./lib/profile";
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
+import { recordStumble } from "./lib/practiceWords";
 
 const spikeTurn = httpsCallable(functions, "spikeTurn", { timeout: 70000 });
 const sessionDebrief = httpsCallable(functions, "sessionDebrief", { timeout: 70000 });
 const scenarioOpening = httpsCallable(functions, "scenarioOpening", { timeout: 30000 });
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
+const welcomeOpening = httpsCallable(functions, "welcomeOpening", { timeout: 30000 });
 
+const WELCOME_TURN_CONTEXT = "You are simply a warm, friendly, encouraging English coach meeting the learner on their very first day — you are NOT a character in a scene and there is NO scenario or story. Just be yourself and put them at ease. Your only goal is to help them introduce themselves and talk about their life: ask ONE simple question at a time about who they are (what they do, where they live, what they like, their day). Warmly react to each answer with a short encouraging word, then ask the next easy question. Never make it complex or serious — keep it light, kind and reassuring.";
 const MIN_RECORDING_MS = 800;
 const FIRST_SESSION_LIMIT = 10;
+const WELCOME_LIMIT = 5;
 
 const dailyOpening = httpsCallable(functions, "dailyOpening", { timeout: 30000 });
 
@@ -40,6 +44,7 @@ type Turn = {
   coach: string;
   coachFr: string;
   hardWords: HardWord[];
+  misheard: { said: string; heard: string }[];
   feedback: string;
   pronunciation: Pronunciation;
 };
@@ -48,7 +53,23 @@ type Opening = { context_fr: string; reply_en: string; reply_fr: string; hardWor
 type Debrief = { points_forts: string[]; axe: string; message_fr: string } | null;
 type WordPopup = { word: string; fr: string; loading: boolean } | null;
 
-export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Scenario; onExit: () => void; daily?: boolean }) {
+// Ne garde que les mots faibles réellement présents dans ce que l'utilisateur a dit
+// (retire les artefacts mal entendus par l'ASR, ex. "future" quand on a dit "features").
+function cleanWeakWords(weak: { word: string; score: number }[], said: string): string[] {
+  const saidSet = new Set(said.toLowerCase().replace(/[^a-z0-9\s']/g, " ").split(/\s+/).filter(Boolean));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const w of weak) {
+    const k = w.word.toLowerCase().replace(/[^a-z0-9']/g, "");
+    if (!k || seen.has(k) || !saidSet.has(k)) continue;
+    seen.add(k);
+    out.push(w.word);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -71,8 +92,10 @@ export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Sce
   const scrollRef = useRef<ScrollView>(null);
   const debriefingRef = useRef(false);
 
-  const reachedLimit = (isFirstSession || daily) && turns.length >= FIRST_SESSION_LIMIT;
-  const chatGoal = isFirstSession ? FIRST_SESSION_LIMIT : 8;
+  const sessionLimit = welcome ? WELCOME_LIMIT : FIRST_SESSION_LIMIT;
+  const capped = isFirstSession || daily || welcome;
+  const reachedLimit = capped && turns.length >= sessionLimit;
+  const chatGoal = capped ? sessionLimit : 8;
   const chatProgress = Math.min(100, Math.round((turns.length / chatGoal) * 100));
 
   useEffect(() => {
@@ -100,7 +123,16 @@ export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Sce
   const loadOpening = async () => {
     try {
       let res: any;
-      if (daily) {
+      if (welcome) {
+        const p = await loadProfile();
+        res = await welcomeOpening({
+          level: p?.level ?? "B1",
+          name: p?.name ?? null,
+          interests: p?.interests ?? [],
+          goals: p?.goals ?? [],
+          job: p?.job ?? null,
+        });
+      } else if (daily) {
         const p = await loadProfile();
         res = await dailyOpening({
           level: p?.level ?? "B1",
@@ -166,17 +198,17 @@ export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Sce
       if (!uri) throw new Error("Aucun enregistrement produit");
       const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
 
-      const willBeLast = (isFirstSession || daily) && turns.length + 1 >= FIRST_SESSION_LIMIT;
+     const willBeLast = capped && turns.length + 1 >= sessionLimit;
       const res: any = await spikeTurn({
         audioBase64, mimeType: "audio/mp4",
         history: [
           ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
           ...turns.map((t) => ({ user: t.user, coach: t.coach })),
         ],
-        scenarioId: daily ? null : scenario.id,
+        scenarioId: (daily || welcome) ? null : scenario.id,
         level,
-        sceneContext: opening?.context_fr ?? null,
-        customContext: scenario.custom ?? null,
+        sceneContext: welcome ? null : (opening?.context_fr ?? null),
+        customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
       });
       const d = res.data;
@@ -184,20 +216,23 @@ export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Sce
 
       if (!d.transcript) { setHint(d.feedback_fr || "Je n'ai rien entendu — réessaie."); return; }
 
-      const newTurn: Turn = {
+        const newTurn: Turn = {
         user: d.transcript,
         coach: d.reply_en,
         coachFr: d.reply_fr ?? "",
         hardWords: d.hard_words ?? [],
+        misheard: d.misheard ?? [],
         feedback: d.feedback_fr,
         pronunciation: d.pronunciation ?? null,
       };
       const nextCount = turns.length + 1;
       setTurns((prev) => [...prev, newTurn]);
+      // Alimente le Labo avec les mots écorchés de ce tour
+      for (const m of newTurn.misheard) recordStumble(m.said, m.heard);
       persistTurn(newTurn);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
-      if (isFirstSession && nextCount >= FIRST_SESSION_LIMIT) {
+      if ((isFirstSession || welcome) && nextCount >= sessionLimit) {
         setStatus("idle");
         setTimeout(() => setFirstSessionCongrats(true), 800);
         return;
@@ -338,12 +373,28 @@ export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Sce
             <View style={styles.fbCard}>
               <Text style={styles.fbK}>TON RETOUR</Text>
               <Text style={styles.fbText}>{t.feedback}</Text>
-              {t.pronunciation && (
-                <Text style={styles.fbScore}>
-                  Prononciation {Math.round(t.pronunciation.pronScore)}
-                  {t.pronunciation.weakWords.length > 0 && "  ·  à travailler : " + t.pronunciation.weakWords.map((w) => w.word).join(", ")}
-                </Text>
-              )}
+             {t.pronunciation && (() => {
+                const score = Math.round(t.pronunciation.pronScore);
+                const band =
+                  score >= 85 ? { label: "Prononciation claire", color: T.menthe }
+                  : score >= 70 ? { label: "Prononciation correcte", color: T.miel }
+                  : { label: "Prononciation à travailler", color: T.corail };
+                return (
+                  <View style={styles.pronBlock}>
+                    <View style={styles.pronRow}>
+                      <View style={[styles.pronDot, { backgroundColor: band.color }]} />
+                      <Text style={[styles.pronLabel, { color: band.color }]}>{band.label}</Text>
+                      <Text style={styles.pronScoreNum}>{score}/100</Text>
+                    </View>
+                    {t.misheard.map((m, k) => (
+                      <View key={k} style={styles.mishRow}>
+                        <Feather name="alert-triangle" size={13} color={T.corail} />
+                        <Text style={styles.mishText}>« {m.said} » sonne comme « {m.heard} »</Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
             </View>
             <View style={styles.themBubble}>
               {renderBubbleText(t.coach, t.hardWords, `t${i}`)}
@@ -452,7 +503,7 @@ export default function SpikeScreen({ scenario, onExit, daily }: { scenario: Sce
             <View style={styles.congratsIcon}><Feather name="award" size={40} color="#fff" /></View>
             <Text style={styles.congratsTitle}>Félicitations !</Text>
             <Text style={styles.congratsBody}>
-              Tu viens de terminer ta première séance. Dix échanges en anglais, ça se fête — voyons ce que ça donne.
+              Tu viens de faire tes premiers pas en anglais. Ça se fête! voyons ce que ça donne.
             </Text>
             <Pressable onPress={runDebrief} style={styles.congratsBtn}>
               <Text style={styles.congratsBtnText}>Voir mon bilan</Text>
@@ -495,8 +546,12 @@ const styles = StyleSheet.create({
   fbCard: { backgroundColor: T.night2, borderLeftWidth: 3, borderLeftColor: T.abricot, borderRadius: 16, padding: 12, marginBottom: 8, marginRight: 38 },
   fbK: { color: T.abricot, fontSize: 10, fontWeight: "800", letterSpacing: 0.8, marginBottom: 3 },
   fbText: { color: "#B9C4DC", fontSize: 13, fontWeight: "600", lineHeight: 19 },
-  fbScore: { color: T.onNightSoft, fontSize: 12, fontWeight: "700", marginTop: 6 },
-
+  pronBlock: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#31415F" },
+  pronRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pronDot: { width: 9, height: 9, borderRadius: 5 },
+  pronLabel: { fontSize: 13, fontWeight: "800" },
+  pronScoreNum: { color: T.onNightSoft, fontSize: 12, fontWeight: "700", marginLeft: "auto" },
+  pronWords: { color: "#B9C4DC", fontSize: 12, fontWeight: "600", marginTop: 6 },
   debriefCard: { backgroundColor: T.night2, borderRadius: 20, padding: 16, marginTop: 6, borderWidth: 1, borderColor: "#3A4A6B" },
   debriefTitle: { color: "#fff", fontSize: 18, fontWeight: "800", marginBottom: 10 },
   debriefMsg: { color: T.onNight, fontSize: 14, fontWeight: "600", lineHeight: 21, marginBottom: 12 },
@@ -538,4 +593,7 @@ const styles = StyleSheet.create({
   congratsBody: { color: T.inkSoft, fontSize: 15, fontWeight: "600", lineHeight: 22, textAlign: "center", marginTop: 10, marginBottom: 20 },
   congratsBtn: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", alignSelf: "stretch" },
   congratsBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
+
+  mishRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7 },
+  mishText: { color: "#E7A38C", fontSize: 12.5, fontWeight: "700", flex: 1 },
 });

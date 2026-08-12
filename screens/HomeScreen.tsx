@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
-import { loadProfile, Profile } from "../lib/profile";
 import { isDailyDone } from "../lib/daily";
-import { computeStreak } from "../lib/streak";
-
-const EXPRESSION = { en: "No worries, it happens", fr: "Pas de souci, ça arrive. Ton joker quand tu bafouilles." };
+import { computeStreak, milestoneReached } from "../lib/streak";
+import { loadProfile, Profile, saveMilestone } from "../lib/profile";
+import { Modal } from "react-native";
+import { getDailyExpression, Expression } from "../lib/expression";
 
 export default function HomeScreen({
   refreshKey,
@@ -22,6 +22,8 @@ export default function HomeScreen({
   const [profile, setProfile] = useState<Profile | null>(null);
   const [dailyDone, setDailyDone] = useState<boolean | null>(null);
   const [streak, setStreak] = useState(0);
+  const [celebrate, setCelebrate] = useState<number | null>(null);
+  const [expr, setExpr] = useState<Expression | null>(null);
 
   useEffect(() => {
     setDailyDone(null);
@@ -30,6 +32,15 @@ export default function HomeScreen({
       setProfile(p);
       setDailyDone(done);
       setStreak(s);
+
+      // Palier de streak franchi et pas encore fêté ?
+      const reached = milestoneReached(s);
+      if (reached && (p?.lastMilestone ?? 0) < reached) {
+        setCelebrate(reached);
+        saveMilestone(reached);
+      }
+
+      getDailyExpression().then(setExpr)
     })();
   }, [refreshKey]);
 
@@ -99,11 +110,35 @@ export default function HomeScreen({
       </Pressable>
 
       {/* Expression du jour */}
-      <View style={styles.exprCard}>
-        <Text style={styles.exprK}>EXPRESSION DU JOUR</Text>
-        <Text style={styles.exprEn}>{EXPRESSION.en}</Text>
-        <Text style={styles.exprFr}>{EXPRESSION.fr}</Text>
-      </View>
+      {expr && (
+        <View style={styles.exprCard}>
+          <Text style={styles.exprK}>EXPRESSION DU JOUR</Text>
+          <Text style={styles.exprEn}>{expr.en}</Text>
+          <Text style={styles.exprFr}>{expr.fr}</Text>
+          <Text style={styles.exprExample}>“{expr.example_en}”</Text>
+          <Text style={styles.exprExampleFr}>{expr.example_fr}</Text>
+        </View>
+      )}
+      <Modal visible={celebrate !== null} transparent animationType="fade">
+        <View style={styles.celebrateOverlay}>
+          <View style={styles.celebrateCard}>
+            <View style={styles.celebrateIcon}>
+              <Feather name="zap" size={44} color={T.night} />
+            </View>
+            <Text style={styles.celebrateNum}>{celebrate}</Text>
+            <Text style={styles.celebrateUnit}>jours d'affilée</Text>
+            <Text style={styles.celebrateMsg}>
+              {celebrate === 3 ? "Trois jours de suite. L'habitude est en train de naître."
+                : celebrate === 7 ? "Une semaine entière ! Tu tiens vraiment le rythme."
+                : celebrate === 14 ? "Deux semaines. Parler anglais devient un réflexe."
+                : "Trente jours. Regarde le chemin parcouru — tu n'es plus la même personne à l'oral."}
+            </Text>
+            <Pressable onPress={() => setCelebrate(null)} style={styles.celebrateBtn}>
+              <Text style={styles.celebrateBtnText}>Continuer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -140,4 +175,16 @@ const styles = StyleSheet.create({
   exprK: { color: "#7A4A17", fontSize: 12, fontWeight: "800", letterSpacing: 0.5, marginBottom: 6 },
   exprEn: { color: T.night, fontSize: 20, fontWeight: "800", letterSpacing: -0.3 },
   exprFr: { color: "#7A4A17", fontSize: 13, fontWeight: "600", lineHeight: 19, marginTop: 5 },
+  exprExample: { color: T.night, fontSize: 14, fontWeight: "700", fontStyle: "italic", marginTop: 10, lineHeight: 20 },
+  exprExampleFr: { color: "#7A4A17", fontSize: 12.5, fontWeight: "600", marginTop: 3, lineHeight: 18 },
+
+  celebrateOverlay: { flex: 1, backgroundColor: "rgba(27,42,74,0.85)", alignItems: "center", justifyContent: "center", padding: 36 },
+  celebrateCard: { backgroundColor: T.cream, borderRadius: 26, padding: 28, width: "100%", alignItems: "center" },
+  celebrateIcon: { width: 88, height: 88, borderRadius: 44, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center", marginBottom: 18 },
+  celebrateNum: { color: T.night, fontSize: 56, fontWeight: "800", letterSpacing: -2, lineHeight: 60 },
+  celebrateUnit: { color: T.abricotDeep, fontSize: 18, fontWeight: "800", marginTop: 2 },
+  celebrateMsg: { color: T.inkSoft, fontSize: 15, fontWeight: "600", textAlign: "center", lineHeight: 22, marginTop: 14, marginBottom: 22 },
+  celebrateBtn: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", alignSelf: "stretch" },
+  celebrateBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
+  
 });

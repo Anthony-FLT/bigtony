@@ -15,15 +15,16 @@ import SpikeScreen from "./SpikeScreen";
 import { SCENARIOS, Scenario, pickFirstScenario } from "./lib/scenarios";
 import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
+import SettingsScreen from "./screens/SettingsScreen";
 
-type Tab = "home" | "parler" | "labo" | "progres";
+type Tab = "home" | "labo" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
 
 const TABS: { key: Tab; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "home", icon: "home" },
-  { key: "parler", icon: "message-circle" },
   { key: "labo", icon: "target" },
   { key: "progres", icon: "trending-up" },
+  { key: "settings", icon: "settings" },
 ];
 
 export default function App() {
@@ -34,6 +35,9 @@ export default function App() {
   const [creatingScene, setCreatingScene] = useState(false);
   const [dailyActive, setDailyActive] = useState(false);
   const [homeKey, setHomeKey] = useState(0);
+  const [showScenarios, setShowScenarios] = useState(false);
+  const [welcomeActive, setWelcomeActive] = useState(false);
+  const [laboKey, setLaboKey] = useState(0);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -56,8 +60,8 @@ export default function App() {
       <View style={styles.rootCream}>
         <StatusBar style="dark" />
         <OnboardingFlow
-          onLaunch={(goals) => {
-            setActiveScenario(pickFirstScenario(goals));
+          onLaunch={() => {
+            setWelcomeActive(true);
             setAppState("ready");
           }}
         />
@@ -85,7 +89,18 @@ export default function App() {
       </View>
     );
   }
-
+if (welcomeActive) {
+    return (
+      <View style={styles.rootNight}>
+        <StatusBar style="light" />
+        <SpikeScreen
+          welcome
+          scenario={{ id: "welcome", title: "On fait connaissance", emoji: "", category: "quotidien", description: "" }}
+          onExit={() => { setWelcomeActive(false); setHomeKey((k) => k + 1); }}
+        />
+      </View>
+    );
+  }
     if (dailyActive) {
     return (
       <View style={styles.rootNight}>
@@ -97,6 +112,17 @@ export default function App() {
         />
       </View>
     );
+
+    if (showScenarios) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <View style={{ flex: 1 }}>
+          <ScenariosScreen onSelect={(s) => { setShowScenarios(false); setActiveScenario(s); }} onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }} />
+        </View>
+      </View>
+    );
+  }
   }
   return (
     <View style={styles.rootCream}>
@@ -107,10 +133,10 @@ export default function App() {
             refreshKey={homeKey}
             onStartDaily={() => setDailyActive(true)}
             onGoLabo={() => setTab("labo")}
-            onGoScenarios={() => setTab("parler")}
+            onGoScenarios={() => setShowScenarios(true)}
           />
         )}
-        {tab === "labo" && <LaboScreen />}
+       {tab === "labo" && <LaboScreen refreshKey={laboKey} />}
         {tab === "progres" && (
             <ProgressScreen
               refreshKey={progressKey}
@@ -118,7 +144,7 @@ export default function App() {
               onGoLabo={() => setTab("labo")}
             />
           )}
-          {tab === "parler" && <ScenariosScreen onSelect={setActiveScenario} onCreateCustom={() => setCreatingScene(true)} />}
+         {tab === "settings" && <SettingsScreen />}
       </View>
 
       <View style={styles.tabBar}>

@@ -21,6 +21,7 @@ export type Profile = {
   name?: string;
   firstSessionDone?: boolean;
   translateHintSeen?: boolean;
+  lastMilestone?: number;
 };
 
 export async function loadProfile(): Promise<Profile | null> {
@@ -42,6 +43,7 @@ export async function loadProfile(): Promise<Profile | null> {
       name: data.name,
       firstSessionDone: data.firstSessionDone ?? false,
       translateHintSeen: data.translateHintSeen ?? false,
+      lastMilestone: data.lastMilestone ?? 0,
     };
   } catch (e) {
     console.warn("loadProfile échoué:", e);
@@ -79,5 +81,15 @@ export async function markTranslateHintSeen(): Promise<void> {
     await setDoc(doc(db, "users", uid), { translateHintSeen: true }, { merge: true });
   } catch (e) {
     console.warn("markTranslateHintSeen échoué:", e);
+  }
+}
+
+export async function saveMilestone(n: number): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { lastMilestone: n }, { merge: true });
+  } catch (e) {
+    console.warn("saveMilestone échoué:", e);
   }
 }

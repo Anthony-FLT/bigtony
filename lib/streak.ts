@@ -34,3 +34,10 @@ export async function computeStreak(): Promise<number> {
     return 0;
   }
 }
+
+export const STREAK_MILESTONES = [3, 7, 14, 30];
+
+// Renvoie le palier si le streak correspond exactement à un cap, sinon null.
+export function milestoneReached(streak: number): number | null {
+  return STREAK_MILESTONES.includes(streak) ? streak : null;
+}
