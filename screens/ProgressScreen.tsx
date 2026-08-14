@@ -9,10 +9,12 @@ export default function ProgressScreen({
   refreshKey,
   onResume,
   onGoLabo,
+  onGoFavorites,
 }: {
   refreshKey: number;
   onResume: (s: Scenario) => void;
   onGoLabo: () => void;
+  onGoFavorites: () => void;
 }) {
   const [m, setM] = useState<Momentum | null>(null);
 
@@ -88,7 +90,7 @@ export default function ProgressScreen({
       )}
 
       {/* Favoris */}
-      <Pressable style={styles.favCard} onPress={onGoLabo}>
+      <Pressable style={styles.favCard} onPress={onGoFavorites}>
         <View style={styles.favIcon}><Feather name="star" size={20} color={T.abricotDeep} /></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.favTitle}>Tes mots favoris</Text>

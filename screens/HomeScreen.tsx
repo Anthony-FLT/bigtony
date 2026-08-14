@@ -10,11 +10,13 @@ import { getDailyExpression, Expression } from "../lib/expression";
 
 export default function HomeScreen({
   refreshKey,
+  premium,
   onStartDaily,
   onGoLabo,
   onGoScenarios,
 }: {
   refreshKey: number;
+  premium: boolean;
   onStartDaily: () => void;
   onGoLabo: () => void;
   onGoScenarios: () => void;
@@ -54,16 +56,30 @@ export default function HomeScreen({
           <Text style={styles.date}>{today.charAt(0).toUpperCase() + today.slice(1)}</Text>
           <Text style={styles.hello}>{hello}</Text>
         </View>
-        {streak > 0 && (
-          <View style={styles.streakPill}>
-            <Feather name="zap" size={14} color={T.abricotDeep} />
-            <Text style={styles.streakPillText}>{streak}</Text>
-          </View>
-        )}
+        <View style={{ alignItems: "flex-end", gap: 6 }}>
+          {streak > 0 && (
+            <View style={styles.streakPill}>
+              <Feather name="zap" size={14} color={T.abricotDeep} />
+              <Text style={styles.streakPillText}>{streak}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Discussion du jour — la vedette */}
-      {dailyDone === null ? (
+     {/* Discussion du jour — la vedette */}
+      {!premium ? (
+        <Pressable style={styles.dailyCard} onPress={onStartDaily}>
+          <View style={styles.dailyBlob} />
+          <Text style={styles.dailyK}>TON COACH T'ATTEND</Text>
+          <Text style={styles.dailyTitle}>Commence tes 3 jours gratuits</Text>
+          <Text style={styles.dailySub}>Discussions, Labo, favoris — tout est débloqué pendant l'essai.</Text>
+          <View style={styles.dailyBtn}>
+            <Feather name="unlock" size={18} color={T.night} />
+            <Text style={styles.dailyBtnText}>Voir les offres</Text>
+          </View>
+        </Pressable>
+      ) : dailyDone === null ? (
         <View style={[styles.dailyCard, { alignItems: "center" }]}>
           <ActivityIndicator color={T.abricot} />
         </View>
@@ -85,7 +101,7 @@ export default function HomeScreen({
           </View>
         </Pressable>
       )}
-
+      
       {/* Labo */}
       <Pressable style={styles.rowCard} onPress={onGoLabo}>
         <View style={styles.rowIcon}><Feather name="target" size={20} color={T.abricotDeep} /></View>
@@ -103,10 +119,12 @@ export default function HomeScreen({
           <Text style={styles.rowTitle}>Discussions à thème</Text>
           <Text style={styles.rowSub}>Choisis ta scène, ou crée la tienne</Text>
         </View>
-        <View style={styles.lockPill}>
-          <Feather name="lock" size={12} color={T.abricotDeep} />
-          <Text style={styles.lockText}>Premium</Text>
-        </View>
+       {!premium && (
+          <View style={styles.lockPill}>
+            <Feather name="lock" size={12} color={T.abricotDeep} />
+            <Text style={styles.lockText}>Premium</Text>
+          </View>
+        )}
       </Pressable>
 
       {/* Expression du jour */}
@@ -186,5 +204,5 @@ const styles = StyleSheet.create({
   celebrateMsg: { color: T.inkSoft, fontSize: 15, fontWeight: "600", textAlign: "center", lineHeight: 22, marginTop: 14, marginBottom: 22 },
   celebrateBtn: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", alignSelf: "stretch" },
   celebrateBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
-  
+
 });

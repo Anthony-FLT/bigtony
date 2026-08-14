@@ -16,6 +16,10 @@ import { SCENARIOS, Scenario, pickFirstScenario } from "./lib/scenarios";
 import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
+import FavoritesScreen from "./screens/FavoritesScreen";
+import PaywallScreen from "./screens/PaywallScreen";
+import { getAccess, Access } from "./lib/entitlement";
+import { configurePurchases } from "./lib/purchases";
 
 type Tab = "home" | "labo" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
@@ -36,8 +40,16 @@ export default function App() {
   const [dailyActive, setDailyActive] = useState(false);
   const [homeKey, setHomeKey] = useState(0);
   const [showScenarios, setShowScenarios] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   const [welcomeActive, setWelcomeActive] = useState(false);
   const [laboKey, setLaboKey] = useState(0);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [access, setAccess] = useState<Access | null>(null);
+  const [paywallHard, setPaywallHard] = useState(false);
+
+  const isPremium = access?.premium === true;
+
+  useEffect(() => { configurePurchases(); }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -50,6 +62,10 @@ export default function App() {
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (appState === "ready") getAccess().then(setAccess);
+  }, [appState, showPaywall]);
 
   if (appState === "loading") {
     return <View style={styles.rootCream} />;
@@ -96,7 +112,11 @@ if (welcomeActive) {
         <SpikeScreen
           welcome
           scenario={{ id: "welcome", title: "On fait connaissance", emoji: "", category: "quotidien", description: "" }}
-          onExit={() => { setWelcomeActive(false); setHomeKey((k) => k + 1); }}
+          onExit={() => {
+            setWelcomeActive(false);
+            setHomeKey((k) => k + 1);
+            if (!isPremium) { setPaywallHard(true); setShowPaywall(true); }
+          }}
         />
       </View>
     );
@@ -112,7 +132,7 @@ if (welcomeActive) {
         />
       </View>
     );
-
+  }
     if (showScenarios) {
     return (
       <View style={styles.rootCream}>
@@ -123,36 +143,59 @@ if (welcomeActive) {
       </View>
     );
   }
+  if (showFavorites) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <FavoritesScreen onBack={() => setShowFavorites(false)} />
+      </View>
+    );
+  }
+  if (showPaywall) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+          <PaywallScreen
+          dismissable={!paywallHard}
+          onClose={() => { setShowPaywall(false); setPaywallHard(false); }}
+          onPurchased={() => { setShowPaywall(false); setPaywallHard(false); }}
+        />
+      </View>
+    );
   }
   return (
     <View style={styles.rootCream}>
       <StatusBar style="dark" />
       <View style={{ flex: 1 }}>
-        {tab === "home" && (
+       {tab === "home" && (
           <HomeScreen
             refreshKey={homeKey}
-            onStartDaily={() => setDailyActive(true)}
-            onGoLabo={() => setTab("labo")}
-            onGoScenarios={() => setShowScenarios(true)}
+            premium={isPremium}
+            onStartDaily={() => { if (isPremium) setDailyActive(true); else setShowPaywall(true); }}
+            onGoLabo={() => { if (isPremium) setTab("labo"); else setShowPaywall(true); }}
+            onGoScenarios={() => { if (isPremium) setShowScenarios(true); else setShowPaywall(true); }}
           />
         )}
-       {tab === "labo" && <LaboScreen refreshKey={laboKey} />}
+        {tab === "labo" && <LaboScreen refreshKey={laboKey} />}
         {tab === "progres" && (
-            <ProgressScreen
-              refreshKey={progressKey}
-              onResume={(s) => setActiveScenario(s)}
-              onGoLabo={() => setTab("labo")}
-            />
-          )}
+          <ProgressScreen
+            refreshKey={progressKey}
+            onResume={(s) => { if (isPremium) setActiveScenario(s); else setShowPaywall(true); }}
+            onGoLabo={() => { if (isPremium) setTab("labo"); else setShowPaywall(true); }}
+            onGoFavorites={() => { if (isPremium) setShowFavorites(true); else setShowPaywall(true); }}
+          />
+        )}
          {tab === "settings" && <SettingsScreen />}
       </View>
 
       <View style={styles.tabBar}>
         {TABS.map((t) => (
-          <Pressable
+         <Pressable
             key={t.key}
             onPress={() => {
+              if (t.key === "labo" && !isPremium) { setShowPaywall(true); return; }
               if (t.key === "progres") setProgressKey((k) => k + 1);
+              if (t.key === "labo") setLaboKey((k) => k + 1);
               setTab(t.key);
             }}
             style={styles.tabItem}
