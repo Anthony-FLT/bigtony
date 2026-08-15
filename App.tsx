@@ -20,6 +20,7 @@ import FavoritesScreen from "./screens/FavoritesScreen";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
+import { scheduleExpressionReminder, getExpressionReminderEnabled } from "./lib/notifications";
 
 type Tab = "home" | "labo" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
@@ -67,6 +68,7 @@ export default function App() {
   useEffect(() => {
     if (appState !== "ready") return;
     (async () => {
+      getExpressionReminderEnabled().then((on) => { if (on) scheduleExpressionReminder(); });
       const a = await getAccess();
       setAccess(a);
       if (!a.premium) {
@@ -152,7 +154,7 @@ if (welcomeActive) {
       <View style={styles.rootCream}>
         <StatusBar style="dark" />
         <View style={{ flex: 1 }}>
-          <ScenariosScreen onSelect={(s) => { setShowScenarios(false); setActiveScenario(s); }} onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }} />
+          <ScenariosScreen onSelect={(s) => { setShowScenarios(false); setActiveScenario(s); }} onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }} onBack={() => setShowScenarios(false)}/>
         </View>
       </View>
     );

@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Affiche les notifs même app au premier plan
 Notifications.setNotificationHandler({
@@ -71,4 +72,29 @@ export async function getReminderSetting(): Promise<{ on: boolean; hour: number;
     console.warn("getReminderSetting échoué:", e);
     return def;
   }
+}
+
+const EXPRESSION_NOTIF_ID = "expression-daily";
+const EXPRESSION_KEY = "notif:expression";
+
+export async function scheduleExpressionReminder(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(EXPRESSION_NOTIF_ID).catch(() => {});
+  await Notifications.scheduleNotificationAsync({
+    identifier: EXPRESSION_NOTIF_ID,
+    content: {
+      title: "Ton expression du jour",
+      body: "Une nouvelle expression t'attend. 30 secondes pour l'apprendre.",
+    },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: 9, minute: 0 },
+  });
+  await AsyncStorage.setItem(EXPRESSION_KEY, "on");
+}
+
+export async function cancelExpressionReminder(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(EXPRESSION_NOTIF_ID).catch(() => {});
+  await AsyncStorage.setItem(EXPRESSION_KEY, "off");
+}
+
+export async function getExpressionReminderEnabled(): Promise<boolean> {
+  return (await AsyncStorage.getItem(EXPRESSION_KEY)) !== "off";
 }

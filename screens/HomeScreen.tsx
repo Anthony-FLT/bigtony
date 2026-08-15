@@ -7,6 +7,7 @@ import { computeStreak, milestoneReached } from "../lib/streak";
 import { loadProfile, Profile, saveMilestone } from "../lib/profile";
 import { Modal } from "react-native";
 import { getDailyExpression, Expression } from "../lib/expression";
+import { addFavorite, removeFavorite, listFavorites } from "../lib/favorites";
 
 export default function HomeScreen({
   refreshKey,
@@ -26,6 +27,7 @@ export default function HomeScreen({
   const [streak, setStreak] = useState(0);
   const [celebrate, setCelebrate] = useState<number | null>(null);
   const [expr, setExpr] = useState<Expression | null>(null);
+  const [exprFav, setExprFav] = useState(false);
 
   useEffect(() => {
     setDailyDone(null);
@@ -42,12 +44,20 @@ export default function HomeScreen({
         saveMilestone(reached);
       }
 
-      getDailyExpression().then(setExpr)
+      getDailyExpression().then((e) => {
+      setExpr(e);
+      if (e) listFavorites().then((f) => setExprFav(f.some((x) => x.word.toLowerCase() === e.en.toLowerCase())));
+    });
     })();
   }, [refreshKey]);
 
   const hello = profile?.name ? `Salut ${profile.name}` : "Salut";
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const toggleExprFav = async () => {
+      if (!expr) return;
+      if (exprFav) { await removeFavorite(expr.en); setExprFav(false); }
+      else { await addFavorite(expr.en, expr.fr); setExprFav(true); }
+    };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
@@ -130,6 +140,9 @@ export default function HomeScreen({
       {/* Expression du jour */}
       {expr && (
         <View style={styles.exprCard}>
+           <Pressable onPress={toggleExprFav} hitSlop={8} style={styles.exprStar}>
+            <Feather name="star" size={17} color={exprFav ? T.abricotDeep : T.inkSoft} />
+          </Pressable>
           <Text style={styles.exprK}>EXPRESSION DU JOUR</Text>
           <Text style={styles.exprEn}>{expr.en}</Text>
           <Text style={styles.exprFr}>{expr.fr}</Text>
@@ -190,6 +203,7 @@ const styles = StyleSheet.create({
   lockText: { color: T.abricotDeep, fontSize: 11, fontWeight: "800" },
 
   exprCard: { backgroundColor: T.miel, borderRadius: 22, padding: 18, marginHorizontal: 26 },
+  exprStar: { position: "absolute", top: 12, right: 12, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.85)", alignItems: "center", justifyContent: "center", zIndex: 2 },
   exprK: { color: "#7A4A17", fontSize: 12, fontWeight: "800", letterSpacing: 0.5, marginBottom: 6 },
   exprEn: { color: T.night, fontSize: 20, fontWeight: "800", letterSpacing: -0.3 },
   exprFr: { color: "#7A4A17", fontSize: 13, fontWeight: "600", lineHeight: 19, marginTop: 5 },

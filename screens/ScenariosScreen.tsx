@@ -25,13 +25,18 @@ const ICONS: Record<string, keyof typeof Feather.glyphMap> = {
 export default function ScenariosScreen({
   onSelect,
   onCreateCustom,
+  onBack
 }: {
   onSelect: (s: Scenario) => void;
   onCreateCustom: () => void;
+   onBack: () => void;
 }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
       <View style={styles.head}>
+        <Pressable onPress={onBack} hitSlop={12} style={{ marginBottom: 12 }}>
+          <Feather name="chevron-left" size={26} color={T.inkSoft} />
+        </Pressable>
         <Text style={styles.h1}>Choisis ta scène</Text>
         <Text style={styles.sub}>Une situation réelle. Tu parles, on t'écoute, on te corrige avec douceur.</Text>
       </View>
