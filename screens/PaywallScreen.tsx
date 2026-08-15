@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { T } from "../lib/theme";
 import { configurePurchases } from "../lib/purchases";
+import { ENTITLEMENT_ID } from "../lib/entitlement";
 
 type PlanId = "weekly" | "monthly" | "yearly";
 
@@ -36,6 +37,7 @@ export default function PaywallScreen({
         configurePurchases();
         const offerings = await Purchases.getOfferings();
         const av = offerings.current?.availablePackages ?? [];
+       
         const find = (t: string) => av.find((p) => p.packageType === t) ?? null;
         setPkgs({ yearly: find("ANNUAL"), monthly: find("MONTHLY"), weekly: find("WEEKLY") });
       } catch (e) {
@@ -55,7 +57,7 @@ export default function PaywallScreen({
     setBusy(true);
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
-      if (customerInfo.entitlements.active["premium"]) onPurchased();
+      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) onPurchased();
     } catch (e: any) {
       if (!e.userCancelled) Alert.alert("Achat impossible", e.message ?? String(e));
     } finally {
@@ -67,7 +69,7 @@ export default function PaywallScreen({
     setBusy(true);
     try {
       const info = await Purchases.restorePurchases();
-      if (info.entitlements.active["premium"]) onPurchased();
+      if (info.entitlements.active[ENTITLEMENT_ID]) onPurchased();
       else Alert.alert("Aucun achat trouvé", "Aucun abonnement actif n'est associé à ton compte Google.");
     } catch (e: any) {
       Alert.alert("Restauration impossible", e.message ?? String(e));

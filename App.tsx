@@ -63,10 +63,24 @@ export default function App() {
     return unsub;
   }, []);
 
+ // Au démarrage : charge l'accès et, si non abonné avec la démo déjà consommée, paywall direct
   useEffect(() => {
-    if (appState === "ready") getAccess().then(setAccess);
-  }, [appState, showPaywall]);
+    if (appState !== "ready") return;
+    (async () => {
+      const a = await getAccess();
+      setAccess(a);
+      if (!a.premium) {
+        const p = await loadProfile();
+        if (p?.firstSessionDone) { setPaywallHard(true); setShowPaywall(true); }
+      }
+    })();
+  }, [appState]);
 
+   useEffect(() => {
+    if (appState === "ready" && !showPaywall) getAccess().then(setAccess);
+  }, [showPaywall]);
+
+ 
   if (appState === "loading") {
     return <View style={styles.rootCream} />;
   }
