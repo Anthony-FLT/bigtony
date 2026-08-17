@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Modal } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import AntDesign from '@expo/vector-icons/AntDesign';
 import { T } from "../lib/theme";
 import { getTodayDailySession, isDailyDone } from "../lib/daily";
 import { computeStreak, milestoneReached } from "../lib/streak";
@@ -70,16 +71,15 @@ export default function HomeScreen({
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
       <View pointerEvents="none" style={styles.heroBlob} />
-      <View style={styles.top}>
+       <View style={styles.top}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.hello}>Salut {profile?.name}</Text>
-          <View style={styles.streakRow}>
-            <Feather name="zap" size={16} color={T.abricotDeep} />
-            <Text style={styles.streakText}>
-              {streak > 0 ? `Série : ${streak} jour${streak > 1 ? "s" : ""}` : "Commence ta série aujourd'hui"}
-            </Text>
-          </View>
+          <Text style={styles.hello}>Bonjour {profile?.name}</Text>
           <WeekStrip days={week} />
+        </View>
+        <View style={styles.streakPill}>
+          <Feather name="zap" size={16} color={T.abricotDeep} />
+          <Text style={styles.streakNum}>{streak}</Text>
+          <Text style={styles.streakUnit}>jour{streak > 1 ? "s" : ""}</Text>
         </View>
       </View>
 
@@ -131,35 +131,19 @@ export default function HomeScreen({
         </Pressable>
       )}
       
-      {/* Labo */}
-      <Pressable style={styles.rowCard} onPress={onGoLabo}>
-        <View style={styles.rowIcon}><Feather name="target" size={20} color={T.abricotDeep} /></View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.rowTitle}>Le labo</Text>
-          <Text style={styles.rowSub}>{laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""} à polir aujourd'hui` : "Travaille ta prononciation, son par son"}</Text>
-        </View>
-        <Feather name="chevron-right" size={20} color="#D9B78E" />
-      </Pressable>
-
-      {/* Scénarios — premium pendant l'essai */}
-      <Pressable style={styles.rowCard} onPress={onGoScenarios}>
-        <View style={styles.rowIcon}><Feather name="message-circle" size={20} color={T.abricotDeep} /></View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.rowTitle}>Discussions à thème</Text>
-          <Text style={styles.rowSub}>Choisis ta scène, ou crée la tienne</Text>
-          <View style={styles.chipRow}>
-                {["Pro", "Voyage", "Quotidien"].map((c) => (
-                  <View key={c} style={styles.miniChip}><Text style={styles.miniChipText}>{c}</Text></View>
-                ))}
-              </View>
-        </View>
-       {!premium && (
-          <View style={styles.lockPill}>
-            <Feather name="lock" size={12} color={T.abricotDeep} />
-            <Text style={styles.lockText}>Premium</Text>
-          </View>
-        )}
-      </Pressable>
+      <Text style={styles.trainTitle}>Entraîne-toi</Text>
+      <View style={styles.tileRow}>
+        <Pressable style={styles.tile} onPress={onGoScenarios}>
+          <View style={styles.tileIcon}><Feather name="mic" size={22} color={T.abricotDeep} /></View>
+          <Text style={styles.tileLabel}>Parler</Text>
+          <Text style={styles.tileSub}>Une scène au choix</Text>
+        </Pressable>
+        <Pressable style={styles.tile} onPress={onGoLabo}>
+          <View style={styles.tileIcon}><AntDesign name="experiment" size={24} color={T.abricotDeep} /></View>
+          <Text style={styles.tileLabel}>Réviser</Text>
+          <Text style={styles.tileSub}>{laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""}` : "Ta prononciation"}</Text>
+        </Pressable>
+      </View>
 
       {/* Expression du jour */}
       {expr && (
@@ -211,14 +195,15 @@ export default function HomeScreen({
 const styles = StyleSheet.create({
   heroBlob: { position: "absolute", top: -40, right: -80, width: 260, height: 260, borderRadius: 130, backgroundColor: T.chipAbricot, opacity: 0.55 },
   container: { flex: 1, backgroundColor: T.cream },
-  top: { paddingTop: 56, paddingHorizontal: 26, paddingBottom: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   date: { color: T.inkSoft, fontSize: 13, fontWeight: "600", textTransform: "capitalize" },
-  streakPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: T.chipAbricot, borderRadius: 16, paddingVertical: 7, paddingHorizontal: 12 },
   streakPillText: { color: T.abricotDeep, fontSize: 15, fontWeight: "800" },
-  hello: { fontSize: 15, fontWeight: "700", color: T.inkSoft },
-  streakRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 6 },
-  streakText: { fontSize: 21, fontWeight: "800", color: T.night, letterSpacing: -0.3 },
-  dailyCard: { backgroundColor: T.night, borderRadius: 26, padding: 22, marginHorizontal: 26, marginBottom: 14, overflow: "hidden", minHeight: 180, justifyContent: "center" },
+
+  top: { flexDirection: "row", alignItems: "flex-start", paddingTop: 56, paddingHorizontal: 26, gap: 12 },
+  hello: { fontSize: 25, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
+  streakPill: { alignItems: "center", backgroundColor: T.card, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14, minWidth: 62 },
+  streakNum: { fontSize: 20, fontWeight: "800", color: T.night, marginTop: 2 },
+  streakUnit: { fontSize: 11, fontWeight: "700", color: T.inkSoft },
+  dailyCard: { backgroundColor: T.night, borderRadius: 26, padding: 22, marginHorizontal: 26, marginBottom: 10, marginTop: 20, overflow: "hidden", minHeight: 180, justifyContent: "center" },
   dailyBlob: { position: "absolute", width: 140, height: 140, borderRadius: 70, backgroundColor: T.abricot, opacity: 0.9, right: -34, bottom: -44 },
   dailyK: { color: "#9DB0D4", fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },
   dailyTitle: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 8, maxWidth: 230, lineHeight: 28 },
@@ -226,7 +211,7 @@ const styles = StyleSheet.create({
   dailyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: T.abricot, borderRadius: 14, padding: 14, marginTop: 18 },
   dailyBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
 
-  dailyDoneCard: { backgroundColor: T.card, borderRadius: 26, padding: 22, marginHorizontal: 26, marginBottom: 14, alignItems: "center" },
+  dailyDoneCard: { backgroundColor: T.card, borderRadius: 26, padding: 22, marginHorizontal: 26, marginBottom: 14,marginTop: 20, alignItems: "center" },
   dailyDoneIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center", marginBottom: 14 },
   dailyDoneTitle: { color: T.night, fontSize: 18, fontWeight: "800" },
   dailyDoneSub: { color: T.inkSoft, fontSize: 14, fontWeight: "600", textAlign: "center", lineHeight: 20, marginTop: 6 },
@@ -246,7 +231,7 @@ const styles = StyleSheet.create({
   lockPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: T.chipAbricot, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 9 },
   lockText: { color: T.abricotDeep, fontSize: 11, fontWeight: "800" },
 
-  exprCard: { backgroundColor: T.miel, borderRadius: 22, padding: 18, marginHorizontal: 26 },
+  exprCard: { backgroundColor: T.miel, borderRadius: 22, padding: 18, marginHorizontal: 26, marginTop: 30 },
   exprStar: { position: "absolute", top: 12, right: 12, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.85)", alignItems: "center", justifyContent: "center", zIndex: 2 },
   exprK: { color: "#7A4A17", fontSize: 12, fontWeight: "800", letterSpacing: 0.5, marginBottom: 6 },
   exprEn: { color: T.night, fontSize: 20, fontWeight: "800", letterSpacing: -0.3 },
@@ -262,5 +247,11 @@ const styles = StyleSheet.create({
   celebrateMsg: { color: T.inkSoft, fontSize: 15, fontWeight: "600", textAlign: "center", lineHeight: 22, marginTop: 14, marginBottom: 22 },
   celebrateBtn: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", alignSelf: "stretch" },
   celebrateBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
-
+  
+trainTitle: { fontSize: 18, fontWeight: "800", color: T.night, marginTop: 10, marginBottom: 12, marginHorizontal: 26 },
+  tileRow: { flexDirection: "row", gap: 12, marginHorizontal: 26 },
+  tile: { flex: 1, backgroundColor: T.card, borderRadius: 18, padding: 16, alignItems: "flex-start" },
+  tileIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  tileLabel: { fontSize: 15.5, fontWeight: "800", color: T.night },
+  tileSub: { fontSize: 12, fontWeight: "600", color: T.inkSoft, marginTop: 2 },
 });

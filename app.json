@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "bigtony",
+    "name": "Déclic",
     "slug": "bigtony",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/favicon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -31,7 +31,12 @@
     "scheme": "bigtony",
     "plugins": [
       "expo-audio",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-notifications",
+      {
+        "icon": "./assets/notification-icon.png",
+        "color": "#1c2b46"
+      }
     ],
     "extra": {
       "eas": {
