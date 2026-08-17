@@ -1,1 +1,16 @@
-{ "functions": [{ "source": "functions", "predeploy": [] }] }
+{
+  "functions": [
+    {
+      "source": "functions",
+      "predeploy": []
+    }
+  ],
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  }
+}

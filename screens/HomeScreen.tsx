@@ -84,7 +84,6 @@ export default function HomeScreen({
       </View>
 
       {/* Discussion du jour — la vedette */}
-     {/* Discussion du jour — la vedette */}
       {!premium ? (
         <Pressable style={styles.dailyCard} onPress={onStartDaily}>
           <View style={styles.dailyBlob} />

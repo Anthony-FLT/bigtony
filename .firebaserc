@@ -1,6 +1,7 @@
 {
   "projects": {
-    "big-tony": "erbol-1307"
+    "big-tony": "erbol-1307",
+    "default": "erbol-1307"
   },
   "targets": {},
   "etags": {}

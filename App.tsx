@@ -21,6 +21,7 @@ import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
 import { scheduleExpressionReminder, getExpressionReminderEnabled } from "./lib/notifications";
+import EditProfileScreen from "./screens/EditProfileScreen";
 
 type Tab = "home" | "labo" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
@@ -47,7 +48,7 @@ export default function App() {
   const [showPaywall, setShowPaywall] = useState(false);
   const [access, setAccess] = useState<Access | null>(null);
   const [paywallHard, setPaywallHard] = useState(false);
-
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const isPremium = access?.premium === true;
 
   useEffect(() => { configurePurchases(); }, []);
@@ -179,6 +180,14 @@ if (welcomeActive) {
       </View>
     );
   }
+  if (showEditProfile) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <EditProfileScreen onBack={() => setShowEditProfile(false)} />
+      </View>
+    );
+  }
   return (
     <View style={styles.rootCream}>
       <StatusBar style="dark" />
@@ -201,7 +210,19 @@ if (welcomeActive) {
             onGoFavorites={() => { if (isPremium) setShowFavorites(true); else setShowPaywall(true); }}
           />
         )}
-         {tab === "settings" && <SettingsScreen />}
+         {tab === "settings" && (
+          <SettingsScreen
+             onEditProfile={() => setShowEditProfile(true)}
+            onDeleted={() => {
+              setShowEditProfile(false);
+              setShowPaywall(false);
+              setPaywallHard(false);
+              setShowFavorites(false);
+              setShowScenarios(false);
+              setTab("home");
+            }}
+          />
+        )}
       </View>
 
       <View style={styles.tabBar}>
