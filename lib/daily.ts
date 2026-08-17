@@ -26,3 +26,22 @@ export async function isDailyDone(): Promise<boolean> {
     return false;
   }
 }
+
+// La session daily d'aujourd'hui (ou null) — pour afficher stats + bilan sur l'accueil.
+export async function getTodayDailySession(): Promise<any | null> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return null;
+  try {
+    const snap = await getDocs(collection(db, "users", uid, "sessions"));
+    const today = new Date().toDateString();
+    let found: any = null;
+    snap.forEach((doc) => {
+      const d: any = doc.data();
+      if (d.kind !== "daily") return;
+      const t = d.endedAt ?? d.startedAt;
+      const dt: Date | null = t?.toDate ? t.toDate() : null;
+      if (dt && dt.toDateString() === today) found = d;
+    });
+    return found;
+  } catch { return null; }
+}

@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Modal } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
-import { isDailyDone } from "../lib/daily";
+import { getTodayDailySession, isDailyDone } from "../lib/daily";
 import { computeStreak, milestoneReached } from "../lib/streak";
 import { loadProfile, Profile, saveMilestone } from "../lib/profile";
-import { Modal } from "react-native";
 import { getDailyExpression, Expression } from "../lib/expression";
 import { addFavorite, removeFavorite, listFavorites } from "../lib/favorites";
+import WeekStrip from "../components/WeekStrip";
+import { listPracticeWords } from "../lib/practiceWords";
+import { getWeekActivity } from "../lib/streak";
+import DebriefView from "../components/DebriefView";
 
 export default function HomeScreen({
   refreshKey,
@@ -28,6 +31,10 @@ export default function HomeScreen({
   const [celebrate, setCelebrate] = useState<number | null>(null);
   const [expr, setExpr] = useState<Expression | null>(null);
   const [exprFav, setExprFav] = useState(false);
+  const [week, setWeek] = useState<boolean[]>(new Array(7).fill(false));
+  const [laboCount, setLaboCount] = useState(0);
+  const [showDebrief, setShowDebrief] = useState(false);
+  const [todaySession, setTodaySession] = useState<any | null>(null);
 
   useEffect(() => {
     setDailyDone(null);
@@ -44,6 +51,9 @@ export default function HomeScreen({
         saveMilestone(reached);
       }
 
+      getWeekActivity().then(setWeek);
+      getTodayDailySession().then(setTodaySession);
+      listPracticeWords().then((ws: any[]) => setLaboCount(ws.filter((w) => !w.mastered).length)).catch(() => {});
       getDailyExpression().then((e) => {
       setExpr(e);
       if (e) listFavorites().then((f) => setExprFav(f.some((x) => x.word.toLowerCase() === e.en.toLowerCase())));
@@ -51,8 +61,6 @@ export default function HomeScreen({
     })();
   }, [refreshKey]);
 
-  const hello = profile?.name ? `Salut ${profile.name}` : "Salut";
-  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const toggleExprFav = async () => {
       if (!expr) return;
       if (exprFav) { await removeFavorite(expr.en); setExprFav(false); }
@@ -61,18 +69,17 @@ export default function HomeScreen({
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+      <View pointerEvents="none" style={styles.heroBlob} />
       <View style={styles.top}>
-        <View>
-          <Text style={styles.date}>{today.charAt(0).toUpperCase() + today.slice(1)}</Text>
-          <Text style={styles.hello}>{hello}</Text>
-        </View>
-        <View style={{ alignItems: "flex-end", gap: 6 }}>
-          {streak > 0 && (
-            <View style={styles.streakPill}>
-              <Feather name="zap" size={14} color={T.abricotDeep} />
-              <Text style={styles.streakPillText}>{streak}</Text>
-            </View>
-          )}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.hello}>Salut {profile?.name}</Text>
+          <View style={styles.streakRow}>
+            <Feather name="zap" size={16} color={T.abricotDeep} />
+            <Text style={styles.streakText}>
+              {streak > 0 ? `Série : ${streak} jour${streak > 1 ? "s" : ""}` : "Commence ta série aujourd'hui"}
+            </Text>
+          </View>
+          <WeekStrip days={week} />
         </View>
       </View>
 
@@ -95,9 +102,22 @@ export default function HomeScreen({
         </View>
       ) : dailyDone ? (
         <View style={styles.dailyDoneCard}>
-          <View style={styles.dailyDoneIcon}><Feather name="check" size={26} color={T.night} /></View>
-          <Text style={styles.dailyDoneTitle}>Discussion du jour terminée</Text>
-          <Text style={styles.dailyDoneSub}>Beau travail. Reviens demain pour continuer ta série.</Text>
+          <View style={styles.doneRow}>
+            <View style={styles.dailyDoneIcon}><Feather name="check" size={20} color={T.night} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dailyDoneTitle}>Discussion du jour terminée</Text>
+              <Text style={styles.dailyDoneSub}>Beau travail. Ta série continue.</Text>
+            </View>
+          </View>
+          <Pressable style={styles.doneNext} onPress={onGoLabo}>
+            <Feather name="target" size={16} color={T.abricotDeep} />
+            <Text style={styles.doneNextText}>
+              {laboCount > 0
+                ? `Continue sur ta lancée : ${laboCount} mot${laboCount > 1 ? "s" : ""} à polir au Labo`
+                : "Continue sur ta lancée au Labo"}
+            </Text>
+            <Feather name="chevron-right" size={18} color={T.abricotDeep} />
+          </Pressable>
         </View>
       ) : (
         <Pressable style={styles.dailyCard} onPress={onStartDaily}>
@@ -117,7 +137,7 @@ export default function HomeScreen({
         <View style={styles.rowIcon}><Feather name="target" size={20} color={T.abricotDeep} /></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.rowTitle}>Le labo</Text>
-          <Text style={styles.rowSub}>Travaille ta prononciation, son par son</Text>
+          <Text style={styles.rowSub}>{laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""} à polir aujourd'hui` : "Travaille ta prononciation, son par son"}</Text>
         </View>
         <Feather name="chevron-right" size={20} color="#D9B78E" />
       </Pressable>
@@ -128,6 +148,11 @@ export default function HomeScreen({
         <View style={{ flex: 1 }}>
           <Text style={styles.rowTitle}>Discussions à thème</Text>
           <Text style={styles.rowSub}>Choisis ta scène, ou crée la tienne</Text>
+          <View style={styles.chipRow}>
+                {["Pro", "Voyage", "Quotidien"].map((c) => (
+                  <View key={c} style={styles.miniChip}><Text style={styles.miniChipText}>{c}</Text></View>
+                ))}
+              </View>
         </View>
        {!premium && (
           <View style={styles.lockPill}>
@@ -170,18 +195,30 @@ export default function HomeScreen({
           </View>
         </View>
       </Modal>
+      <Modal visible={showDebrief} animationType="slide" onRequestClose={() => setShowDebrief(false)}>
+        <View style={{ flex: 1, backgroundColor: T.cream }}>
+          <Pressable onPress={() => setShowDebrief(false)} hitSlop={12} style={{ paddingTop: 56, paddingHorizontal: 26 }}>
+            <Feather name="x" size={24} color={T.night} />
+          </Pressable>
+          <ScrollView contentContainerStyle={{ padding: 26, paddingBottom: 40 }}>
+            {todaySession?.debrief && <DebriefView debrief={todaySession.debrief} />}
+          </ScrollView>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  heroBlob: { position: "absolute", top: -40, right: -80, width: 260, height: 260, borderRadius: 130, backgroundColor: T.chipAbricot, opacity: 0.55 },
   container: { flex: 1, backgroundColor: T.cream },
   top: { paddingTop: 56, paddingHorizontal: 26, paddingBottom: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   date: { color: T.inkSoft, fontSize: 13, fontWeight: "600", textTransform: "capitalize" },
-  hello: { color: T.night, fontSize: 24, fontWeight: "800", marginTop: 2, letterSpacing: -0.4 },
   streakPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: T.chipAbricot, borderRadius: 16, paddingVertical: 7, paddingHorizontal: 12 },
   streakPillText: { color: T.abricotDeep, fontSize: 15, fontWeight: "800" },
-
+  hello: { fontSize: 15, fontWeight: "700", color: T.inkSoft },
+  streakRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 6 },
+  streakText: { fontSize: 21, fontWeight: "800", color: T.night, letterSpacing: -0.3 },
   dailyCard: { backgroundColor: T.night, borderRadius: 26, padding: 22, marginHorizontal: 26, marginBottom: 14, overflow: "hidden", minHeight: 180, justifyContent: "center" },
   dailyBlob: { position: "absolute", width: 140, height: 140, borderRadius: 70, backgroundColor: T.abricot, opacity: 0.9, right: -34, bottom: -44 },
   dailyK: { color: "#9DB0D4", fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },
@@ -194,6 +231,14 @@ const styles = StyleSheet.create({
   dailyDoneIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center", marginBottom: 14 },
   dailyDoneTitle: { color: T.night, fontSize: 18, fontWeight: "800" },
   dailyDoneSub: { color: T.inkSoft, fontSize: 14, fontWeight: "600", textAlign: "center", lineHeight: 20, marginTop: 6 },
+
+  doneRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  doneNext: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: T.chipAbricot },
+  doneNextText: { flex: 1, fontSize: 13.5, fontWeight: "700", color: T.abricotDeep, lineHeight: 18 },
+
+  chipRow: { flexDirection: "row", gap: 6, marginTop: 8 },
+  miniChip: { backgroundColor: T.chipAbricot, borderRadius: 10, paddingVertical: 3, paddingHorizontal: 9 },
+  miniChipText: { fontSize: 11.5, fontWeight: "800", color: T.abricotDeep },
 
   rowCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: T.card, borderRadius: 20, padding: 16, marginHorizontal: 26, marginBottom: 14 },
   rowIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },

@@ -19,6 +19,7 @@ import { loadProfile, markFirstSessionDone, markTranslateHintSeen } from "./lib/
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
+import DebriefView from "./components/DebriefView";
 
 const spikeTurn = httpsCallable(functions, "spikeTurn", { timeout: 70000 });
 const sessionDebrief = httpsCallable(functions, "sessionDebrief", { timeout: 70000 });
@@ -413,22 +414,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
           </View>
         ))}
 
-        {debrief && (
-          <View style={styles.debriefCard}>
-            <Text style={styles.debriefTitle}>Ton bilan</Text>
-            <Text style={styles.debriefMsg}>{debrief.message_fr}</Text>
-            {debrief.points_forts.map((p, i) => (
-              <View key={i} style={styles.strengthRow}>
-                <Feather name="check" size={16} color={T.menthe} />
-                <Text style={styles.strengthText}>{p}</Text>
-              </View>
-            ))}
-            <View style={styles.axeBox}>
-              <Text style={styles.axeLabel}>À TRAVAILLER EN PRIORITÉ</Text>
-              <Text style={styles.axeText}>{debrief.axe}</Text>
-            </View>
-          </View>
-        )}
+        {debrief && <DebriefView debrief={debrief} />}
+        
       </ScrollView>
 
       {(status === "processing" || status === "debriefing" || status === "opening") && (

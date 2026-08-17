@@ -32,8 +32,9 @@ export async function requestNotifPermission(): Promise<boolean> {
 // Planifie (ou replanifie) le rappel quotidien à l'heure donnée
 export async function scheduleDailyReminder(hour: number, minute: number): Promise<void> {
   await ensureChannel();
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  await Notifications.cancelScheduledNotificationAsync("discussion-daily").catch(() => {});
   await Notifications.scheduleNotificationAsync({
+    identifier: "discussion-daily",
     content: {
       title: "C'est l'heure de ta discussion",
       body: "Dix minutes d'anglais t'attendent. On y va ?",
