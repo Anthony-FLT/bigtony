@@ -3,6 +3,8 @@ import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { listFavorites, Favorite } from "./favorites";
 import { computeStreak } from "./streak";
+import { SCENARIOS } from "../lib/scenarios"; // adapte le chemin si besoin
+const SCENARIO_IDS = new Set(SCENARIOS.map((s) => s.id));
 
 export type ProgressData = {
   sessionCount: number;
@@ -34,7 +36,7 @@ export async function loadMomentum(): Promise<Momentum> {
     return {
       streak,
       sessionCount: done.length,
-      lastScenario: done[0]?.scenario ?? null,
+      lastScenario: done.find((s) => SCENARIO_IDS.has(s.scenario))?.scenario ?? null,
       topWeakWord,
       favoritesCount: favs.length,
     };

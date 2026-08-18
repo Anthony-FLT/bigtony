@@ -159,7 +159,7 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
           <Row icon="trash-2" label="Supprimer mon compte" danger onPress={confirmDelete} />
         </View>
 
-        <Text style={styles.version}>Élan – Coach d'anglais · v1.0.0</Text>
+        <Text style={styles.version}>Déclic Anglais · v1.0.0</Text>
       </ScrollView>
 
       {busy && (

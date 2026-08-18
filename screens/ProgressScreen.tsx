@@ -27,8 +27,8 @@ export default function ProgressScreen({
     return <View style={styles.center}><ActivityIndicator size="large" color={T.abricotDeep} /></View>;
   }
 
-  const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;
-
+const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;
+  console.log("MOMENTUM lastScenario:", JSON.stringify(m.lastScenario), "| ids connus:", SCENARIOS.map(s => s.id));
   // Aucune séance encore
   if (m.sessionCount === 0) {
     return (
