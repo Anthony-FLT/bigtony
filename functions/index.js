@@ -297,17 +297,6 @@ exports.spikeTurn = onCall(
               reply_en: { type: Type.STRING },
               reply_fr: { type: Type.STRING },
               feedback_fr: { type: Type.STRING },
-              hard_words: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    word: { type: Type.STRING },
-                    fr: { type: Type.STRING },
-                  },
-                  required: ["word", "fr"],
-                },
-              },
               correction: {
                 type: Type.OBJECT,
                 properties: {
@@ -336,6 +325,17 @@ exports.spikeTurn = onCall(
                   },
                 },
                 required: ["has_errors", "original", "corrected"],
+              },
+              hard_words: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    word: { type: Type.STRING },
+                    fr: { type: Type.STRING },
+                  },
+                  required: ["word", "fr"],
+                },
               },
             },
             required: ["transcript", "reply_en", "reply_fr", "feedback_fr", "hard_words"],
@@ -403,6 +403,7 @@ exports.spikeTurn = onCall(
       reply_en: parsed.reply_en,
       reply_fr: parsed.reply_fr,
       feedback_fr: parsed.feedback_fr,
+      correction: parsed.correction ?? null,
       hard_words: parsed.hard_words ?? [],
       misheard,
       pronunciation,
@@ -790,6 +791,23 @@ exports.translateText = onCall(
   async (request) => {
     const { text, mode = "word" } = request.data || {};
     if (!text || typeof text !== "string") throw new HttpsError("invalid-argument", "text manquant");
+
+    // Mode "speak" : synthèse vocale du texte (pas de traduction) → renvoie l'audio en base64.
+    if (mode === "speak") {
+      try {
+        const tts = new textToSpeech.TextToSpeechClient();
+        const [resp] = await tts.synthesizeSpeech({
+          input: { text },
+          voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+          audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+        });
+        return { audioBase64: Buffer.from(resp.audioContent).toString("base64") };
+      } catch (e) {
+        console.error("translateText speak error", e);
+        throw new HttpsError("internal", `TTS: ${e.message}`);
+      }
+    }
+
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
     const instruction =
       mode === "word"

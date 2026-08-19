@@ -1,4 +1,4 @@
-// SpikeScreen.tsx — conversation : traduction à la demande, favoris, plafond 1re séance.
+// SpikeScreen.tsx — conversation : fond clair, correction rouge/vert, traduction à la demande, favoris, plafond 1re séance.
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -20,19 +20,19 @@ import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
 import DebriefView from "./components/DebriefView";
+import CorrectionCard, { Correction } from "./components/CorrectionCard";
 
 const spikeTurn = httpsCallable(functions, "spikeTurn", { timeout: 70000 });
 const sessionDebrief = httpsCallable(functions, "sessionDebrief", { timeout: 70000 });
 const scenarioOpening = httpsCallable(functions, "scenarioOpening", { timeout: 30000 });
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 const welcomeOpening = httpsCallable(functions, "welcomeOpening", { timeout: 30000 });
+const dailyOpening = httpsCallable(functions, "dailyOpening", { timeout: 30000 });
 
 const WELCOME_TURN_CONTEXT = "You are simply a warm, friendly, encouraging English coach meeting the learner on their very first day — you are NOT a character in a scene and there is NO scenario or story. Just be yourself and put them at ease. Your only goal is to help them introduce themselves and talk about their life: ask ONE simple question at a time about who they are (what they do, where they live, what they like, their day). Warmly react to each answer with a short encouraging word, then ask the next easy question. Never make it complex or serious — keep it light, kind and reassuring.";
 const MIN_RECORDING_MS = 800;
 const FIRST_SESSION_LIMIT = 10;
 const WELCOME_LIMIT = 5;
-
-const dailyOpening = httpsCallable(functions, "dailyOpening", { timeout: 30000 });
 
 type HardWord = { word: string; fr: string };
 type Pronunciation = {
@@ -48,14 +48,14 @@ type Turn = {
   misheard: { said: string; heard: string }[];
   feedback: string;
   pronunciation: Pronunciation;
+  correction: Correction | null;
 };
 
 type Opening = { context_fr: string; reply_en: string; reply_fr: string; hardWords: HardWord[] } | null;
 type Debrief = { points_forts: string[]; axe: string; message_fr: string } | null;
 type WordPopup = { word: string; fr: string; loading: boolean } | null;
 
-// Ne garde que les mots faibles réellement présents dans ce que l'utilisateur a dit
-// (retire les artefacts mal entendus par l'ASR, ex. "future" quand on a dit "features").
+// Ne garde que les mots faibles réellement présents dans ce que l'utilisateur a dit.
 function cleanWeakWords(weak: { word: string; score: number }[], said: string): string[] {
   const saidSet = new Set(said.toLowerCase().replace(/[^a-z0-9\s']/g, " ").split(/\s+/).filter(Boolean));
   const seen = new Set<string>();
@@ -121,6 +121,17 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     player.play();
   };
 
+  // Lit la version corrigée à voix haute via translateText en mode "speak" (renvoie un audio base64).
+  const playCorrected = async (correction: Correction) => {
+    const text = correction.corrected.map((t) => t.text).join(" ");
+    try {
+      const res: any = await translateText({ text, mode: "speak" });
+      if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
+    } catch (e) {
+      console.warn("Lecture de la correction échouée:", e);
+    }
+  };
+
   const loadOpening = async () => {
     try {
       let res: any;
@@ -164,7 +175,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const persistTurn = async (turn: Turn) => {
     try {
       let sid = sessionId;
-    if (!sid) { sid = await startSession(daily ? "daily" : scenario.id, daily ? "daily" : "scenario"); setSessionId(sid); }
+      if (!sid) { sid = await startSession(daily ? "daily" : scenario.id, daily ? "daily" : "scenario"); setSessionId(sid); }
       const st: SessionTurn = {
         user: turn.user, coach: turn.coach, feedback: turn.feedback,
         pronunciation: turn.pronunciation, at: Date.now(),
@@ -199,7 +210,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       if (!uri) throw new Error("Aucun enregistrement produit");
       const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
 
-     const willBeLast = capped && turns.length + 1 >= sessionLimit;
+      const willBeLast = capped && turns.length + 1 >= sessionLimit;
       const res: any = await spikeTurn({
         audioBase64, mimeType: "audio/mp4",
         history: [
@@ -212,13 +223,12 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
       });
-      console.log("CORRECTION:", JSON.stringify(res.data.correction))
       const d = res.data;
       await playBase64(d.replyAudioBase64);
 
       if (!d.transcript) { setHint(d.feedback_fr || "Je n'ai rien entendu — réessaie."); return; }
 
-        const newTurn: Turn = {
+      const newTurn: Turn = {
         user: d.transcript,
         coach: d.reply_en,
         coachFr: d.reply_fr ?? "",
@@ -226,10 +236,10 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         misheard: d.misheard ?? [],
         feedback: d.feedback_fr,
         pronunciation: d.pronunciation ?? null,
+        correction: d.correction ?? null,
       };
       const nextCount = turns.length + 1;
       setTurns((prev) => [...prev, newTurn]);
-      // Alimente le Labo avec les mots écorchés de ce tour
       for (const m of newTurn.misheard) recordStumble(m.said, m.heard);
       persistTurn(newTurn);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -261,7 +271,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         }));
         closeSession(sessionId, res.data, st).catch((e) => console.warn("Clôture échouée:", e));
       }
-   } catch (e: any) { setError(e.message ?? String(e)); }
+    } catch (e: any) { setError(e.message ?? String(e)); }
     finally { setStatus("idle"); debriefingRef.current = false; }
   };
 
@@ -327,10 +337,27 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     );
   };
 
+  const renderCoachBubble = (text: string, hardWords: HardWord[], key: string) => (
+    <View style={styles.themBubble}>
+      {renderBubbleText(text, hardWords, key)}
+      {bubbleFr[key] ? <Text style={styles.translation}>{bubbleFr[key]}</Text> : null}
+      <Pressable onPress={() => toggleBubble(key, text)} style={styles.translateBtn} hitSlop={8}>
+        {bubbleLoading[key] ? (
+          <ActivityIndicator size="small" color={T.inkSoft} />
+        ) : (
+          <>
+            <Feather name="globe" size={13} color={T.inkSoft} />
+            <Text style={styles.translateBtnText}>{bubbleFr[key] ? "Masquer" : "Traduire"}</Text>
+          </>
+        )}
+      </Pressable>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onExit} hitSlop={12}><Feather name="chevron-left" size={26} color="#9DB0D4" /></Pressable>
+        <Pressable onPress={onExit} hitSlop={12}><Feather name="chevron-left" size={26} color={T.inkSoft} /></Pressable>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>{daily ? "Discussion du jour" : scenario.title}</Text>
           <View style={styles.progressTrack}>
@@ -352,71 +379,48 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
               <Text style={styles.sceneK}>LA SCÈNE</Text>
               <Text style={styles.sceneText}>{opening.context_fr}</Text>
             </View>
-            <View style={styles.themBubble}>
-              {renderBubbleText(opening.reply_en, opening.hardWords, "op")}
-              {bubbleFr["op"] ? <Text style={styles.translation}>{bubbleFr["op"]}</Text> : null}
-              <Pressable onPress={() => toggleBubble("op", opening.reply_en)} style={styles.translateBtn} hitSlop={8}>
-                {bubbleLoading["op"] ? (
-                  <ActivityIndicator size="small" color="#8497BC" />
-                ) : (
-                  <>
-                    <Feather name="globe" size={13} color="#8497BC" />
-                    <Text style={styles.translateBtnText}>{bubbleFr["op"] ? "Masquer" : "Traduire"}</Text>
-                  </>
-                )}
-              </Pressable>
-            </View>
+            {renderCoachBubble(opening.reply_en, opening.hardWords, "op")}
           </>
         )}
 
         {turns.map((t, i) => (
           <View key={i}>
             <View style={styles.meBubble}><Text style={styles.meText}>{t.user}</Text></View>
-            <View style={styles.fbCard}>
-              <Text style={styles.fbK}>TON RETOUR</Text>
-              <Text style={styles.fbText}>{t.feedback}</Text>
-             {t.pronunciation && (() => {
-                const score = Math.round(t.pronunciation.pronScore);
-                const band =
-                  score >= 85 ? { label: "Prononciation claire", color: T.menthe }
-                  : score >= 70 ? { label: "Prononciation correcte", color: T.miel }
-                  : { label: "Prononciation à travailler", color: T.corail };
-                return (
-                  <View style={styles.pronBlock}>
-                    <View style={styles.pronRow}>
-                      <View style={[styles.pronDot, { backgroundColor: band.color }]} />
-                      <Text style={[styles.pronLabel, { color: band.color }]}>{band.label}</Text>
-                      <Text style={styles.pronScoreNum}>{score}/100</Text>
-                    </View>
-                    {t.misheard.map((m, k) => (
-                      <View key={k} style={styles.mishRow}>
-                        <Feather name="alert-triangle" size={13} color={T.corail} />
-                        <Text style={styles.mishText}>« {m.said} » sonne comme « {m.heard} »</Text>
-                      </View>
-                    ))}
+
+            <CorrectionCard
+              correction={t.correction ?? { has_errors: false, original: [], corrected: [] }}
+              feedback={t.feedback}
+              onPlayCorrected={t.correction?.has_errors ? () => playCorrected(t.correction!) : undefined}
+            />
+
+            {t.pronunciation && (() => {
+              const score = Math.round(t.pronunciation.pronScore);
+              const band =
+                score >= 85 ? { label: "Prononciation claire", color: "#3B9A6A" }
+                : score >= 70 ? { label: "Prononciation correcte", color: "#B8860B" }
+                : { label: "Prononciation à travailler", color: "#C0392B" };
+              return (
+                <View style={styles.pronCard}>
+                  <View style={styles.pronRow}>
+                    <View style={[styles.pronDot, { backgroundColor: band.color }]} />
+                    <Text style={[styles.pronLabel, { color: band.color }]}>{band.label}</Text>
+                    <Text style={styles.pronScoreNum}>{score}/100</Text>
                   </View>
-                );
-              })()}
-            </View>
-            <View style={styles.themBubble}>
-              {renderBubbleText(t.coach, t.hardWords, `t${i}`)}
-              {bubbleFr[`t${i}`] ? <Text style={styles.translation}>{bubbleFr[`t${i}`]}</Text> : null}
-              <Pressable onPress={() => toggleBubble(`t${i}`, t.coach)} style={styles.translateBtn} hitSlop={8}>
-                {bubbleLoading[`t${i}`] ? (
-                  <ActivityIndicator size="small" color="#8497BC" />
-                ) : (
-                  <>
-                    <Feather name="globe" size={13} color="#8497BC" />
-                    <Text style={styles.translateBtnText}>{bubbleFr[`t${i}`] ? "Masquer" : "Traduire"}</Text>
-                  </>
-                )}
-              </Pressable>
-            </View>
+                  {t.misheard.map((m, k) => (
+                    <View key={k} style={styles.mishRow}>
+                      <Feather name="alert-triangle" size={13} color="#C0392B" />
+                      <Text style={styles.mishText}>« {m.said} » sonne comme « {m.heard} »</Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
+
+            {renderCoachBubble(t.coach, t.hardWords, `t${i}`)}
           </View>
         ))}
 
         {debrief && <DebriefView debrief={debrief} />}
-        
       </ScrollView>
 
       {(status === "processing" || status === "debriefing" || status === "opening") && (
@@ -442,7 +446,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
                 disabled={status !== "idle" && status !== "recording"}
                 style={[styles.mic, status === "recording" && styles.micActive]}
               >
-                <Feather name="mic" size={30} color={status === "recording" ? "#fff" : T.night} />
+                <Feather name="mic" size={30} color="#fff" />
               </Pressable>
               <Text style={styles.micLabel}>
                 {status === "recording" ? "Relâche pour envoyer" : "Maintiens pour parler"}
@@ -491,7 +495,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             <View style={styles.congratsIcon}><Feather name="award" size={40} color="#fff" /></View>
             <Text style={styles.congratsTitle}>Félicitations !</Text>
             <Text style={styles.congratsBody}>
-              Tu viens de faire tes premiers pas en anglais. Ça se fête! voyons ce que ça donne.
+              Tu viens de faire tes premiers pas en anglais. Ça se fête ! Voyons ce que ça donne.
             </Text>
             <Pressable onPress={runDebrief} style={styles.congratsBtn}>
               <Text style={styles.congratsBtnText}>Voir mon bilan</Text>
@@ -504,59 +508,49 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 34, backgroundColor: T.night },
+  container: { flex: 1, paddingHorizontal: 20, paddingTop: 34, backgroundColor: T.cream },
   header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
-  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "800" },
-  progressTrack: { height: 6, borderRadius: 3, backgroundColor: "#2E3E5C", overflow: "hidden", marginTop: 6 },
+  headerTitle: { color: T.night, fontSize: 17, fontWeight: "800" },
+  progressTrack: { height: 6, borderRadius: 3, backgroundColor: "#EAE6DE", overflow: "hidden", marginTop: 6 },
   progressFill: { height: 6, borderRadius: 3, backgroundColor: T.abricot },
-  error: { color: T.corail, marginBottom: 8, fontWeight: "600" },
-  hint: { color: T.miel, marginBottom: 8, fontWeight: "600" },
-  favFlash: { color: T.menthe, marginBottom: 8, fontWeight: "700" },
-  openingWait: { color: T.onNightSoft, fontSize: 14, fontWeight: "600", textAlign: "center", marginTop: 24 },
+  error: { color: "#C0392B", marginBottom: 8, fontWeight: "600" },
+  hint: { color: "#B8860B", marginBottom: 8, fontWeight: "600" },
+  favFlash: { color: "#3B9A6A", marginBottom: 8, fontWeight: "700" },
+  openingWait: { color: T.inkSoft, fontSize: 14, fontWeight: "600", textAlign: "center", marginTop: 24 },
   scroll: { flex: 1, marginBottom: 10 },
 
-  sceneCard: { backgroundColor: T.night2, borderRadius: 18, padding: 14, marginBottom: 12 },
-  sceneK: { color: T.abricot, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 4 },
-  sceneText: { color: "#C5D0E6", fontSize: 13, fontWeight: "600", lineHeight: 20 },
+  sceneCard: { backgroundColor: "#FFFFFF", borderRadius: 18, padding: 14, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: T.abricot },
+  sceneK: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 4 },
+  sceneText: { color: T.inkSoft, fontSize: 13, fontWeight: "600", lineHeight: 20 },
 
-  themBubble: { backgroundColor: T.night2, borderRadius: 20, borderTopLeftRadius: 6, padding: 13, marginBottom: 10, marginRight: 38, alignItems: "flex-start" },
-  themText: { color: T.onNight, fontSize: 14, fontWeight: "600", lineHeight: 22 },
-  tappableWord: { color: T.onNight },
-  hardWord: { color: T.miel, textDecorationLine: "underline", textDecorationStyle: "dotted" },
-  selectedWord: { backgroundColor: "#3A4A6B", borderRadius: 4 },
-  translation: { color: "#9DB0D4", fontSize: 13, fontWeight: "600", fontStyle: "italic", lineHeight: 19, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#31415F" },
+  themBubble: { backgroundColor: "#FFF3E9", borderRadius: 20, borderTopLeftRadius: 6, padding: 13, marginBottom: 10, marginRight: 38, alignItems: "flex-start" },
+  themText: { color: T.night, fontSize: 14, fontWeight: "600", lineHeight: 22 },
+  tappableWord: { color: T.night },
+  hardWord: { color: T.abricotDeep, textDecorationLine: "underline", textDecorationStyle: "dotted", fontWeight: "700" },
+  selectedWord: { backgroundColor: T.chipAbricot, borderRadius: 4 },
+  translation: { color: T.inkSoft, fontSize: 13, fontWeight: "600", fontStyle: "italic", lineHeight: 19, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#F0E4D6" },
   translateBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8, alignSelf: "flex-start", paddingVertical: 4 },
-  translateBtnText: { color: "#8497BC", fontSize: 12, fontWeight: "700" },
+  translateBtnText: { color: T.inkSoft, fontSize: 12, fontWeight: "700" },
 
   meBubble: { backgroundColor: T.abricot, borderRadius: 20, borderTopRightRadius: 6, padding: 13, marginBottom: 8, marginLeft: 38 },
   meText: { color: T.night, fontSize: 14, fontWeight: "700", lineHeight: 21 },
 
-  fbCard: { backgroundColor: T.night2, borderLeftWidth: 3, borderLeftColor: T.abricot, borderRadius: 16, padding: 12, marginBottom: 8, marginRight: 38 },
-  fbK: { color: T.abricot, fontSize: 10, fontWeight: "800", letterSpacing: 0.8, marginBottom: 3 },
-  fbText: { color: "#B9C4DC", fontSize: 13, fontWeight: "600", lineHeight: 19 },
-  pronBlock: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#31415F" },
+  pronCard: { backgroundColor: "#FFFFFF", borderRadius: 14, padding: 12, marginBottom: 10, marginRight: 38 },
   pronRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   pronDot: { width: 9, height: 9, borderRadius: 5 },
   pronLabel: { fontSize: 13, fontWeight: "800" },
-  pronScoreNum: { color: T.onNightSoft, fontSize: 12, fontWeight: "700", marginLeft: "auto" },
-  pronWords: { color: "#B9C4DC", fontSize: 12, fontWeight: "600", marginTop: 6 },
-  debriefCard: { backgroundColor: T.night2, borderRadius: 20, padding: 16, marginTop: 6, borderWidth: 1, borderColor: "#3A4A6B" },
-  debriefTitle: { color: "#fff", fontSize: 18, fontWeight: "800", marginBottom: 10 },
-  debriefMsg: { color: T.onNight, fontSize: 14, fontWeight: "600", lineHeight: 21, marginBottom: 12 },
-  strengthRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-  strengthText: { color: T.menthe, fontSize: 13, fontWeight: "700", flex: 1 },
-  axeBox: { backgroundColor: "#3A2E14", borderRadius: 12, padding: 12, marginTop: 8 },
-  axeLabel: { color: T.miel, fontSize: 10, fontWeight: "800", letterSpacing: 0.8, marginBottom: 3 },
-  axeText: { color: "#fff", fontSize: 13, fontWeight: "600", lineHeight: 19 },
+  pronScoreNum: { color: T.inkSoft, fontSize: 12, fontWeight: "700", marginLeft: "auto" },
+  mishRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7 },
+  mishText: { color: "#C0392B", fontSize: 12.5, fontWeight: "700", flex: 1 },
 
   controls: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingBottom: 24 },
   controlsSpacer: { width: 84 },
-  endButton: { width: 84, backgroundColor: T.night2, borderRadius: 12, padding: 11, alignItems: "center" },
-  endButtonText: { color: "#C5D0E6", fontSize: 12, fontWeight: "800" },
+  endButton: { width: 84, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 11, alignItems: "center" },
+  endButtonText: { color: T.inkSoft, fontSize: 12, fontWeight: "800" },
   micZone: { flex: 1, alignItems: "center" },
   mic: { width: 76, height: 76, borderRadius: 38, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
-  micActive: { backgroundColor: T.corail },
-  micLabel: { color: T.onNightSoft, fontSize: 12, fontWeight: "600", marginTop: 9 },
+  micActive: { backgroundColor: "#E8734D" },
+  micLabel: { color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 9 },
   limitButton: { flex: 1, backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", marginHorizontal: 20 },
   limitButtonText: { color: T.night, fontSize: 15, fontWeight: "800" },
 
@@ -576,12 +570,9 @@ const styles = StyleSheet.create({
 
   congratsOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.8)", alignItems: "center", justifyContent: "center", padding: 36 },
   congratsCard: { backgroundColor: T.cream, borderRadius: 24, padding: 26, width: "100%", alignItems: "center" },
-  congratsIcon: { width: 84, height: 84, borderRadius: 42, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center", marginBottom: 20 },
+  congratsIcon: { width: 84, height: 84, borderRadius: 42, backgroundColor: "#4CAF7D", alignItems: "center", justifyContent: "center", marginBottom: 20 },
   congratsTitle: { color: T.night, fontSize: 24, fontWeight: "800", letterSpacing: -0.4 },
   congratsBody: { color: T.inkSoft, fontSize: 15, fontWeight: "600", lineHeight: 22, textAlign: "center", marginTop: 10, marginBottom: 20 },
   congratsBtn: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", alignSelf: "stretch" },
   congratsBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
-
-  mishRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7 },
-  mishText: { color: "#E7A38C", fontSize: 12.5, fontWeight: "700", flex: 1 },
 });
