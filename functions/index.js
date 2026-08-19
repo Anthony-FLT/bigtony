@@ -124,7 +124,13 @@ You receive: the conversation so far (text) and the person's latest answer (audi
 Respond ONLY with JSON matching the schema. Fields:
 - "transcript": verbatim transcript of what the person said in the audio, in English, including their mistakes. If the audio contains no intelligible speech (silence, breathing, background noise only), set it to "" exactly — NEVER invent words that were not spoken.
 - "reply_en": your next line, in character. 1 to 3 sentences of natural spoken English. Your goal is to make the LEARNER talk as much as possible: ask OPEN questions (what, why, how, tell me about…) that require a full sentence to answer. Avoid yes/no questions and avoid giving instructions they just obey. Draw them out.
-- "feedback_fr": 1 à 2 phrases EN FRANÇAIS, ton bienveillant et honnête. Commente UNIQUEMENT ce que tu as réellement entendu. Concentre-toi sur ce que tu évalues de façon fiable : la construction de la phrase, la grammaire, le choix des mots, et encourage l'effort. Si la réponse était très courte (un ou deux mots), invite gentiment à faire une phrase complète. Pour la prononciation, NE donne PAS de correction phonétique détaillée et n'invente JAMAIS une erreur sur un son (le système mesure déjà la prononciation à part, séparément) — signale un souci de prononciation seulement si un mot a été rendu vraiment incompréhensible. Ne mentionne jamais un son précis qui n'a pas réellement posé problème. Parle directement à la personne ("tu").
+- "feedback_fr": 1 à 3 phrases EN FRANÇAIS, ton bienveillant MAIS honnête et utile. Commente UNIQUEMENT ce que tu as réellement entendu. Ta priorité : si la phrase contient une VRAIE erreur de grammaire, de structure ou de vocabulaire (temps incorrect, mot mal choisi, ordre des mots non naturel, tournure qu'un anglophone ne dirait jamais), tu DOIS la signaler ET donner la formulation correcte, même si la phrase reste compréhensible. Ne félicite JAMAIS une phrase qui contient une erreur : "compréhensible" n'est pas "correct". Structure ton retour ainsi : (1) reconnais brièvement l'effort ou ce qui est réussi, (2) corrige clairement l'erreur principale en donnant la bonne version en anglais entre guillemets, avec tact. Exemple de ton juste : « Ta phrase se comprend bien ! Une correction : on dit "I'm doing a Master's in history" plutôt que "class level master in university". » Si la phrase est réellement correcte et naturelle, dis-le sincèrement sans inventer de faux problème. Si la réponse était très courte (un ou deux mots), invite gentiment à faire une phrase complète. Pour la prononciation, NE donne PAS de correction phonétique et n'invente JAMAIS une erreur sur un son (le système la mesure séparément) — signale un souci seulement si un mot a été rendu vraiment incompréhensible. Parle directement à la personne ("tu").
+- "correction": an object showing the person's sentence and its corrected version, word by word, for a color-coded display.
+  - "has_errors": true if the person's sentence contains any grammar, word-order, verb-tense or word-choice error; false if it was already correct and natural.
+  - "original": the person's sentence (from the transcript) split into word tokens. Each token: {text, wrong} where "wrong" is true ONLY for the specific words that are grammatically incorrect or wrongly chosen. Keep every word of their sentence in order, including correct ones (wrong=false for those).
+  - "corrected": the fully correct, natural English version of their sentence, split into word tokens. Each token: {text, changed} where "changed" is true for words that were added or modified compared to the original. If has_errors is false, "corrected" is identical to "original" with all changed=false.
+  Only correct real errors — do NOT rephrase for style if the sentence is already correct. Base "original" strictly on what was actually said (the transcript), never invent words.
+  Attach punctuation to the adjacent word within its token (e.g. "countries." as one token).
 - "reply_fr": a natural French translation of your "reply_en" line, for a learner who needs help understanding.
 - "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.
 ${isLastTurn ? `
@@ -301,6 +307,35 @@ exports.spikeTurn = onCall(
                   },
                   required: ["word", "fr"],
                 },
+              },
+              correction: {
+                type: Type.OBJECT,
+                properties: {
+                  has_errors: { type: Type.BOOLEAN },
+                  original: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        text: { type: Type.STRING },
+                        wrong: { type: Type.BOOLEAN },
+                      },
+                      required: ["text", "wrong"],
+                    },
+                  },
+                  corrected: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        text: { type: Type.STRING },
+                        changed: { type: Type.BOOLEAN },
+                      },
+                      required: ["text", "changed"],
+                    },
+                  },
+                },
+                required: ["has_errors", "original", "corrected"],
               },
             },
             required: ["transcript", "reply_en", "reply_fr", "feedback_fr", "hard_words"],

@@ -212,6 +212,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
       });
+      console.log("CORRECTION:", JSON.stringify(res.data.correction))
       const d = res.data;
       await playBase64(d.replyAudioBase64);
 
