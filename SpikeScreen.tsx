@@ -21,6 +21,7 @@ import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
 import DebriefView from "./components/DebriefView";
 import CorrectionCard, { Correction } from "./components/CorrectionCard";
+import { StatusBar } from "expo-status-bar";
 
 const spikeTurn = httpsCallable(functions, "spikeTurn", { timeout: 70000 });
 const sessionDebrief = httpsCallable(functions, "sessionDebrief", { timeout: 70000 });
@@ -32,6 +33,7 @@ const dailyOpening = httpsCallable(functions, "dailyOpening", { timeout: 30000 }
 const WELCOME_TURN_CONTEXT = "You are simply a warm, friendly, encouraging English coach meeting the learner on their very first day — you are NOT a character in a scene and there is NO scenario or story. Just be yourself and put them at ease. Your only goal is to help them introduce themselves and talk about their life: ask ONE simple question at a time about who they are (what they do, where they live, what they like, their day). Warmly react to each answer with a short encouraging word, then ask the next easy question. Never make it complex or serious — keep it light, kind and reassuring.";
 const MIN_RECORDING_MS = 800;
 const FIRST_SESSION_LIMIT = 10;
+const SCENARIO_LIMIT = 8;
 const WELCOME_LIMIT = 5;
 
 type HardWord = { word: string; fr: string };
@@ -93,8 +95,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const scrollRef = useRef<ScrollView>(null);
   const debriefingRef = useRef(false);
 
-  const sessionLimit = welcome ? WELCOME_LIMIT : FIRST_SESSION_LIMIT;
-  const capped = isFirstSession || daily || welcome;
+  const sessionLimit = welcome ? WELCOME_LIMIT : (isFirstSession ? FIRST_SESSION_LIMIT : SCENARIO_LIMIT);
+  const capped = true;
   const reachedLimit = capped && turns.length >= sessionLimit;
   const chatGoal = capped ? sessionLimit : 8;
   const chatProgress = Math.min(100, Math.round((turns.length / chatGoal) * 100));
@@ -223,6 +225,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
       });
+      console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
       await playBase64(d.replyAudioBase64);
 
@@ -244,9 +247,13 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       persistTurn(newTurn);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
-      if ((isFirstSession || welcome) && nextCount >= sessionLimit) {
+      if (nextCount >= sessionLimit) {
         setStatus("idle");
-        setTimeout(() => setFirstSessionCongrats(true), 800);
+        if (isFirstSession || welcome) {
+          setTimeout(() => setFirstSessionCongrats(true), 800);
+        } else {
+          setTimeout(() => runDebrief(), 800);
+        }
         return;
       }
     } catch (e: any) { setError(e.message ?? String(e)); }
@@ -356,6 +363,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
 
   return (
     <View style={styles.container}>
+    <StatusBar style="dark" />
       <View style={styles.header}>
         <Pressable onPress={onExit} hitSlop={12}><Feather name="chevron-left" size={26} color={T.inkSoft} /></Pressable>
         <View style={{ flex: 1 }}>
