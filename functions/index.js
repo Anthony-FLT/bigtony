@@ -139,6 +139,38 @@ ${isLastTurn ? `
 THIS IS THE FINAL TURN of the session. In "reply_en", warmly acknowledge what the person just said and give a short, natural CLOSING line. DO NOT ask a new question. Wrap up the conversation.` : ""}
 If "transcript" is "": stay in character in "reply_en" with a short line like "Sorry, I didn't catch that — could you say that again?", and in "feedback_fr" dis simplement que tu n'as rien entendu et encourage à réessayer, sans rien inventer.`;
 }
+
+
+function buildChatSystemPrompt(scenario, level, sceneContext, customContext, isLastTurn) {
+  const base = customContext
+    ? `You are the person's English conversation partner in a scene they described: "${customContext}". Play the most fitting character.`
+    : scenario.role
+    ? `You are role-playing ${scenario.role}, talking to a French person whose written English is hesitant.`
+    : `You are the person's English conversation partner in this scene. Play the most fitting character, talking to a French person whose written English is hesitant.`;
+ 
+  const scenarioLines = (customContext || !scenario.role)
+    ? ""
+    : `\nSetting: ${scenario.setting}\n${scenario.focus}\n${scenario.firstTurn}`;
+ 
+  const ctx = sceneContext ? `\nESTABLISHED SCENE (stay consistent with it the whole conversation): ${sceneContext}` : "";
+ 
+  return `${base}${levelBlock(level)}${ctx}${scenarioLines}
+ 
+You receive: the conversation so far (text) and the person's latest answer, which they TYPED in English (not spoken).
+ 
+Respond ONLY with JSON matching the schema. Fields:
+- "reply_en": your next line, in character. Keep it SHORT: 1 to 2 sentences max, natural spoken English, the way people actually talk out loud. Prefer brevity — a single punchy sentence plus one open question is ideal. Your goal is to make the LEARNER write as much as possible: ask OPEN questions (what, why, how, tell me about…) that require a full sentence to answer. Avoid yes/no questions. Draw them out, but stay concise.
+- "feedback_fr": 1 à 3 phrases EN FRANÇAIS, ton bienveillant MAIS honnête et utile. Commente UNIQUEMENT la phrase que la personne a écrite. Ta priorité : si la phrase contient une VRAIE erreur de grammaire, de structure ou de vocabulaire (temps incorrect, mot mal choisi, ordre des mots non naturel, tournure qu'un anglophone ne dirait jamais), tu DOIS la signaler ET donner la formulation correcte, même si la phrase reste compréhensible. Ne félicite JAMAIS une phrase qui contient une erreur : "compréhensible" n'est pas "correct". Structure : (1) reconnais brièvement l'effort ou ce qui est réussi, (2) corrige clairement l'erreur principale en donnant la bonne version en anglais entre guillemets, avec tact. Exemple de ton juste : « Ta phrase se comprend bien ! Une correction : on dit "I'm doing a Master's in history" plutôt que "class level master in university". » Si la phrase est réellement correcte et naturelle, dis-le sincèrement sans inventer de faux problème. Si la réponse était très courte (un ou deux mots), invite gentiment à faire une phrase complète. NE parle JAMAIS de prononciation (la personne écrit, elle ne parle pas). Parle directement à la personne ("tu").
+- "correction": an object showing the person's sentence and its corrected version, word by word, for a color-coded display.
+  - "has_errors": true if the person's sentence contains any grammar, word-order, verb-tense or word-choice error; false if it was already correct and natural.
+  - "original": the person's sentence (exactly as they typed it) split into word tokens. Each token: {text, wrong} where "wrong" is true ONLY for the specific words that are grammatically incorrect or wrongly chosen. Keep every word of their sentence in order, including correct ones (wrong=false for those).
+  - "corrected": the fully correct, natural English version of their sentence, split into word tokens. Each token: {text, changed} where "changed" is true for words that were added or modified compared to the original. If has_errors is false, "corrected" is identical to "original" with all changed=false.
+  Only correct real errors — do NOT rephrase for style if the sentence is already correct. Base "original" strictly on what they actually wrote, never invent words. Attach punctuation to the adjacent word within its token (e.g. "countries." as one token).
+- "reply_fr": a natural French translation of your "reply_en" line, for a learner who needs help understanding.
+- "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.
+${isLastTurn ? `
+THIS IS THE FINAL TURN of the session. In "reply_en", warmly acknowledge what the person just said and give a short, natural CLOSING line. DO NOT ask a new question. Wrap up the conversation.` : ""}`;
+}
  
 
 const ttsClient = new textToSpeech.TextToSpeechClient();
@@ -415,6 +447,245 @@ exports.spikeTurn = onCall(
       timings: { conv_ms: convMs, gemini_ms: geminiMs, azure_ms: azureMs, tts_ms: ttsMs, total_ms: Date.now() - tConv },
       usage: result.usageMetadata ?? null,
     };
+  }
+);
+ 
+
+exports.chatTurn = onCall(
+  {
+    region: "europe-west1",
+    secrets: [GEMINI_API_KEY],
+    memory: "256MiB",
+    timeoutSeconds: 40,
+    maxInstances: 2,
+  },
+  async (request) => {
+    const { text, history = [], scenarioId = "entretien-embauche", level = "B1", sceneContext = null, customContext = null, isLastTurn = false } =
+      request.data || {};
+ 
+    const scenario = scenarioId ? SCENARIOS[scenarioId] : null;
+    if (!scenario && !customContext && !sceneContext) {
+      throw new HttpsError("invalid-argument", `Scénario inconnu: ${scenarioId}`);
+    }
+    if (!text || typeof text !== "string" || !text.trim()) {
+      throw new HttpsError("invalid-argument", "text manquant");
+    }
+    if (text.length > 2000) {
+      throw new HttpsError("invalid-argument", "Texte trop long (garde-fou)");
+    }
+ 
+    const historyText =
+      history
+        .slice(-MAX_HISTORY_TURNS)
+        .map((t) => `Person: ${t.user}\nYou: ${t.coach}`)
+        .join("\n") || "(first turn)";
+ 
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+ 
+    const t0 = Date.now();
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: `Conversation so far:\n${historyText}\n\nThe person's new written answer (they typed this in English):\n"${text}"` }],
+          },
+        ],
+        config: {
+          systemInstruction: buildChatSystemPrompt(scenario ?? {}, level, sceneContext, customContext, isLastTurn),
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              reply_en: { type: Type.STRING },
+              reply_fr: { type: Type.STRING },
+              feedback_fr: { type: Type.STRING },
+              correction: {
+                type: Type.OBJECT,
+                properties: {
+                  has_errors: { type: Type.BOOLEAN },
+                  original: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: { text: { type: Type.STRING }, wrong: { type: Type.BOOLEAN } },
+                      required: ["text", "wrong"],
+                    },
+                  },
+                  corrected: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: { text: { type: Type.STRING }, changed: { type: Type.BOOLEAN } },
+                      required: ["text", "changed"],
+                    },
+                  },
+                },
+                required: ["has_errors", "original", "corrected"],
+              },
+              hard_words: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: { word: { type: Type.STRING }, fr: { type: Type.STRING } },
+                  required: ["word", "fr"],
+                },
+              },
+            },
+            required: ["reply_en", "reply_fr", "feedback_fr", "correction"],
+          },
+          temperature: 0.7,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("chatTurn Gemini error", e);
+      throw new HttpsError("internal", `Gemini: ${e.message}`);
+    }
+    const geminiMs = Date.now() - t0;
+ 
+    let parsed;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (e) {
+      console.error("chatTurn parse error, raw:", result.text);
+      throw new HttpsError("internal", "Réponse Gemini non parsable");
+    }
+ 
+    return {
+      reply_en: parsed.reply_en,
+      reply_fr: parsed.reply_fr,
+      feedback_fr: parsed.feedback_fr,
+      correction: parsed.correction ?? null,
+      hard_words: parsed.hard_words ?? [],
+      timings: { gemini_ms: geminiMs },
+    };
+  }
+);
+
+exports.translateToEnglish = onCall(
+  {
+    region: "europe-west1",
+    secrets: [GEMINI_API_KEY],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 2,
+  },
+  async (request) => {
+    const { text, level = "B1" } = request.data || {};
+    if (!text || typeof text !== "string" || !text.trim()) {
+      throw new HttpsError("invalid-argument", "text manquant");
+    }
+    if (text.length > 1000) {
+      throw new HttpsError("invalid-argument", "Texte trop long (garde-fou)");
+    }
+ 
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+ 
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `French sentence to translate:\n"${text}"` }] }],
+        config: {
+          systemInstruction: `You help a French person say something in English during a conversation practice. Translate their French sentence into natural, idiomatic SPOKEN English — the way a real person would actually say it out loud, not a word-for-word translation. Keep it at a level a ${level} learner could realistically produce and pronounce. Keep the same intent and register (polite stays polite, casual stays casual). Respond ONLY with JSON: { "english": "..." }.`,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: { english: { type: Type.STRING } },
+            required: ["english"],
+          },
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("translateToEnglish error", e);
+      throw new HttpsError("internal", `Gemini: ${e.message}`);
+    }
+ 
+    let parsed;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (e) {
+      console.error("translateToEnglish parse error, raw:", result.text);
+      throw new HttpsError("internal", "Réponse Gemini non parsable");
+    }
+ 
+    return { english: parsed.english ?? "" };
+  }
+);
+ 
+ 
+ 
+/* ---------------------------------------------------------------------
+   2) suggestExample — l'utilisateur est en panne sèche : on propose UNE
+   réponse d'exemple (de son point de vue) adaptée au dernier message du
+   coach et à la scène. Il s'en inspire, puis formule la sienne.
+   --------------------------------------------------------------------- */
+ 
+exports.suggestExample = onCall(
+  {
+    region: "europe-west1",
+    secrets: [GEMINI_API_KEY],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 2,
+  },
+  async (request) => {
+    const { history = [], scenarioId = null, level = "B1", sceneContext = null, customContext = null } = request.data || {};
+ 
+    const scenario = scenarioId ? SCENARIOS[scenarioId] : null;
+ 
+    const historyText =
+      history
+        .slice(-MAX_HISTORY_TURNS)
+        .map((t) => `Person: ${t.user}\nCoach: ${t.coach}`)
+        .join("\n") || "(the conversation just started)";
+ 
+    const ctx = [
+      customContext ? `Scene described by the learner: ${customContext}` : "",
+      scenario?.role ? `The coach is playing: ${scenario.role}. Setting: ${scenario.setting}. ${scenario.focus}` : "",
+      sceneContext ? `Established scene: ${sceneContext}` : "",
+    ].filter(Boolean).join("\n");
+ 
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+ 
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `${ctx}\n\nConversation so far:\n${historyText}\n\nThe learner is stuck and doesn't know what to reply. Suggest what THEY could say next.` }] }],
+        config: {
+          systemInstruction: `You help a French learner who is stuck in an English conversation and doesn't know what to answer. Based on the scene and the LAST thing the coach said, propose ONE short, natural example answer FROM THE LEARNER'S POINT OF VIEW (first person "I"). It must directly answer or react to what the coach just said, stay in the scene, and be realistic for a ${level} learner to say out loud: 1 to 2 short sentences, natural spoken English. Do NOT be generic — make it fit this exact moment of the conversation. Respond ONLY with JSON: { "example_en": "...", "example_fr": "..." } where "example_fr" is a natural French translation of the example.`,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              example_en: { type: Type.STRING },
+              example_fr: { type: Type.STRING },
+            },
+            required: ["example_en", "example_fr"],
+          },
+          temperature: 0.9,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("suggestExample error", e);
+      throw new HttpsError("internal", `Gemini: ${e.message}`);
+    }
+ 
+    let parsed;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (e) {
+      console.error("suggestExample parse error, raw:", result.text);
+      throw new HttpsError("internal", "Réponse Gemini non parsable");
+    }
+ 
+    return { example_en: parsed.example_en ?? "", example_fr: parsed.example_fr ?? "" };
   }
 );
  
