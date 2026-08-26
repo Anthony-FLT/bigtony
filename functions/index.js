@@ -19,6 +19,16 @@ const AZURE_REGION = "francecentral";
 const MAX_AUDIO_BASE64_LENGTH = 2_500_000;
 const MAX_HISTORY_TURNS = 12;
 
+const VOICES = {
+  "us-male":   { languageCode: "en-US", name: "en-US-Neural2-D" },
+  "us-female": { languageCode: "en-US", name: "en-US-Neural2-F" },
+  "uk-male":   { languageCode: "en-GB", name: "en-GB-Neural2-B" },
+  "uk-female": { languageCode: "en-GB", name: "en-GB-Neural2-A" },
+};
+function resolveVoice(key) {
+  return VOICES[key] || VOICES["us-male"];
+}
+
 // ---------------------------------------------------------------
 // Scénarios (source de vérité côté serveur — le client n'envoie qu'un id)
 // ---------------------------------------------------------------
@@ -421,7 +431,7 @@ exports.spikeTurn = onCall(
       const [tts, mh] = await Promise.all([
         ttsClient.synthesizeSpeech({
           input: { text: parsed.reply_en },
-          voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+          voice: resolveVoice(request.data?.voice),
           audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
         }),
         compareMisheard(ai, parsed.transcript, pronunciation?.azureText || ""),
@@ -861,7 +871,7 @@ Respond ONLY with JSON:
     try {
       [ttsResponse] = await ttsClient.synthesizeSpeech({
         input: { text: parsed.reply_en },
-        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+        voice: resolveVoice(request.data?.voice),
         audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
       });
     } catch (e) {
@@ -955,7 +965,7 @@ Respond ONLY with JSON:
     try {
       [ttsResponse] = await ttsClient.synthesizeSpeech({
         input: { text: parsed.reply_en },
-        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+        voice: resolveVoice(request.data?.voice),
         audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
       });
     } catch (e) {
@@ -1076,7 +1086,7 @@ exports.translateText = onCall(
         const tts = new textToSpeech.TextToSpeechClient();
         const [resp] = await tts.synthesizeSpeech({
           input: { text },
-          voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+          voice: resolveVoice(request.data?.voice),
           audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
         });
         return { audioBase64: Buffer.from(resp.audioContent).toString("base64") };
@@ -1187,7 +1197,7 @@ Respond ONLY with JSON:
     try {
       [ttsResponse] = await ttsClient.synthesizeSpeech({
         input: { text: parsed.reply_en },
-        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+        voice: resolveVoice(request.data?.voice),
         audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
       });
     } catch (e) {
@@ -1306,7 +1316,7 @@ Respond ONLY with JSON:
     try {
       const [tts] = await ttsClient.synthesizeSpeech({
         input: { text: word },
-        voice: { languageCode: "en-US", name: "en-US-Neural2-D" },
+        voice: resolveVoice(request.data?.voice),
         audioConfig: { audioEncoding: "MP3", speakingRate: 0.9 },
       });
       audioBase64 = Buffer.from(tts.audioContent).toString("base64");

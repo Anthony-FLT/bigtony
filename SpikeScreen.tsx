@@ -15,7 +15,7 @@ import { functions } from "./lib/firebase";
 import { Scenario } from "./lib/scenarios";
 import { T } from "./lib/theme";
 import { startSession, addTurn, closeSession, SessionTurn } from "./lib/sessions";
-import { loadProfile, markFirstSessionDone, markTranslateHintSeen } from "./lib/profile";
+import { loadProfile, markFirstSessionDone, markTranslateHintSeen, VoiceKey } from "./lib/profile";
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
@@ -88,6 +88,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const [hint, setHint] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [level, setLevel] = useState<Level>("B1");
+  const [voiceKey, setVoiceKey] = useState<VoiceKey>("us-male");
   const [isFirstSession, setIsFirstSession] = useState(false);
   const [bubbleFr, setBubbleFr] = useState<Record<string, string>>({});
   const [bubbleLoading, setBubbleLoading] = useState<Record<string, boolean>>({});
@@ -129,6 +130,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   useEffect(() => {
     loadProfile().then((p) => {
       if (p?.level) setLevel(p.level);
+      if (p?.voice) setVoiceKey(p.voice);
       if (p && !p.firstSessionDone) setIsFirstSession(true);
       if (p && !p.translateHintSeen) setShowTranslateHint(true);
     });
@@ -145,7 +147,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const playText = async (key: string, text: string) => {
     setListenLoading((p) => ({ ...p, [key]: true }));
     try {
-      const res: any = await translateText({ text, mode: "speak" });
+      const res: any = await translateText({ text, mode: "speak", voice: voiceKey });
       if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
     } catch (e) {
       console.warn("Écoute échouée:", e);
@@ -158,7 +160,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const playCorrected = async (correction: Correction) => {
     const text = correction.corrected.map((t) => t.text).join(" ");
     try {
-      const res: any = await translateText({ text, mode: "speak" });
+      const res: any = await translateText({ text, mode: "speak", voice: voiceKey });
       if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
     } catch (e) {
       console.warn("Lecture de la correction échouée:", e);
@@ -224,6 +226,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
           interests: p?.interests ?? [],
           goals: p?.goals ?? [],
           job: p?.job ?? null,
+          voice: p?.voice ?? "us-male",
         });
       } else if (daily) {
         const p = await loadProfile();
@@ -232,9 +235,10 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
           interests: p?.interests ?? [],
           goals: p?.goals ?? [],
           job: p?.job ?? null,
+          voice: p?.voice ?? "us-male",
         });
       } else {
-        res = await scenarioOpening({ scenarioId: scenario.id, level, customContext: scenario.custom ?? null });
+        res = await scenarioOpening({ scenarioId: scenario.id, level, customContext: scenario.custom ?? null, voice: voiceKey });
       }
       setOpening({
         context_fr: res.data.context_fr,
@@ -318,6 +322,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         sceneContext: welcome ? null : (opening?.context_fr ?? null),
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
+        voice: voiceKey,
       });
       console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;

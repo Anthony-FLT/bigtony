@@ -8,6 +8,8 @@ export type Goal =
   | "vo" | "gaming" | "presentations" | "reseautage" | "examens" | "confiance";
 export type Feeling = "panique" | "cherche-mots" | "passer-cap";
 export type Gender = "homme" | "femme" | "non-precise";
+// Voix du coach (choix utilisateur)
+export type VoiceKey = "us-male" | "us-female" | "uk-male" | "uk-female";
 
 export type Profile = {
   onboarded: boolean;
@@ -19,6 +21,7 @@ export type Profile = {
   level?: Level;
   testScore?: number | null;
   name?: string;
+  voice?: VoiceKey;
   firstSessionDone?: boolean;
   translateHintSeen?: boolean;
   lastMilestone?: number;
@@ -41,6 +44,7 @@ export async function loadProfile(): Promise<Profile | null> {
       level: data.level,
       testScore: data.testScore ?? null,
       name: data.name,
+      voice: data.voice ?? "us-male",
       firstSessionDone: data.firstSessionDone ?? false,
       translateHintSeen: data.translateHintSeen ?? false,
       lastMilestone: data.lastMilestone ?? 0,
@@ -81,6 +85,16 @@ export async function markTranslateHintSeen(): Promise<void> {
     await setDoc(doc(db, "users", uid), { translateHintSeen: true }, { merge: true });
   } catch (e) {
     console.warn("markTranslateHintSeen échoué:", e);
+  }
+}
+
+export async function saveVoice(voice: VoiceKey): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { voice }, { merge: true });
+  } catch (e) {
+    console.warn("saveVoice échoué:", e);
   }
 }
 

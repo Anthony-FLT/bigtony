@@ -2,15 +2,23 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Switch, Linking, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
-import { loadProfile, Profile } from "../lib/profile";
+import { loadProfile, Profile, saveVoice, VoiceKey } from "../lib/profile";
 import { getReminderSetting, scheduleDailyReminder, cancelDailyReminder, requestNotifPermission, getExpressionReminderEnabled, scheduleExpressionReminder, cancelExpressionReminder } from "../lib/notifications";
 import { getAccess } from "../lib/entitlement";
 import { restorePurchasesFlow } from "../lib/purchases";
 import { deleteAccount } from "../lib/account";
 import TimeWheel from "../components/TimeWheel";
 
+const COACH_VOICES: { key: VoiceKey; label: string }[] = [
+  { key: "us-female", label: "Femme · US" },
+  { key: "us-male", label: "Homme · US" },
+  { key: "uk-female", label: "Femme · UK" },
+  { key: "uk-male", label: "Homme · UK" },
+];
+
 export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditProfile: () => void; onDeleted: () => void }) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [voice, setVoice] = useState<VoiceKey>("us-male");
   const [on, setOn] = useState(false);
   const [hour, setHour] = useState(19);
   const [minute, setMinute] = useState(0);
@@ -23,6 +31,7 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
     (async () => {
       const [p, r, ex, acc] = await Promise.all([loadProfile(), getReminderSetting(), getExpressionReminderEnabled(), getAccess()]);
       setProfile(p);
+      if (p?.voice) setVoice(p.voice);
       setOn(r.on); setHour(r.hour); setMinute(r.minute);
       setExprOn(ex);
       setPremium(acc.premium);
@@ -51,6 +60,12 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
   const toggleExpr = async (val: boolean) => {
     setExprOn(val);
     if (val) await scheduleExpressionReminder(); else await cancelExpressionReminder();
+  };
+
+  // — Voix du coach —
+  const changeVoice = async (v: VoiceKey) => {
+    setVoice(v);
+    await saveVoice(v);
   };
 
   // — Abonnement —
@@ -105,6 +120,16 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
         <Text style={styles.section}>PROFIL</Text>
         <View style={styles.card}>
           <Row icon="user" label={profile?.name || "Ton profil"} sub="Prénom, niveau, objectifs, intérêts" onPress={onEditProfile} />
+        </View>
+
+        <Text style={styles.section}>VOIX DU COACH</Text>
+        <View style={styles.voiceGrid}>
+          {COACH_VOICES.map((v) => (
+            <Pressable key={v.key} onPress={() => changeVoice(v.key)} style={[styles.voiceChip, voice === v.key && styles.voiceChipOn]}>
+              <Feather name="volume-2" size={16} color={voice === v.key ? T.night : T.inkSoft} />
+              <Text style={[styles.voiceChipText, voice === v.key && styles.voiceChipTextOn]}>{v.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
         <Text style={styles.section}>RAPPELS</Text>
@@ -176,6 +201,11 @@ const styles = StyleSheet.create({
   h1: { fontSize: 28, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
   section: { fontSize: 12, fontWeight: "800", color: T.inkSoft, letterSpacing: 0.6, marginTop: 24, marginBottom: 8, marginHorizontal: 26 },
   card: { backgroundColor: T.card, borderRadius: 18, marginHorizontal: 20, overflow: "hidden" },
+  voiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginHorizontal: 20 },
+  voiceChip: { flexGrow: 1, flexBasis: "45%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: T.card, borderRadius: 14, paddingVertical: 16, borderWidth: 2, borderColor: "transparent" },
+  voiceChipOn: { borderColor: T.abricot },
+  voiceChipText: { fontSize: 14.5, fontWeight: "700", color: T.inkSoft },
+  voiceChipTextOn: { color: T.night },
   row: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16 },
   rowLabel: { fontSize: 15.5, fontWeight: "700", color: T.night },
   rowSub: { fontSize: 12.5, fontWeight: "600", color: T.inkSoft, marginTop: 2 },

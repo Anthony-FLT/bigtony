@@ -4,7 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { T } from "../../lib/theme";
-import { Goal, Feeling, Gender, saveProfile } from "../../lib/profile";
+import { Goal, Feeling, Gender, VoiceKey, saveProfile } from "../../lib/profile";
 import { GOALS, FEELINGS, GENDERS, INTERESTS } from "../../lib/onboardingData";
 import { Level, LEVEL_OPTIONS, calibrateLevel } from "../../lib/level";
 import { assessDrill } from "../../lib/labo";
@@ -17,6 +17,13 @@ import { requestNotifPermission, scheduleDailyReminder } from "../../lib/notific
 // 6 diagnostic(+courbe) · 7 prénom · 8 genre · 9 intérêts · 10 rappel · 11 VALIDATION finale
 type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 const TOTAL = 12;
+
+const COACH_VOICES: { key: VoiceKey; label: string }[] = [
+  { key: "us-female", label: "Femme · US" },
+  { key: "us-male", label: "Homme · US" },
+  { key: "uk-female", label: "Femme · UK" },
+  { key: "uk-male", label: "Homme · UK" },
+];
 
 const TEST_SENTENCE = "I think this is worth thirty-three dollars";
 const MIN_REC_MS = 700;
@@ -39,6 +46,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
   const [gender, setGender] = useState<Gender | null>(null);
+  const [voice, setVoice] = useState<VoiceKey>("us-male");
   const [interests, setInterests] = useState<string[]>([]);
   const [testStatus, setTestStatus] = useState<"idle" | "recording" | "processing" | "done">("idle");
   const [saving, setSaving] = useState(false);
@@ -112,6 +120,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
         interests,
         level: finalLevel,
         testScore,
+        voice,
       });
     } catch (e) {
       console.warn("Sauvegarde onboarding échouée:", e);
@@ -341,6 +350,14 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
                 </Pressable>
               ))}
             </View>
+            <Text style={styles.fieldLabel}>LA VOIX DE TON COACH</Text>
+            <View style={styles.voiceGrid}>
+              {COACH_VOICES.map((v) => (
+                <Pressable key={v.key} onPress={() => setVoice(v.key)} style={[styles.voiceChip, voice === v.key && styles.voiceChipOn]}>
+                  <Text style={[styles.voiceChipText, voice === v.key && styles.voiceChipTextOn]}>{v.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         )}
 
@@ -501,6 +518,11 @@ const styles = StyleSheet.create({
   genderChipOn: { borderColor: T.abricot },
   genderText: { fontSize: 15, fontWeight: "700", color: T.inkSoft },
   genderTextOn: { color: T.night },
+  voiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  voiceChip: { flexGrow: 1, flexBasis: "45%", backgroundColor: T.card, borderRadius: 14, paddingVertical: 14, alignItems: "center", borderWidth: 2, borderColor: "transparent" },
+  voiceChipOn: { borderColor: T.abricot },
+  voiceChipText: { fontSize: 14.5, fontWeight: "700", color: T.inkSoft },
+  voiceChipTextOn: { color: T.night },
 
   interestsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   interestChip: { backgroundColor: T.card, borderRadius: 16, paddingVertical: 11, paddingHorizontal: 16, borderWidth: 2, borderColor: "transparent" },
