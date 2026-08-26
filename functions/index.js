@@ -103,27 +103,29 @@ function levelBlock(level) {
   return `\nLEVEL ADAPTATION: ${g}\nIMPORTANT: if the person's previous answers show they are struggling (very short answers, long silences reflected as empty transcripts, visible confusion), simplify further on the fly — shorter sentences, easier words, and gently rephrase your question.`;
 }
 
+
+ 
 function buildSystemPrompt(scenario, level, sceneContext, customContext, isLastTurn) {
   const base = customContext
     ? `You are the person's English conversation partner in a scene they described: "${customContext}". Play the most fitting character.`
     : scenario.role
     ? `You are role-playing ${scenario.role}, talking to a French person whose spoken English is hesitant.`
     : `You are the person's English conversation partner in this scene. Play the most fitting character, talking to a French person whose spoken English is hesitant.`;
-
+ 
   // Détails du scénario prédéfini uniquement (absents en scène personnalisée)
   const scenarioLines = (customContext || !scenario.role)
     ? ""
     : `\nSetting: ${scenario.setting}\n${scenario.focus}\n${scenario.firstTurn}`;
-
+ 
   const ctx = sceneContext ? `\nESTABLISHED SCENE (stay consistent with it the whole conversation): ${sceneContext}` : "";
-
+ 
   return `${base}${levelBlock(level)}${ctx}${scenarioLines}
-
+ 
 You receive: the conversation so far (text) and the person's latest answer (audio).
-
+ 
 Respond ONLY with JSON matching the schema. Fields:
 - "transcript": verbatim transcript of what the person said in the audio, in English, including their mistakes. If the audio contains no intelligible speech (silence, breathing, background noise only), set it to "" exactly — NEVER invent words that were not spoken.
-- "reply_en": your next line, in character. 1 to 3 sentences of natural spoken English. Your goal is to make the LEARNER talk as much as possible: ask OPEN questions (what, why, how, tell me about…) that require a full sentence to answer. Avoid yes/no questions and avoid giving instructions they just obey. Draw them out.
+- "reply_en": your next line, in character. Keep it SHORT: 1 to 2 sentences max, natural spoken English, the way people actually talk out loud. Prefer brevity — a single punchy sentence plus one open question is ideal. Your goal is to make the LEARNER talk as much as possible: ask OPEN questions (what, why, how, tell me about…) that require a full sentence to answer. Avoid yes/no questions and avoid giving instructions they just obey. Draw them out, but stay concise.
 - "feedback_fr": 1 à 3 phrases EN FRANÇAIS, ton bienveillant MAIS honnête et utile. Commente UNIQUEMENT ce que tu as réellement entendu. Ta priorité : si la phrase contient une VRAIE erreur de grammaire, de structure ou de vocabulaire (temps incorrect, mot mal choisi, ordre des mots non naturel, tournure qu'un anglophone ne dirait jamais), tu DOIS la signaler ET donner la formulation correcte, même si la phrase reste compréhensible. Ne félicite JAMAIS une phrase qui contient une erreur : "compréhensible" n'est pas "correct". Structure ton retour ainsi : (1) reconnais brièvement l'effort ou ce qui est réussi, (2) corrige clairement l'erreur principale en donnant la bonne version en anglais entre guillemets, avec tact. Exemple de ton juste : « Ta phrase se comprend bien ! Une correction : on dit "I'm doing a Master's in history" plutôt que "class level master in university". » Si la phrase est réellement correcte et naturelle, dis-le sincèrement sans inventer de faux problème. Si la réponse était très courte (un ou deux mots), invite gentiment à faire une phrase complète. Pour la prononciation, NE donne PAS de correction phonétique et n'invente JAMAIS une erreur sur un son (le système la mesure séparément) — signale un souci seulement si un mot a été rendu vraiment incompréhensible. Parle directement à la personne ("tu").
 - "correction": an object showing the person's sentence and its corrected version, word by word, for a color-coded display.
   - "has_errors": true if the person's sentence contains any grammar, word-order, verb-tense or word-choice error; false if it was already correct and natural.
@@ -137,6 +139,7 @@ ${isLastTurn ? `
 THIS IS THE FINAL TURN of the session. In "reply_en", warmly acknowledge what the person just said and give a short, natural CLOSING line. DO NOT ask a new question. Wrap up the conversation.` : ""}
 If "transcript" is "": stay in character in "reply_en" with a short line like "Sorry, I didn't catch that — could you say that again?", and in "feedback_fr" dis simplement que tu n'as rien entendu et encourage à réessayer, sans rien inventer.`;
 }
+ 
 
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
@@ -206,7 +209,7 @@ async function compareMisheard(ai, intended, heard) {
   if (!intended || !heard) return [];
   try {
     const r = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text: `Intended: "${intended}"\nRecognized by the speech engine: "${heard}"` }] }],
       config: {
         systemInstruction: `A French learner spoke English. "Intended" is what they meant to say (clean). "Recognized" is what an automatic speech recognizer actually heard from their audio. Find the words where a MISPRONUNCIATION made the recognizer hear a DIFFERENT, meaning-changing word. Ignore trivial differences (articles, contractions, fillers, punctuation, plural/tense variants, word order). Return JSON {"pairs":[{"said":"<the intended word>","heard":"<what was recognized instead>"}]} with 0 to 3 of the most important pairs, most significant first. Return an empty array if the pronunciation was essentially fine.`,
@@ -232,6 +235,7 @@ async function compareMisheard(ai, intended, heard) {
   }
 }
 
+
 exports.spikeTurn = onCall(
   {
     region: "europe-west1",
@@ -243,7 +247,7 @@ exports.spikeTurn = onCall(
     async (request) => {
     const { audioBase64, mimeType = "audio/mp4", history = [], scenarioId = "entretien-embauche", level = "B1", sceneContext = null, customContext = null, isLastTurn = false } =
       request.data || {};
-
+ 
     const scenario = scenarioId ? SCENARIOS[scenarioId] : null;
     if (!scenario && !customContext && !sceneContext) {
       throw new HttpsError("invalid-argument", `Scénario inconnu: ${scenarioId}`);
@@ -259,9 +263,9 @@ exports.spikeTurn = onCall(
         .slice(-MAX_HISTORY_TURNS)
         .map((t) => `Person: ${t.user}\nYou: ${t.coach}`)
         .join("\n") || "(first turn)";
-
+ 
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
-
+ 
     const tConv = Date.now();
     let wavBuffer = null;
     try {
@@ -270,14 +274,14 @@ exports.spikeTurn = onCall(
       console.error("ffmpeg error", e);
     }
     const convMs = Date.now() - tConv;
-
+ 
     const t0 = Date.now();
     let geminiMs = 0;
     let azureMs = 0;
-
+ 
     const geminiPromise = ai.models
       .generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [
           {
             role: "user",
@@ -348,7 +352,7 @@ exports.spikeTurn = onCall(
         geminiMs = Date.now() - t0;
         return r;
       });
-
+ 
     const azurePromise = wavBuffer
       ? assessPronunciation(wavBuffer, AZURE_SPEECH_KEY.value())
           .then((r) => {
@@ -361,7 +365,7 @@ exports.spikeTurn = onCall(
             return null;
           })
       : Promise.resolve(null);
-
+ 
     let result, pronunciation;
     try {
       [result, pronunciation] = await Promise.all([geminiPromise, azurePromise]);
@@ -369,7 +373,7 @@ exports.spikeTurn = onCall(
       console.error("Gemini error", e);
       throw new HttpsError("internal", `Gemini: ${e.message}`);
     }
-
+ 
     let parsed;
     try {
       parsed = JSON.parse(result.text);
@@ -377,7 +381,7 @@ exports.spikeTurn = onCall(
       console.error("JSON parse error, raw:", result.text);
       throw new HttpsError("internal", "Réponse Gemini non parsable");
     }
-
+ 
     const t1 = Date.now();
     let ttsResponse;
     let misheard = [];
@@ -397,7 +401,7 @@ exports.spikeTurn = onCall(
       throw new HttpsError("internal", `TTS: ${e.message}`);
     }
     const ttsMs = Date.now() - t1;
-
+ 
    return {
       transcript: parsed.transcript,
       reply_en: parsed.reply_en,
@@ -413,6 +417,9 @@ exports.spikeTurn = onCall(
     };
   }
 );
+ 
+ 
+ 
 
 // ---------------------------------------------------------------
 // Débrief de fin de session (inchangé)
@@ -482,7 +489,7 @@ exports.sessionDebrief = onCall(
     let result;
     try {
       result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: summary }] }],
         config: {
           systemInstruction: DEBRIEF_PROMPT,
@@ -547,7 +554,7 @@ Respond ONLY with JSON:
     let result;
     try {
       result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Start the scene." }] }],
         config: {
           systemInstruction: prompt,
@@ -644,7 +651,7 @@ Respond ONLY with JSON:
     let result;
     try {
       result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Invent today's scene." }] }],
         config: {
           systemInstruction: prompt,
@@ -815,7 +822,7 @@ exports.translateText = onCall(
         : `Translate this English sentence into natural French. Give ONLY the translation, no quotes, no explanation.`;
     try {
       const r = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text }] }],
         config: { systemInstruction: instruction, temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } },
       });
@@ -831,7 +838,7 @@ exports.translateText = onCall(
 async function isContextSafe(ai, text) {
   try {
     const r = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text }] }],
       config: {
         systemInstruction: `You are a safety filter for a language-learning app used by all ages. Reply with JSON {"safe": boolean}. Mark "safe": false if the scene involves violence, death, self-harm, sexual content, hate, illegal activity, or anything disturbing/morbid/inappropriate for a general-audience learning app. Otherwise "safe": true.`,
@@ -877,7 +884,7 @@ Respond ONLY with JSON:
     let result;
     try {
       result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Start the welcome chat." }] }],
         config: {
           systemInstruction: prompt,
@@ -954,7 +961,7 @@ Variation token (ignore in output, just use it to vary): ${seed}`;
 
     try {
       const r = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Give today's expression." }] }],
         config: {
           systemInstruction: prompt,
@@ -999,7 +1006,7 @@ Respond ONLY with JSON:
     let coaching;
     try {
       const r = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `Coach the word "${word}".` }] }],
         config: {
           systemInstruction: prompt,

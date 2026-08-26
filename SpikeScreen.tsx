@@ -1,4 +1,4 @@
-// SpikeScreen.tsx — conversation : fond clair, correction rouge/vert, traduction à la demande, favoris, plafond 1re séance.
+// SpikeScreen.tsx — conversation : fond clair, correction rouge/vert intégrée, favoris, plafond 1re séance.
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -37,6 +37,7 @@ const SCENARIO_LIMIT = 8;
 const WELCOME_LIMIT = 5;
 
 type HardWord = { word: string; fr: string };
+
 type Pronunciation = {
   pronScore: number; accuracyScore: number; fluencyScore: number;
   azureText: string; weakWords: { word: string; score: number }[];
@@ -48,7 +49,7 @@ type Turn = {
   coachFr: string;
   hardWords: HardWord[];
   misheard: { said: string; heard: string }[];
-  feedback: string;
+  feedback: string | null;
   pronunciation: Pronunciation;
   correction: Correction | null;
 };
@@ -163,7 +164,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         reply_fr: res.data.reply_fr ?? "",
         hardWords: res.data.hard_words ?? [],
       });
-      await playBase64(res.data.replyAudioBase64);
+      playBase64(res.data.replyAudioBase64);
     } catch (e: any) {
       const msg = String(e?.message || "");
       setError(msg.includes("UNSAFE_CONTEXT") ? "Ce contexte n'est pas approprié pour une scène. Essaie autre chose." : (e.message ?? String(e)));
@@ -179,7 +180,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       let sid = sessionId;
       if (!sid) { sid = await startSession(daily ? "daily" : scenario.id, daily ? "daily" : "scenario"); setSessionId(sid); }
       const st: SessionTurn = {
-        user: turn.user, coach: turn.coach, feedback: turn.feedback,
+        user: turn.user, coach: turn.coach, feedback: turn.feedback ?? "",
         pronunciation: turn.pronunciation, at: Date.now(),
       };
       await addTurn(sid, st);
@@ -227,7 +228,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       });
       console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
-      await playBase64(d.replyAudioBase64);
+      playBase64(d.replyAudioBase64); // on lance l'audio SANS attendre qu'il finisse
 
       if (!d.transcript) { setHint(d.feedback_fr || "Je n'ai rien entendu — réessaie."); return; }
 
@@ -237,7 +238,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         coachFr: d.reply_fr ?? "",
         hardWords: d.hard_words ?? [],
         misheard: d.misheard ?? [],
-        feedback: d.feedback_fr,
+        feedback: d.feedback_fr ?? null,
         pronunciation: d.pronunciation ?? null,
         correction: d.correction ?? null,
       };
@@ -274,7 +275,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       if (sessionId) {
         const st: SessionTurn[] = turns.map((t) => ({
-          user: t.user, coach: t.coach, feedback: t.feedback, pronunciation: t.pronunciation, at: 0,
+          user: t.user, coach: t.coach, feedback: t.feedback ?? "", pronunciation: t.pronunciation, at: 0,
         }));
         closeSession(sessionId, res.data, st).catch((e) => console.warn("Clôture échouée:", e));
       }
@@ -397,7 +398,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
 
             <CorrectionCard
               correction={t.correction ?? { has_errors: false, original: [], corrected: [] }}
-              feedback={t.feedback}
+              feedback={t.feedback ?? ""}
               onPlayCorrected={t.correction?.has_errors ? () => playCorrected(t.correction!) : undefined}
             />
 
