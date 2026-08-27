@@ -626,6 +626,239 @@ exports.translateToEnglish = onCall(
     return { english: parsed.english ?? "" };
   }
 );
+
+
+exports.dailyTranslation = onCall(
+  {
+    region: "europe-west1",
+    secrets: [GEMINI_API_KEY],
+    memory: "256MiB",
+    timeoutSeconds: 25,
+    maxInstances: 3,
+  },
+  async (request) => {
+    const { level = "B1", interests = [], goals = [], job = null, direction = "fr-to-en", seed = "" } = request.data || {};
+ 
+    const sourceLang = direction === "en-to-fr" ? "English" : "French";
+    const interestsStr = interests.length ? interests.join(", ") : "everyday life";
+ 
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+ 
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `Topic hints: ${interestsStr}. Job: ${job || "n/a"}. Variety seed: ${seed}.` }] }],
+        config: {
+          systemInstruction: `Generate a SHORT text in ${sourceLang} for a French person learning English (level ${level}) to translate as a daily exercise. Rules:
+- 2 to 3 sentences, about 25 to 45 words total.
+- About ONE of the topic hints, natural and self-contained.
+- Vocabulary and grammar appropriate for a ${level} learner — not too easy, not too hard.
+- Avoid very idiomatic expressions that are nearly impossible to translate.
+Respond ONLY with JSON: { "source_text": "..." }.`,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: { source_text: { type: Type.STRING } },
+            required: ["source_text"],
+          },
+          temperature: 1.0,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("dailyTranslation error", e);
+      throw new HttpsError("internal", `Gemini: ${e.message}`);
+    }
+ 
+    let parsed;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (e) {
+      throw new HttpsError("internal", "Réponse Gemini non parsable");
+    }
+ 
+    return { source_text: parsed.source_text ?? "", direction };
+  }
+);
+ 
+ 
+ 
+/* ---------------------------------------------------------------------
+   2 — assessTranslation — évalue la traduction proposée par l'utilisateur :
+   correction rouge/vert (sur sa tentative) + feedback FR + traduction modèle.
+   --------------------------------------------------------------------- */
+ 
+exports.assessTranslation = onCall(
+  {
+    region: "europe-west1",
+    secrets: [GEMINI_API_KEY],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 3,
+  },
+  async (request) => {
+    const { source_text = "", direction = "fr-to-en", attempt = "", level = "B1" } = request.data || {};
+    if (!attempt || typeof attempt !== "string" || !attempt.trim()) {
+      throw new HttpsError("invalid-argument", "attempt manquant");
+    }
+ 
+    const sourceLang = direction === "en-to-fr" ? "English" : "French";
+    const targetLang = direction === "en-to-fr" ? "French" : "English";
+ 
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+ 
+    const systemInstruction = `A French learner (level ${level}) is translating a ${sourceLang} text into ${targetLang}, as a daily exercise.
+ 
+Source text (${sourceLang}): "${source_text}"
+ 
+You are given their ${targetLang} translation attempt. Evaluate it fairly and respond ONLY with JSON matching the schema. Fields:
+- "feedback_fr": 1 à 3 phrases EN FRANÇAIS, ton bienveillant MAIS honnête. Dis si la traduction rend bien le sens et si elle est naturelle. Si elle contient de VRAIES erreurs (sens trahi, contresens, grammaire, mot mal choisi, tournure qu'un natif ne dirait pas), signale la principale ET donne la bonne formulation entre guillemets. Ne félicite JAMAIS une traduction fausse ou approximative. Si elle est correcte et naturelle, dis-le sincèrement. Parle à la personne ("tu").
+- "correction": an object for a color-coded display of THEIR attempt:
+  - "has_errors": true if their translation has any real error (meaning, grammar, word choice, unnatural phrasing); false if it is correct and natural.
+  - "original": their translation attempt split into word tokens. Each: {text, wrong} where "wrong" is true ONLY for the specific words that are incorrect or badly chosen. Keep every word in order.
+  - "corrected": a correct, natural ${targetLang} version, staying as CLOSE as possible to what they wrote (fix only what's wrong). Split into word tokens {text, changed} where "changed" is true for words added or modified vs their attempt. If has_errors is false, "corrected" equals "original" with all changed=false.
+  Attach punctuation to the adjacent word within its token.
+- "model_translation": a clean, natural model translation of the SOURCE text into ${targetLang} (independent of their attempt — the "ideal" answer).`;
+ 
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `Their ${targetLang} translation attempt:\n"${attempt}"` }] }],
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              feedback_fr: { type: Type.STRING },
+              correction: {
+                type: Type.OBJECT,
+                properties: {
+                  has_errors: { type: Type.BOOLEAN },
+                  original: {
+                    type: Type.ARRAY,
+                    items: { type: Type.OBJECT, properties: { text: { type: Type.STRING }, wrong: { type: Type.BOOLEAN } }, required: ["text", "wrong"] },
+                  },
+                  corrected: {
+                    type: Type.ARRAY,
+                    items: { type: Type.OBJECT, properties: { text: { type: Type.STRING }, changed: { type: Type.BOOLEAN } }, required: ["text", "changed"] },
+                  },
+                },
+                required: ["has_errors", "original", "corrected"],
+              },
+              model_translation: { type: Type.STRING },
+            },
+            required: ["feedback_fr", "correction", "model_translation"],
+          },
+          temperature: 0.4,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("assessTranslation error", e);
+      throw new HttpsError("internal", `Gemini: ${e.message}`);
+    }
+ 
+    let parsed;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (e) {
+      throw new HttpsError("internal", "Réponse Gemini non parsable");
+    }
+ 
+    return {
+      feedback_fr: parsed.feedback_fr ?? "",
+      correction: parsed.correction ?? null,
+      model_translation: parsed.model_translation ?? "",
+    };
+  }
+);
+
+
+exports.dailyReading = onCall(
+  {
+    region: "europe-west1",
+    secrets: [GEMINI_API_KEY],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 3,
+  },
+  async (request) => {
+    const { level = "B1", interests = [], goals = [], job = null, seed = "" } = request.data || {};
+ 
+    const interestsStr = interests.length ? interests.join(", ") : "everyday life";
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+ 
+    let result;
+    try {
+      result = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `Topic hints: ${interestsStr}. Job: ${job || "n/a"}. Variety seed: ${seed}.` }] }],
+        config: {
+          systemInstruction: `Write a SHORT, engaging text in English for a French person learning English (level ${level}) to read as a daily exercise, then build a comprehension check.
+ 
+Text rules:
+- 4 to 6 sentences (about 60 to 90 words), about ONE of the topic hints, natural and genuinely interesting (a fact, a little story, a tip).
+- Vocabulary and grammar appropriate for a ${level} learner — not too easy, not too hard.
+ 
+Then provide:
+- "hard_words": 2 to 5 words or short expressions taken FROM the text that a ${level} French learner might not know. For each: {word, fr} where "word" appears in the text and "fr" is its French translation in context.
+- "questions": EXACTLY 3 multiple-choice comprehension questions IN ENGLISH about the text. For each: {question, options, answer} where "options" is an array of exactly 3 short English options and "answer" is the 0-based index of the correct one. Questions must be answerable ONLY from the text, clear and level-appropriate. Wrong options must be plausible but clearly wrong to someone who understood the text.
+ 
+Respond ONLY with JSON matching the schema.`,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING },
+              hard_words: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: { word: { type: Type.STRING }, fr: { type: Type.STRING } },
+                  required: ["word", "fr"],
+                },
+              },
+              questions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    question: { type: Type.STRING },
+                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    answer: { type: Type.NUMBER },
+                  },
+                  required: ["question", "options", "answer"],
+                },
+              },
+            },
+            required: ["text", "hard_words", "questions"],
+          },
+          temperature: 1.0,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+    } catch (e) {
+      console.error("dailyReading error", e);
+      throw new HttpsError("internal", `Gemini: ${e.message}`);
+    }
+ 
+    let parsed;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (e) {
+      throw new HttpsError("internal", "Réponse Gemini non parsable");
+    }
+ 
+    return {
+      text: parsed.text ?? "",
+      hard_words: parsed.hard_words ?? [],
+      questions: parsed.questions ?? [],
+    };
+  }
+);
  
  
  

@@ -7,6 +7,7 @@ import { getTodayDailySession, isDailyDone } from "../lib/daily";
 import { computeStreak, milestoneReached } from "../lib/streak";
 import { loadProfile, Profile, saveMilestone } from "../lib/profile";
 import { getDailyExpression, Expression } from "../lib/expression";
+import { getChallengesDone, HUB_CHALLENGES } from "../lib/dailyChallenges";
 import { addFavorite, removeFavorite, listFavorites } from "../lib/favorites";
 import WeekStrip from "../components/WeekStrip";
 import { listPracticeWords } from "../lib/practiceWords";
@@ -19,12 +20,14 @@ export default function HomeScreen({
   onStartDaily,
   onGoLabo,
   onGoScenarios,
+  onGoDailyHub,
 }: {
   refreshKey: number;
   premium: boolean;
   onStartDaily: () => void;
   onGoLabo: () => void;
   onGoScenarios: () => void;
+  onGoDailyHub: () => void;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [dailyDone, setDailyDone] = useState<boolean | null>(null);
@@ -34,6 +37,7 @@ export default function HomeScreen({
   const [exprFav, setExprFav] = useState(false);
   const [week, setWeek] = useState<boolean[]>(new Array(7).fill(false));
   const [laboCount, setLaboCount] = useState(0);
+  const [hubDone, setHubDone] = useState(0);
   const [showDebrief, setShowDebrief] = useState(false);
   const [todaySession, setTodaySession] = useState<any | null>(null);
 
@@ -54,6 +58,7 @@ export default function HomeScreen({
 
       getWeekActivity().then(setWeek);
       getTodayDailySession().then(setTodaySession);
+      getChallengesDone().then((d) => setHubDone(HUB_CHALLENGES.reduce((n, c) => n + (d[c] ? 1 : 0), 0)));
       listPracticeWords().then((ws: any[]) => setLaboCount(ws.filter((w) => !w.mastered).length)).catch(() => {});
       getDailyExpression().then((e) => {
       setExpr(e);
@@ -144,6 +149,19 @@ export default function HomeScreen({
           <Text style={styles.tileSub}>{laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""}` : "Ta prononciation"}</Text>
         </Pressable>
       </View>
+
+      <Pressable style={styles.hubCard} onPress={onGoDailyHub}>
+        <View style={styles.hubIcon}><Feather name="grid" size={22} color={T.abricotDeep} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.hubTitle}>Défis du jour</Text>
+          <Text style={styles.hubSub}>
+            {hubDone > 0
+              ? `${hubDone}/${HUB_CHALLENGES.length} fait${hubDone > 1 ? "s" : ""} aujourd'hui`
+              : "Lecture, traduction — un peu chaque jour"}
+          </Text>
+        </View>
+        <Feather name="chevron-right" size={20} color={T.abricotDeep} />
+      </Pressable>
 
       {/* Expression du jour */}
       {expr && (
@@ -254,4 +272,8 @@ trainTitle: { fontSize: 18, fontWeight: "800", color: T.night, marginTop: 10, ma
   tileIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   tileLabel: { fontSize: 15.5, fontWeight: "800", color: T.night },
   tileSub: { fontSize: 12, fontWeight: "600", color: T.inkSoft, marginTop: 2 },
+  hubCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: T.card, borderRadius: 18, padding: 16, marginHorizontal: 26, marginTop: 12 },
+  hubIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },
+  hubTitle: { color: T.night, fontSize: 16, fontWeight: "800" },
+  hubSub: { color: T.inkSoft, fontSize: 13, fontWeight: "600", marginTop: 2 },
 });

@@ -22,6 +22,10 @@ import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
 import { scheduleExpressionReminder, getExpressionReminderEnabled } from "./lib/notifications";
 import EditProfileScreen from "./screens/EditProfileScreen";
+import DailyHubScreen from "./screens/DailyHubScreen";
+import TranslationScreen from "./screens/TranslationScreen";
+import ReadingScreen from "./screens/ReadingScreen";
+import ListeningScreen from "./screens/ListeningScreen";
 
 type Tab = "home" | "labo" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
@@ -49,6 +53,10 @@ export default function App() {
   const [access, setAccess] = useState<Access | null>(null);
   const [paywallHard, setPaywallHard] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showDailyHub, setShowDailyHub] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
+  const [showReading, setShowReading] = useState(false);
+  const [showListening, setShowListening] = useState(false);
   const isPremium = access?.premium === true;
 
   useEffect(() => { configurePurchases(); }, []);
@@ -168,6 +176,43 @@ if (welcomeActive) {
       </View>
     );
   }
+  if (showTranslation) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <TranslationScreen onBack={() => setShowTranslation(false)} />
+      </View>
+    );
+  }
+  if (showReading) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <ReadingScreen onBack={() => setShowReading(false)} />
+      </View>
+    );
+  }
+  if (showListening) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <ListeningScreen onBack={() => setShowListening(false)} />
+      </View>
+    );
+  }
+  if (showDailyHub) {
+    return (
+      <View style={styles.rootCream}>
+        <StatusBar style="dark" />
+        <DailyHubScreen
+          onBack={() => setShowDailyHub(false)}
+          onOpenTranslation={() => setShowTranslation(true)}
+          onOpenReading={() => setShowReading(true)}
+          onOpenListening={() => setShowListening(true)}
+        />
+      </View>
+    );
+  }
   if (showPaywall) {
     return (
       <View style={styles.rootCream}>
@@ -199,6 +244,7 @@ if (welcomeActive) {
             onStartDaily={() => { if (isPremium) setDailyActive(true); else setShowPaywall(true); }}
             onGoLabo={() => { if (isPremium) setTab("labo"); else setShowPaywall(true); }}
             onGoScenarios={() => { if (isPremium) setShowScenarios(true); else setShowPaywall(true); }}
+            onGoDailyHub={() => { if (isPremium) setShowDailyHub(true); else setShowPaywall(true); }}
           />
         )}
         {tab === "labo" && <LaboScreen refreshKey={laboKey} />}

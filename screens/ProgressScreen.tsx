@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { loadMomentum, Momentum } from "../lib/progress";
+import { getChallengeStats } from "../lib/dailyChallenges";
 import { SCENARIOS, Scenario } from "../lib/scenarios";
 
 export default function ProgressScreen({
@@ -17,10 +18,13 @@ export default function ProgressScreen({
   onGoFavorites: () => void;
 }) {
   const [m, setM] = useState<Momentum | null>(null);
+  const [stats, setStats] = useState<{ todayDone: number; weekDone: number } | null>(null);
 
   useEffect(() => {
     setM(null);
+    setStats(null);
     loadMomentum().then(setM);
+    getChallengeStats().then(setStats);
   }, [refreshKey]);
 
   if (!m) {
@@ -33,7 +37,7 @@ const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;
   if (m.sessionCount === 0) {
     return (
       <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
-        <View style={styles.head}><Text style={styles.h1}>Ton élan</Text></View>
+        <View style={styles.head}><Text style={styles.h1}>Tes progrès</Text></View>
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Tout commence par une première conversation.</Text>
           <Text style={styles.emptyBody}>Reviens ici après ta première séance — on gardera le fil de tes progrès.</Text>
@@ -44,7 +48,7 @@ const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
-      <View style={styles.head}><Text style={styles.h1}>Ton élan</Text></View>
+      <View style={styles.head}><Text style={styles.h1}>Tes progrès</Text></View>
 
       {/* Streak en vedette */}
       <View style={styles.streakCard}>
@@ -61,6 +65,24 @@ const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;
             : "Tu tiens le rythme. Ne lâche rien."}
         </Text>
       </View>
+
+      {/* Suivi des défis du jour */}
+      {stats && (
+        <View style={styles.challengeCard}>
+          <Text style={styles.challengeK}>DÉFIS DU JOUR</Text>
+          <View style={styles.challengeRow}>
+            <View style={styles.challengeStat}>
+              <Text style={styles.challengeNum}>{stats.todayDone}<Text style={styles.challengeDenom}> /3</Text></Text>
+              <Text style={styles.challengeLabel}>aujourd'hui</Text>
+            </View>
+            <View style={styles.challengeDivider} />
+            <View style={styles.challengeStat}>
+              <Text style={styles.challengeNum}>{stats.weekDone}</Text>
+              <Text style={styles.challengeLabel}>cette semaine</Text>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Reprendre là où on s'est arrêté */}
       {lastScenario && (
@@ -120,6 +142,15 @@ const styles = StyleSheet.create({
   streakUnit: { color: "#fff", fontSize: 18, fontWeight: "800" },
   streakBlob: { position: "absolute", width: 120, height: 120, borderRadius: 60, backgroundColor: T.abricot, opacity: 0.14, right: -30, top: -30 },
   streakMsg: { color: "#9DB0D4", fontSize: 14, fontWeight: "600", lineHeight: 20, marginTop: 8 },
+
+  challengeCard: { backgroundColor: T.card, borderRadius: 22, padding: 20, marginHorizontal: 26, marginBottom: 14 },
+  challengeK: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 14 },
+  challengeRow: { flexDirection: "row", alignItems: "center" },
+  challengeStat: { flex: 1, alignItems: "center" },
+  challengeNum: { color: T.night, fontSize: 34, fontWeight: "800", letterSpacing: -1 },
+  challengeDenom: { color: T.inkSoft, fontSize: 18, fontWeight: "800" },
+  challengeLabel: { color: T.inkSoft, fontSize: 12.5, fontWeight: "700", marginTop: 4 },
+  challengeDivider: { width: 1, height: 44, backgroundColor: T.creamLine },
 
   resumeCard: { backgroundColor: T.card, borderRadius: 22, padding: 18, marginHorizontal: 26, marginBottom: 14 },
   resumeK: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 6 },
