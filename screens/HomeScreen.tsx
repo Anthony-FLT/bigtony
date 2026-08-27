@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Modal, Image } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import Svg, { Circle, G } from "react-native-svg";
 import { T } from "../lib/theme";
 import { getTodayDailySession, isDailyDone } from "../lib/daily";
 import { computeStreak, milestoneReached } from "../lib/streak";
@@ -16,31 +15,8 @@ import DebriefView from "../components/DebriefView";
 
 const CHAT_IMG = require("../assets/illustrations/chat-bubbles.png");
 const TARGET_IMG = require("../assets/illustrations/target.png");
-
-// Anneau de progression (SVG)
-function ProgressRing({ progress, size = 52, stroke = 5 }: { progress: number; size?: number; stroke?: number }) {
-  const r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
-  const clamped = Math.max(0, Math.min(1, progress));
-  return (
-    <Svg width={size} height={size}>
-      <Circle cx={size / 2} cy={size / 2} r={r} stroke="rgba(255,255,255,0.18)" strokeWidth={stroke} fill="none" />
-      <G rotation={-90} origin={`${size / 2}, ${size / 2}`}>
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={T.abricot}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={circ}
-          strokeDashoffset={circ * (1 - clamped)}
-          strokeLinecap="round"
-        />
-      </G>
-    </Svg>
-  );
-}
+const MIC_IMG = require("../assets/illustrations/mic.png");
+const WORDS_IMG = require("../assets/illustrations/words.png");
 
 export default function HomeScreen({
   refreshKey,
@@ -111,8 +87,9 @@ export default function HomeScreen({
       <View style={styles.banner}>
         <View style={styles.top}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.hello}>Salut {profile?.name ?? ""} 👋</Text>
+            <Text style={styles.hello}>Salut {profile?.name ?? ""} </Text>
             <Text style={styles.helloSub}>Prêt à parler anglais aujourd'hui ?</Text>
+            <WeekStrip days={week} dark />
           </View>
           <View style={styles.streakPill}>
             <Feather name="zap" size={16} color={T.abricot} />
@@ -122,11 +99,10 @@ export default function HomeScreen({
           </View>
         </View>
 
-        <WeekStrip days={week} dark />
-
         {/* Discussion du jour — la vedette */}
         {!premium ? (
           <Pressable style={styles.dailyCard} onPress={onStartDaily}>
+            <View style={styles.dailyBlob} />
             <Image source={CHAT_IMG} style={styles.dailyImg} resizeMode="contain" />
             <View style={styles.dailyKRow}>
               <Feather name="message-circle" size={14} color={T.abricot} />
@@ -164,6 +140,7 @@ export default function HomeScreen({
           </View>
         ) : (
           <Pressable style={styles.dailyCard} onPress={onStartDaily}>
+            <View style={styles.dailyBlob} />
             <Image source={CHAT_IMG} style={styles.dailyImg} resizeMode="contain" />
             <View style={styles.dailyKRow}>
               <Feather name="message-circle" size={14} color={T.abricot} />
@@ -182,13 +159,13 @@ export default function HomeScreen({
       {/* ===== Contenu (fond clair) ===== */}
       <Text style={styles.trainTitle}>S'entraîner</Text>
       <View style={styles.tileRow}>
-        <Pressable style={styles.tile} onPress={onGoScenarios}>
-          <View style={styles.tileIcon}><Feather name="mic" size={22} color={T.abricotDeep} /></View>
+        <Pressable style={[styles.tile, styles.tilePeach]} onPress={onGoScenarios}>
+          <Image source={MIC_IMG} style={styles.tileImg} resizeMode="contain" />
           <Text style={styles.tileLabel}>Parler</Text>
           <Text style={styles.tileSub}>Une scène au choix</Text>
         </Pressable>
-        <Pressable style={styles.tile} onPress={onGoFavorites}>
-          <View style={styles.tileIcon}><Feather name="star" size={22} color={T.abricotDeep} /></View>
+        <Pressable style={[styles.tile, styles.tileLavender]} onPress={onGoFavorites}>
+          <Image source={WORDS_IMG} style={styles.tileImg} resizeMode="contain" />
           <Text style={styles.tileLabel}>Réviser</Text>
           <Text style={styles.tileSub}>Tes mots favoris</Text>
         </Pressable>
@@ -205,9 +182,12 @@ export default function HomeScreen({
               : "Lecture, traduction, écoute"}
           </Text>
         </View>
-        <View style={styles.ringWrap}>
-          <ProgressRing progress={hubDone / total} />
-          <View style={styles.ringTextWrap}><Text style={styles.ringText}>{hubDone}/{total}</Text></View>
+        <View style={[styles.ringBadge, hubDone >= total && styles.ringBadgeDone]}>
+          {hubDone >= total ? (
+            <Feather name="check" size={22} color={T.night} />
+          ) : (
+            <Text style={styles.ringText}>{hubDone}/{total}</Text>
+          )}
         </View>
       </Pressable>
 
@@ -263,17 +243,18 @@ export default function HomeScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.cream },
 
-  banner: { backgroundColor: T.night, paddingTop: 56, paddingHorizontal: 26, paddingBottom: 24, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
+  banner: { backgroundColor: T.night, paddingTop: 46, paddingHorizontal: 26, paddingBottom: 14, borderBottomLeftRadius: 40, borderBottomRightRadius: 40 },
   top: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   hello: { fontSize: 25, fontWeight: "800", color: "#fff", letterSpacing: -0.4 },
   helloSub: { fontSize: 14, fontWeight: "600", color: "#9DB0D4", marginTop: 4 },
-  streakPill: { alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, minWidth: 80 },
-  streakNum: { fontSize: 22, fontWeight: "800", color: "#fff", marginTop: 4 },
+  streakPill: { alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", borderRadius: 18, paddingVertical: 10, paddingHorizontal: 13, minWidth: 64 },
+  streakNum: { fontSize: 22, fontWeight: "800", color: "#fff", marginTop: 3 },
   streakUnit: { fontSize: 12, fontWeight: "700", color: "#fff" },
   streakLabel: { fontSize: 10, fontWeight: "600", color: "#9DB0D4", marginTop: 2 },
 
-  dailyCard: { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 24, padding: 20, marginTop: 20, overflow: "hidden", minHeight: 180, justifyContent: "center" },
+  dailyCard: { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 24, padding: 20, marginTop: 16, overflow: "hidden", minHeight: 180, justifyContent: "center" },
   dailyImg: { position: "absolute", width: 150, height: 150, right: -18, bottom: -6 },
+  dailyBlob: { position: "absolute", width: 200, height: 200, borderRadius: 100, backgroundColor: T.abricot, right: -45, bottom: -70 },
   dailyKRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   dailyK: { color: T.abricot, fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },
   dailyTitle: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 8, maxWidth: 215, lineHeight: 28 },
@@ -289,10 +270,12 @@ const styles = StyleSheet.create({
   doneNext: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: T.chipAbricot },
   doneNextText: { flex: 1, fontSize: 13.5, fontWeight: "700", color: T.abricotDeep, lineHeight: 18 },
 
-  trainTitle: { fontSize: 18, fontWeight: "800", color: T.night, marginTop: 22, marginBottom: 12, marginHorizontal: 26 },
+  trainTitle: { fontSize: 18, fontWeight: "800", color: T.night, marginTop: 16, marginBottom: 12, marginHorizontal: 26 },
   tileRow: { flexDirection: "row", gap: 12, marginHorizontal: 26 },
-  tile: { flex: 1, backgroundColor: T.card, borderRadius: 18, padding: 16, alignItems: "flex-start" },
-  tileIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  tile: { flex: 1, borderRadius: 20, padding: 16, alignItems: "flex-start" },
+  tilePeach: { backgroundColor: "#F8E4CF" },
+  tileLavender: { backgroundColor: "#E7E3FB" },
+  tileImg: { width: 66, height: 60, marginBottom: 8 },
   tileLabel: { fontSize: 15.5, fontWeight: "800", color: T.night },
   tileSub: { fontSize: 12, fontWeight: "600", color: T.inkSoft, marginTop: 2 },
 
@@ -300,9 +283,9 @@ const styles = StyleSheet.create({
   hubImg: { width: 46, height: 46 },
   hubTitle: { color: "#fff", fontSize: 16, fontWeight: "800" },
   hubSub: { color: "#9DB0D4", fontSize: 13, fontWeight: "600", marginTop: 2 },
-  ringWrap: { width: 52, height: 52 },
-  ringTextWrap: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
-  ringText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  ringBadge: { width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: T.abricot, alignItems: "center", justifyContent: "center" },
+  ringBadgeDone: { backgroundColor: T.abricot },
+  ringText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 
   exprCard: { backgroundColor: T.miel, borderRadius: 22, padding: 18, marginHorizontal: 26, marginTop: 22 },
   exprStar: { position: "absolute", top: 12, right: 12, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.85)", alignItems: "center", justifyContent: "center", zIndex: 2 },

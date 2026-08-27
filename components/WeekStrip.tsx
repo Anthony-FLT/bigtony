@@ -34,8 +34,8 @@ export default function WeekStrip({ days, dark }: { days: boolean[]; dark?: bool
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", gap: 8, marginTop: 14 },
-  dot: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: T.creamLine, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  row: { flexDirection: "row", gap: 6, marginTop: 12 },
+  dot: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: T.creamLine, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   dotDone: { backgroundColor: T.abricot, borderColor: T.abricot },
   dotToday: { borderColor: T.abricotDeep, borderWidth: 2 },
   label: { fontSize: 12, fontWeight: "800", color: T.inkSoft },
