@@ -21,6 +21,7 @@ export default function HomeScreen({
   onGoLabo,
   onGoScenarios,
   onGoDailyHub,
+  onGoFavorites,
 }: {
   refreshKey: number;
   premium: boolean;
@@ -28,6 +29,7 @@ export default function HomeScreen({
   onGoLabo: () => void;
   onGoScenarios: () => void;
   onGoDailyHub: () => void;
+  onGoFavorites: () => void;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [dailyDone, setDailyDone] = useState<boolean | null>(null);
@@ -143,7 +145,7 @@ export default function HomeScreen({
           <Text style={styles.tileLabel}>Parler</Text>
           <Text style={styles.tileSub}>Une scène au choix</Text>
         </Pressable>
-        <Pressable style={styles.tile} onPress={onGoLabo}>
+        <Pressable style={styles.tile} onPress={onGoFavorites}>
           <View style={styles.tileIcon}><AntDesign name="experiment" size={24} color={T.abricotDeep} /></View>
           <Text style={styles.tileLabel}>Réviser</Text>
           <Text style={styles.tileSub}>{laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""}` : "Ta prononciation"}</Text>

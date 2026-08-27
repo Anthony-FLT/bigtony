@@ -245,6 +245,7 @@ if (welcomeActive) {
             onGoLabo={() => { if (isPremium) setTab("labo"); else setShowPaywall(true); }}
             onGoScenarios={() => { if (isPremium) setShowScenarios(true); else setShowPaywall(true); }}
             onGoDailyHub={() => { if (isPremium) setShowDailyHub(true); else setShowPaywall(true); }}
+            onGoFavorites={() => { if (isPremium) setShowFavorites(true); else setShowPaywall(true); }}
           />
         )}
         {tab === "labo" && <LaboScreen refreshKey={laboKey} />}
