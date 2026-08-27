@@ -235,7 +235,7 @@ if (welcomeActive) {
   }
   return (
     <View style={styles.rootCream}>
-      <StatusBar style="dark" />
+      <StatusBar style={tab === "home" ? "light" : "dark"} />
       <View style={{ flex: 1 }}>
        {tab === "home" && (
           <HomeScreen

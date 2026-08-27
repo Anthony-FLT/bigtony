@@ -4,7 +4,7 @@ import { T } from "../lib/theme";
 
 const LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
-export default function WeekStrip({ days }: { days: boolean[] }) {
+export default function WeekStrip({ days, dark }: { days: boolean[]; dark?: boolean }) {
   const today = (new Date().getDay() + 6) % 7; // 0 = lundi
   return (
     <View style={styles.row}>
@@ -12,11 +12,19 @@ export default function WeekStrip({ days }: { days: boolean[] }) {
         const done = days[i];
         const isToday = i === today;
         return (
-          <View key={i} style={[styles.dot, done && styles.dotDone, isToday && styles.dotToday]}>
+          <View
+            key={i}
+            style={[
+              styles.dot,
+              dark && styles.dotDark,
+              done && styles.dotDone,
+              isToday && !done && (dark ? styles.dotTodayDark : styles.dotToday),
+            ]}
+          >
             {done ? (
               <Feather name="check" size={13} color={T.night} />
             ) : (
-              <Text style={[styles.label, isToday && styles.labelToday]}>{l}</Text>
+              <Text style={[styles.label, dark && styles.labelDark, isToday && (dark ? styles.labelTodayDark : styles.labelToday)]}>{l}</Text>
             )}
           </View>
         );
@@ -32,4 +40,10 @@ const styles = StyleSheet.create({
   dotToday: { borderColor: T.abricotDeep, borderWidth: 2 },
   label: { fontSize: 12, fontWeight: "800", color: T.inkSoft },
   labelToday: { color: T.abricotDeep },
+
+  // Variante sombre (bandeau bleu)
+  dotDark: { backgroundColor: "transparent", borderColor: "rgba(255,255,255,0.25)" },
+  dotTodayDark: { backgroundColor: T.abricot, borderColor: T.abricot },
+  labelDark: { color: "#C9D3E8" },
+  labelTodayDark: { color: T.night },
 });
