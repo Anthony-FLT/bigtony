@@ -136,6 +136,16 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     });
   }, []);
 
+  // Le hint "Touche un mot pour le traduire" disparaît tout seul après quelques secondes.
+  useEffect(() => {
+    if (!showTranslateHint) return;
+    const t = setTimeout(() => {
+      setShowTranslateHint(false);
+      markTranslateHintSeen();
+    }, 4500);
+    return () => clearTimeout(t);
+  }, [showTranslateHint]);
+
   const playBase64 = async (base64: string) => {
     const p = FileSystem.cacheDirectory + `reply_${Date.now()}.mp3`;
     await FileSystem.writeAsStringAsync(p, base64, { encoding: FileSystem.EncodingType.Base64 });
@@ -528,7 +538,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       {hint && <Text style={styles.hint}>{hint}</Text>}
       {favFlash && <Text style={styles.favFlash}>Ajouté à tes favoris</Text>}
 
-      <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
         {status === "opening" && !showChannelChoice && <Text style={styles.openingWait}>La scène se prépare…</Text>}
 
         {opening && (

@@ -39,7 +39,7 @@ export async function scheduleDailyReminder(hour: number, minute: number): Promi
       title: "C'est l'heure de ta discussion",
       body: "Dix minutes d'anglais t'attendent. On y va ?",
     },
-    trigger: { channelId: "daily-reminder", hour, minute, repeats: true },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute, channelId: "daily-reminder" },
   });
   // Mémorise le réglage
   const uid = auth.currentUser?.uid;
