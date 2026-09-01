@@ -51,7 +51,7 @@ export async function scheduleDailyReminder(hour: number, minute: number): Promi
 }
 
 export async function cancelDailyReminder(): Promise<void> {
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  await Notifications.cancelScheduledNotificationAsync("discussion-daily").catch(() => {});
   const uid = auth.currentUser?.uid;
   if (uid) {
     try {
