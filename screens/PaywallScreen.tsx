@@ -18,6 +18,61 @@ const BENEFITS = [
   "Discussion du jour et Labo à volonté",
 ];
 
+// — Détection de l'essai gratuit, sans rien écrire en dur —
+function periodUnitToDays(n: any, unit: any): number | null {
+  const num = typeof n === "number" ? n : parseInt(n, 10);
+  if (!num || !unit) return null;
+  const u = String(unit).toUpperCase();
+  if (u.startsWith("DAY")) return num;
+  if (u.startsWith("WEEK")) return num * 7;
+  if (u.startsWith("MONTH")) return num * 30;
+  if (u.startsWith("YEAR")) return num * 365;
+  return null;
+}
+
+function iso8601ToDays(iso: any): number | null {
+  if (!iso || typeof iso !== "string") return null;
+  const m = iso.match(/^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?$/);
+  if (!m) return null;
+  const y = parseInt(m[1] || "0", 10);
+  const mo = parseInt(m[2] || "0", 10);
+  const w = parseInt(m[3] || "0", 10);
+  const d = parseInt(m[4] || "0", 10);
+  const days = y * 365 + mo * 30 + w * 7 + d;
+  return days > 0 ? days : null;
+}
+
+// Nombre de jours d'essai gratuit disponible pour ce package (ou null si aucun).
+function trialDaysFor(pkg: PurchasesPackage | null): number | null {
+  if (!pkg) return null;
+  const product: any = pkg.product;
+
+  // 1 — introductoryPrice (surtout iOS, parfois renseigné ailleurs)
+  const intro = product?.introductoryPrice;
+  if (intro && (intro.price === 0 || intro.amountMicros === 0 || intro.priceString === "0")) {
+    const d = periodUnitToDays(intro.periodNumberOfUnits, intro.periodUnit) ?? iso8601ToDays(intro.period);
+    if (d) return d;
+  }
+
+  // 2 — Android : subscriptionOptions → phase de prix gratuite (amountMicros === 0)
+  const opts = product?.subscriptionOptions;
+  if (Array.isArray(opts)) {
+    for (const o of opts) {
+      const phases = o?.pricingPhases ?? [];
+      const free = phases.find((ph: any) => {
+        const micros = ph?.price?.amountMicros;
+        return micros === 0 || micros === "0";
+      });
+      if (free) {
+        const bp = free.billingPeriod;
+        const d = iso8601ToDays(typeof bp === "string" ? bp : bp?.iso8601) ?? periodUnitToDays(bp?.value, bp?.unit);
+        if (d) return d;
+      }
+    }
+  }
+  return null;
+}
+
 export default function PaywallScreen({
   onClose,
   dismissable = true,
@@ -47,6 +102,9 @@ export default function PaywallScreen({
   }, []);
 
   const price = (id: PlanId) => pkgs[id]?.product.priceString ?? FALLBACK[id];
+  const trialDays = (id: PlanId) => trialDaysFor(pkgs[id]);
+  const perLabel = (id: PlanId) => (id === "yearly" ? "/an" : id === "weekly" ? "/semaine" : "/mois");
+  const selTrial = trialDays(selected);
 
   const buy = async () => {
     const pkg = pkgs[selected];
@@ -79,7 +137,7 @@ export default function PaywallScreen({
   };
 
   const PLANS: { id: PlanId; title: string; per: string; note?: string; badge?: string }[] = [
-    { id: "yearly", title: "Annuel", per: "/an", note: "3 jours gratuits · soit 8,33 €/mois", badge: "LE PLUS POPULAIRE · −58 %" },
+    { id: "yearly", title: "Annuel", per: "/an", note: "soit 8,33 €/mois", badge: "LE PLUS POPULAIRE · −58 %" },
     { id: "monthly", title: "Mensuel", per: "/mois" },
     { id: "weekly", title: "Hebdo", per: "/semaine", note: "Sans engagement, pour essayer" },
   ];
@@ -94,7 +152,7 @@ export default function PaywallScreen({
 
       <ScrollView contentContainerStyle={{ padding: 26, paddingTop: 70, paddingBottom: 150 }}>
         <Text style={styles.k}>PASSE EN ILLIMITÉ</Text>
-        <Text style={styles.h1}>Ton anglais mérite mieux{"\n"}que trois jours.</Text>
+        <Text style={styles.h1}>Ton anglais mérite{"\n"}un vrai coach.</Text>
 
         <View style={{ marginTop: 18, marginBottom: 22 }}>
           {BENEFITS.map((b) => (
@@ -107,13 +165,15 @@ export default function PaywallScreen({
 
         {PLANS.map((p) => {
           const isSel = selected === p.id;
+          const td = trialDays(p.id);
+          const note = [td ? `${td} jours offerts` : null, p.note].filter(Boolean).join(" · ");
           return (
             <Pressable key={p.id} onPress={() => setSelected(p.id)} style={[styles.plan, isSel && styles.planSel]}>
               {p.badge && <View style={styles.badge}><Text style={styles.badgeText}>{p.badge}</Text></View>}
               <View style={styles.planRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.planTitle}>{p.title}</Text>
-                  {p.note ? <Text style={styles.planNote}>{p.note}</Text> : null}
+                  {note ? <Text style={styles.planNote}>{note}</Text> : null}
                 </View>
                 <Text style={styles.planPrice}>{price(p.id)}<Text style={styles.planPer}>{p.per}</Text></Text>
                 <View style={[styles.radio, isSel && styles.radioSel]}>
@@ -125,8 +185,10 @@ export default function PaywallScreen({
         })}
 
         <Text style={styles.legal}>
-          {selected === "yearly"
-            ? "3 jours d'essai gratuit, puis abonnement renouvelé automatiquement chaque année. Annule pendant l'essai dans le Play Store : tu ne paieras rien."
+          {selTrial
+            ? `${selTrial} jours gratuits, puis ${price(selected)}${perLabel(selected)}, renouvellement automatique. Annule à tout moment dans le Play Store : si tu annules pendant l'essai, tu ne paieras rien.`
+            : selected === "yearly"
+            ? "Abonnement renouvelé automatiquement chaque année. Annulable à tout moment dans le Play Store, en un clic."
             : `Abonnement renouvelé automatiquement (${selected === "weekly" ? "chaque semaine" : "chaque mois"}). Annulable à tout moment dans le Play Store, en un clic.`}
         </Text>
       </ScrollView>
@@ -134,7 +196,7 @@ export default function PaywallScreen({
       <View style={styles.bottomBar}>
         <Pressable onPress={buy} disabled={busy} style={[styles.cta, busy && { opacity: 0.6 }]}>
           {busy ? <ActivityIndicator color={T.night} /> : (
-            <Text style={styles.ctaText}>{selected === "yearly" ? "Commencer mes 3 jours gratuits" : "Continuer"}</Text>
+            <Text style={styles.ctaText}>{selTrial ? `Commencer mes ${selTrial} jours gratuits` : selected === "yearly" ? "S'abonner" : "Continuer"}</Text>
           )}
         </Pressable>
         <Pressable onPress={restore} disabled={busy} hitSlop={8}>

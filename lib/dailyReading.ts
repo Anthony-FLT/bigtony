@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 import { loadProfile } from "./profile";
+import { themeForToday } from "./dailyThemes";
 
 const dailyReadingFn = httpsCallable(functions, "dailyReading", { timeout: 30000 });
 
@@ -27,11 +28,12 @@ export async function getTodayReading(): Promise<ReadingContent | null> {
 
   try {
     const p = await loadProfile();
+    const theme = themeForToday(p?.interests ?? [], p?.job ?? null, "reading");
     const res: any = await dailyReadingFn({
       level: p?.level ?? "B1",
-      interests: p?.interests ?? [],
+      interests: [theme],
       goals: p?.goals ?? [],
-      job: p?.job ?? null,
+      job: null,
       seed: todayKey() + "-" + Math.random().toString(36).slice(2, 7),
     });
     const content: ReadingContent = {

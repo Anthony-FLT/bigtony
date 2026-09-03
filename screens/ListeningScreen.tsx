@@ -11,6 +11,7 @@ import { loadProfile } from "../lib/profile";
 import { getTodayListening, ListeningContent, HardWord } from "../lib/dailyListening";
 import { markChallengeDone } from "../lib/dailyChallenges";
 import { addFavorite } from "../lib/favorites";
+import { SkeletonHeader, SkeletonCard, SkeletonLine, SkeletonBox } from "../components/Skeleton";
 
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 
@@ -165,7 +166,19 @@ export default function ListeningScreen({ onBack }: { onBack: () => void }) {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {loading ? (
-          <ActivityIndicator color={T.abricot} style={{ marginTop: 40 }} />
+          <View style={{ paddingTop: 14 }}>
+            <SkeletonHeader message="Je prépare ton écoute…" />
+            <SkeletonBox height={90} radius={20} style={{ marginBottom: 16 }} />
+            <SkeletonBox width={140} height={12} radius={6} style={{ marginLeft: 6, marginBottom: 12 }} />
+            {[0, 1].map((i) => (
+              <SkeletonCard key={i}>
+                <SkeletonLine width="80%" style={{ marginBottom: 14 }} />
+                <SkeletonBox height={42} radius={12} style={{ marginBottom: 8 }} />
+                <SkeletonBox height={42} radius={12} style={{ marginBottom: 8 }} />
+                <SkeletonBox height={42} radius={12} style={{ marginBottom: 0 }} />
+              </SkeletonCard>
+            ))}
+          </View>
         ) : !content ? (
           <Text style={styles.error}>Impossible de charger l'exercice. Réessaie plus tard.</Text>
         ) : (

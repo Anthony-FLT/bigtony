@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { listFavorites, removeFavorite, Favorite } from "../lib/favorites";
 import WordPracticeScreen from "./WordPracticeScreen";
+import { SkeletonHeader, SkeletonBox } from "../components/Skeleton";
 
 export default function FavoritesScreen({ onBack }: { onBack: () => void }) {
   const [favs, setFavs] = useState<Favorite[] | null>(null);
@@ -17,7 +18,23 @@ export default function FavoritesScreen({ onBack }: { onBack: () => void }) {
     load();
   };
 
-  if (!favs) return <View style={styles.center}><ActivityIndicator size="large" color={T.abricotDeep} /></View>;
+  if (!favs) return (
+    <View style={styles.container}>
+      <View style={styles.head}>
+        <Pressable onPress={onBack} hitSlop={12} style={{ marginBottom: 12 }}>
+          <Feather name="chevron-left" size={26} color={T.inkSoft} />
+        </Pressable>
+        <Text style={styles.h1}>Tes mots favoris</Text>
+        <Text style={styles.sub}>Le vocabulaire que tu as choisi de garder. Touche un mot pour l'écouter et le prononcer.</Text>
+      </View>
+      <View style={{ paddingHorizontal: 26, marginTop: 6 }}>
+        <SkeletonHeader message="Chargement de tes favoris…" />
+        {[0, 1, 2, 3].map((i) => (
+          <SkeletonBox key={i} height={62} radius={18} style={{ marginBottom: 10 }} />
+        ))}
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>

@@ -8,6 +8,7 @@ import { getAccess } from "../lib/entitlement";
 import { restorePurchasesFlow } from "../lib/purchases";
 import { deleteAccount } from "../lib/account";
 import TimeWheel from "../components/TimeWheel";
+import { SkeletonHeader, SkeletonBox } from "../components/Skeleton";
 
 const COACH_VOICES: { key: VoiceKey; label: string }[] = [
   { key: "us-female", label: "Femme · US" },
@@ -97,7 +98,22 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
     catch (e: any) { Alert.alert("Suppression impossible", e.message ?? String(e)); setBusy(false); }
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={T.abricotDeep} /></View>;
+  if (loading) return (
+    <View style={styles.container}>
+      <View style={styles.head}>
+        <Text style={styles.h1}>Paramètres</Text>
+      </View>
+      <View style={{ paddingHorizontal: 26, marginTop: 10 }}>
+        <SkeletonHeader message="Chargement de tes paramètres…" />
+        <SkeletonBox width={80} height={12} radius={6} style={{ marginBottom: 10 }} />
+        <SkeletonBox height={60} radius={18} style={{ marginBottom: 22 }} />
+        <SkeletonBox width={120} height={12} radius={6} style={{ marginBottom: 10 }} />
+        <SkeletonBox height={56} radius={14} style={{ marginBottom: 22 }} />
+        <SkeletonBox width={90} height={12} radius={6} style={{ marginBottom: 10 }} />
+        <SkeletonBox height={120} radius={18} />
+      </View>
+    </View>
+  );
 
   const Row = ({ icon, label, sub, onPress, danger }: any) => (
     <Pressable style={styles.row} onPress={onPress}>

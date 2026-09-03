@@ -4,6 +4,10 @@ import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { getDailySelection, listPracticeWords, addManualWord, removeWord, setMastered, PracticeWord } from "../lib/practiceWords";
 import WordPracticeScreen from "./WordPracticeScreen";
+import { SkeletonHeader, SkeletonCard, SkeletonLine, SkeletonBox } from "../components/Skeleton";
+
+// Lit un timestamp en millisecondes, qu'il vienne de Firestore (Timestamp) ou soit déjà un nombre.
+const ms = (t: any) => (t?.toMillis ? t.toMillis() : typeof t === "number" ? t : 0);
 
 export default function LaboScreen({ refreshKey }: { refreshKey: number }) {
   const [daily, setDaily] = useState<PracticeWord[] | null>(null);
@@ -22,9 +26,11 @@ export default function LaboScreen({ refreshKey }: { refreshKey: number }) {
   const submitWord = async () => {
     const w = newWord.trim();
     if (w.length < 2) return;
-    await addManualWord(w);
+    const created = await addManualWord(w);
     setNewWord(""); setShowAdd(false);
     load();
+    // On laisse la modale d'ajout se fermer avant d'ouvrir l'exercice du mot (évite un conflit d'affichage).
+    if (created) setTimeout(() => setPracticeWord(created), 350);
   };
   const onRemove = async (w: string) => { await removeWord(w); load(); };
 
@@ -41,10 +47,25 @@ export default function LaboScreen({ refreshKey }: { refreshKey: number }) {
     </Pressable>
   );
 
-  if (!daily) return <View style={styles.center}><ActivityIndicator size="large" color={T.abricotDeep} /></View>;
+  if (!daily) return (
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+      <View style={styles.head}>
+        <Text style={styles.h1}>Le labo</Text>
+        <Text style={styles.sub}>Travaille les mots qui te résistent, un par un.</Text>
+      </View>
+      <View style={{ paddingHorizontal: 26, marginTop: 8 }}>
+        <SkeletonHeader message="Chargement de tes mots…" />
+        {[0, 1, 2, 3].map((i) => (
+          <SkeletonBox key={i} height={56} radius={18} style={{ marginBottom: 10 }} />
+        ))}
+      </View>
+    </ScrollView>
+  );
 
   const masteredList = all.filter((w) => w.mastered);
-  const others = all.filter((w) => !w.mastered && !daily.some((d) => d.word === w.word));
+  const others = all
+    .filter((w) => !w.mastered && !daily.some((d) => d.word === w.word))
+    .sort((a, b) => ms(b.addedAt) - ms(a.addedAt));
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>

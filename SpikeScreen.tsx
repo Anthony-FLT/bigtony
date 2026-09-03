@@ -1,6 +1,7 @@
 // SpikeScreen.tsx — conversation voix OU texte : choix du canal, correction rouge/vert, favoris, plafond 1re séance.
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Animated } from "react-native";
+import { SkeletonCard, SkeletonLine, SkeletonBox } from "./components/Skeleton";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   useAudioRecorder,
@@ -75,6 +76,37 @@ function cleanWeakWords(weak: { word: string; score: number }[], said: string): 
     if (out.length >= 3) break;
   }
   return out;
+}
+
+// Trois points qui pulsent (bulle de frappe du coach).
+function TypingDots() {
+  const d1 = useRef(new Animated.Value(0.3)).current;
+  const d2 = useRef(new Animated.Value(0.3)).current;
+  const d3 = useRef(new Animated.Value(0.3)).current;
+  const dots = [d1, d2, d3];
+
+  useEffect(() => {
+    const anims = dots.map((d, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 160),
+          Animated.timing(d, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.timing(d, { toValue: 0.3, duration: 350, useNativeDriver: true }),
+          Animated.delay((2 - i) * 160),
+        ])
+      )
+    );
+    anims.forEach((a) => a.start());
+    return () => anims.forEach((a) => a.stop());
+  }, []);
+
+  return (
+    <View style={{ flexDirection: "row", gap: 5, paddingVertical: 4, paddingHorizontal: 2 }}>
+      {dots.map((d, i) => (
+        <Animated.View key={i} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#F2ECE1", opacity: d, transform: [{ scale: d }] }} />
+      ))}
+    </View>
+  );
 }
 
 export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean }) {
@@ -539,7 +571,16 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       {favFlash && <Text style={styles.favFlash}>Ajouté à tes favoris</Text>}
 
       <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
-        {status === "opening" && !showChannelChoice && <Text style={styles.openingWait}>La scène se prépare…</Text>}
+        {status === "opening" && !showChannelChoice && (
+          <View style={{ marginTop: 6 }}>
+            <SkeletonCard style={{ borderLeftWidth: 3, borderLeftColor: T.abricot, borderRadius: 18, padding: 14, marginBottom: 12 }}>
+              <SkeletonLine width="24%" style={{ marginBottom: 10 }} />
+              <SkeletonLine width="92%" />
+              <SkeletonLine width="68%" style={{ marginBottom: 0 }} />
+            </SkeletonCard>
+            <SkeletonBox height={72} radius={20} style={{ borderTopLeftRadius: 6, marginRight: 38 }} />
+          </View>
+        )}
 
         {opening && (
           <>
@@ -588,10 +629,16 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
           </View>
         ))}
 
+        {status === "processing" && (
+          <View style={styles.themBubble}>
+            <TypingDots />
+          </View>
+        )}
+
         {debrief && <DebriefView debrief={debrief} />}
       </ScrollView>
 
-      {(status === "processing" || status === "debriefing" || (status === "opening" && !showChannelChoice)) && (
+      {status === "debriefing" && (
         <ActivityIndicator size="large" color={T.abricot} style={{ marginBottom: 8 }} />
       )}
 

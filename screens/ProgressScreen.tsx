@@ -5,6 +5,7 @@ import { T } from "../lib/theme";
 import { loadMomentum, Momentum } from "../lib/progress";
 import { getChallengeStats } from "../lib/dailyChallenges";
 import { SCENARIOS, Scenario } from "../lib/scenarios";
+import { SkeletonHeader, SkeletonBox } from "../components/Skeleton";
 
 export default function ProgressScreen({
   refreshKey,
@@ -28,7 +29,18 @@ export default function ProgressScreen({
   }, [refreshKey]);
 
   if (!m) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={T.abricotDeep} /></View>;
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+        <View style={styles.head}><Text style={styles.h1}>Tes progrès</Text></View>
+        <View style={{ paddingHorizontal: 26 }}>
+          <SkeletonHeader message="Chargement de tes progrès…" />
+          <SkeletonBox height={120} radius={24} style={{ marginBottom: 14 }} />
+          <SkeletonBox height={96} radius={22} style={{ marginBottom: 14 }} />
+          <SkeletonBox height={70} radius={20} style={{ marginBottom: 14 }} />
+          <SkeletonBox height={70} radius={20} />
+        </View>
+      </ScrollView>
+    );
   }
 
 const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;

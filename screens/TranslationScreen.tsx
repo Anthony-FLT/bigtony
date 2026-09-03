@@ -7,6 +7,7 @@ import { loadProfile } from "../lib/profile";
 import { getTodayTranslation, assessTranslation, TranslationContent, TranslationResult } from "../lib/dailyTranslation";
 import { markChallengeDone } from "../lib/dailyChallenges";
 import CorrectionCard, { Correction } from "../components/CorrectionCard";
+import { SkeletonHeader, SkeletonCard, SkeletonLine, SkeletonBox } from "../components/Skeleton";
 
 export default function TranslationScreen({ onBack }: { onBack: () => void }) {
   const [content, setContent] = useState<TranslationContent | null>(null);
@@ -51,7 +52,15 @@ export default function TranslationScreen({ onBack }: { onBack: () => void }) {
 
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           {loadingContent ? (
-            <ActivityIndicator color={T.abricot} style={{ marginTop: 40 }} />
+            <View style={{ paddingTop: 14 }}>
+              <SkeletonHeader message="Je prépare ta traduction…" />
+              <SkeletonCard style={{ borderLeftWidth: 3, borderLeftColor: T.abricot }}>
+                <SkeletonLine width="28%" style={{ marginBottom: 12 }} />
+                <SkeletonLine width="100%" />
+                <SkeletonLine width="88%" style={{ marginBottom: 0 }} />
+              </SkeletonCard>
+              <SkeletonBox height={90} radius={16} />
+            </View>
           ) : !content ? (
             <Text style={styles.error}>Impossible de charger l'exercice. Réessaie plus tard.</Text>
           ) : (

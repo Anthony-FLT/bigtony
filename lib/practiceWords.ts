@@ -15,12 +15,41 @@ function wid(word: string) {
   return word.trim().toLowerCase().replace(/[^a-z0-9]/g, "_");
 }
 
+// Mots anglais trop courants pour valoir un exercice de prononciation.
+const COMMON_WORDS = new Set([
+  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+  "my", "your", "his", "its", "our", "their", "mine", "yours", "ours", "theirs",
+  "this", "that", "these", "those", "who", "whom", "whose", "which", "what",
+  "a", "an", "the", "and", "or", "but", "if", "so", "as", "than", "then", "because",
+  "of", "to", "in", "on", "at", "by", "for", "with", "from", "into", "onto", "off",
+  "up", "down", "out", "over", "under", "about", "after", "before", "between",
+  "is", "am", "are", "was", "were", "be", "been", "being",
+  "do", "does", "did", "done", "have", "has", "had", "having",
+  "will", "would", "shall", "should", "can", "could", "may", "might", "must",
+  "not", "no", "yes", "yeah", "ok", "okay", "oh", "ah", "um", "uh", "hmm", "well",
+  "here", "there", "now", "just", "very", "too", "also", "only", "even", "still",
+  "some", "any", "all", "each", "every", "many", "much", "more", "most", "few", "less",
+  "one", "two", "three", "first", "next", "last",
+  "good", "bad", "big", "small", "new", "old", "yes", "please", "thanks", "thank",
+  "he's", "she's", "it's", "i'm", "you're", "we're", "they're", "don't", "doesn't",
+  "didn't", "isn't", "aren't", "wasn't", "won't", "can't", "i've", "i'll", "i'd",
+]);
+
+// Un mot mérite-t-il d'entrer AUTOMATIQUEMENT dans le labo ?
+function isWorthPracticing(word: string): boolean {
+  const w = word.trim().toLowerCase().replace(/[^a-z']/g, "");
+  if (w.length < 3) return false;        // trop court (I, a, to, up…)
+  if (COMMON_WORDS.has(w)) return false; // mot ultra-courant
+  return true;
+}
+
 // Enregistre un mot écorché en scène (appelé à chaque tour pour chaque paire misheard + mot faible)
 export async function recordStumble(word: string, heardAs?: string): Promise<void> {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   const id = wid(word);
   if (!id) return;
+  if (!isWorthPracticing(word)) return; // on n'encombre pas le labo avec les mots courants/courts
   try {
     await setDoc(
       doc(db, "users", uid, "practiceWords", id),
@@ -39,20 +68,22 @@ export async function recordStumble(word: string, heardAs?: string): Promise<voi
   }
 }
 
-// Ajout manuel par l'utilisateur
-export async function addManualWord(word: string): Promise<void> {
+// Ajout manuel par l'utilisateur — retourne le mot créé (ou null en cas d'échec)
+export async function addManualWord(word: string): Promise<PracticeWord | null> {
   const uid = auth.currentUser?.uid;
-  if (!uid) return;
+  if (!uid) return null;
   const id = wid(word);
-  if (!id) return;
+  if (!id) return null;
   try {
     await setDoc(
       doc(db, "users", uid, "practiceWords", id),
       { word: word.trim(), source: "manual", count: increment(0), addedAt: serverTimestamp(), lastSeen: serverTimestamp() },
       { merge: true }
     );
+    return { word: word.trim(), source: "manual", count: 0, addedAt: Date.now() };
   } catch (e) {
     console.warn("addManualWord échoué:", e);
+    return null;
   }
 }
 

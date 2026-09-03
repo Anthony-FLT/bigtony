@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 import { loadProfile } from "./profile";
+import { themeForToday } from "./dailyThemes";
 
 const dailyTranslationFn = httpsCallable(functions, "dailyTranslation", { timeout: 25000 });
 const assessTranslationFn = httpsCallable(functions, "assessTranslation", { timeout: 30000 });
@@ -36,11 +37,12 @@ export async function getTodayTranslation(): Promise<TranslationContent | null> 
   try {
     const p = await loadProfile();
     const direction = directionForToday();
+    const theme = themeForToday(p?.interests ?? [], p?.job ?? null, "translation");
     const res: any = await dailyTranslationFn({
       level: p?.level ?? "B1",
-      interests: p?.interests ?? [],
+      interests: [theme],
       goals: p?.goals ?? [],
-      job: p?.job ?? null,
+      job: null,
       direction,
       seed: todayKey() + "-" + Math.random().toString(36).slice(2, 7),
     });
