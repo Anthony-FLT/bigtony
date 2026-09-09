@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Switch, Linking, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
-import { loadProfile, Profile, saveVoice, VoiceKey } from "../lib/profile";
+import { loadProfile, Profile, saveVoice, VoiceKey, saveSpeechRate } from "../lib/profile";
+import { SPEECH_RATES, DEFAULT_RATE } from "../lib/speech";
 import { getReminderSetting, scheduleDailyReminder, cancelDailyReminder, requestNotifPermission, getExpressionReminderEnabled, scheduleExpressionReminder, cancelExpressionReminder } from "../lib/notifications";
 import { getAccess } from "../lib/entitlement";
 import { restorePurchasesFlow } from "../lib/purchases";
@@ -20,6 +21,7 @@ const COACH_VOICES: { key: VoiceKey; label: string }[] = [
 export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditProfile: () => void; onDeleted: () => void }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [voice, setVoice] = useState<VoiceKey>("us-male");
+  const [speechRate, setSpeechRate] = useState<number>(DEFAULT_RATE);
   const [on, setOn] = useState(false);
   const [hour, setHour] = useState(19);
   const [minute, setMinute] = useState(0);
@@ -33,6 +35,7 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
       const [p, r, ex, acc] = await Promise.all([loadProfile(), getReminderSetting(), getExpressionReminderEnabled(), getAccess()]);
       setProfile(p);
       if (p?.voice) setVoice(p.voice);
+      if (p?.speechRate) setSpeechRate(p.speechRate);
       setOn(r.on); setHour(r.hour); setMinute(r.minute);
       setExprOn(ex);
       setPremium(acc.premium);
@@ -67,6 +70,12 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
   const changeVoice = async (v: VoiceKey) => {
     setVoice(v);
     await saveVoice(v);
+  };
+
+  // — Vitesse de la voix —
+  const changeRate = async (r: number) => {
+    setSpeechRate(r);
+    await saveSpeechRate(r);
   };
 
   // — Abonnement —
@@ -148,6 +157,19 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
           ))}
         </View>
 
+        <Text style={styles.section}>VITESSE DE LA VOIX</Text>
+        <Text style={styles.sectionHint}>S'applique aux discussions et à l'écoute.</Text>
+        <View style={styles.voiceGrid}>
+          {SPEECH_RATES.map((r) => {
+            const sel = Math.abs(speechRate - r.value) < 0.001;
+            return (
+              <Pressable key={r.label} onPress={() => changeRate(r.value)} style={[styles.voiceChip, sel && styles.voiceChipOn]}>
+                <Text style={[styles.voiceChipText, sel && styles.voiceChipTextOn]}>{r.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <Text style={styles.section}>RAPPELS</Text>
         <View style={styles.card}>
           <View style={styles.row}>
@@ -216,6 +238,7 @@ const styles = StyleSheet.create({
   head: { paddingTop: 56, paddingHorizontal: 26, paddingBottom: 8 },
   h1: { fontSize: 28, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
   section: { fontSize: 12, fontWeight: "800", color: T.inkSoft, letterSpacing: 0.6, marginTop: 24, marginBottom: 8, marginHorizontal: 26 },
+  sectionHint: { fontSize: 12.5, fontWeight: "600", color: T.inkSoft, marginHorizontal: 26, marginTop: -4, marginBottom: 10 },
   card: { backgroundColor: T.card, borderRadius: 18, marginHorizontal: 20, overflow: "hidden" },
   voiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginHorizontal: 20 },
   voiceChip: { flexGrow: 1, flexBasis: "45%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: T.card, borderRadius: 14, paddingVertical: 16, borderWidth: 2, borderColor: "transparent" },

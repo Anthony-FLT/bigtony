@@ -22,6 +22,7 @@ export type Profile = {
   testScore?: number | null;
   name?: string;
   voice?: VoiceKey;
+  speechRate?: number;
   firstSessionDone?: boolean;
   translateHintSeen?: boolean;
   lastMilestone?: number;
@@ -45,6 +46,7 @@ export async function loadProfile(): Promise<Profile | null> {
       testScore: data.testScore ?? null,
       name: data.name,
       voice: data.voice ?? "us-male",
+      speechRate: data.speechRate ?? 0.95,
       firstSessionDone: data.firstSessionDone ?? false,
       translateHintSeen: data.translateHintSeen ?? false,
       lastMilestone: data.lastMilestone ?? 0,
@@ -95,6 +97,16 @@ export async function saveVoice(voice: VoiceKey): Promise<void> {
     await setDoc(doc(db, "users", uid), { voice }, { merge: true });
   } catch (e) {
     console.warn("saveVoice échoué:", e);
+  }
+}
+
+export async function saveSpeechRate(speechRate: number): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { speechRate }, { merge: true });
+  } catch (e) {
+    console.warn("saveSpeechRate échoué:", e);
   }
 }
 

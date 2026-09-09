@@ -16,7 +16,8 @@ import { functions } from "./lib/firebase";
 import { Scenario } from "./lib/scenarios";
 import { T } from "./lib/theme";
 import { startSession, addTurn, closeSession, SessionTurn } from "./lib/sessions";
-import { loadProfile, markFirstSessionDone, markTranslateHintSeen, VoiceKey } from "./lib/profile";
+import { loadProfile, markFirstSessionDone, markTranslateHintSeen, VoiceKey, saveSpeechRate } from "./lib/profile";
+import { labelForRate, nextRate } from "./lib/speech";
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
@@ -121,6 +122,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [level, setLevel] = useState<Level>("B1");
   const [voiceKey, setVoiceKey] = useState<VoiceKey>("us-male");
+  const [speechRate, setSpeechRate] = useState<number>(0.95);
   const [isFirstSession, setIsFirstSession] = useState(false);
   const [bubbleFr, setBubbleFr] = useState<Record<string, string>>({});
   const [bubbleLoading, setBubbleLoading] = useState<Record<string, boolean>>({});
@@ -163,6 +165,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     loadProfile().then((p) => {
       if (p?.level) setLevel(p.level);
       if (p?.voice) setVoiceKey(p.voice);
+      if (p?.speechRate) setSpeechRate(p.speechRate);
       if (p && !p.firstSessionDone) setIsFirstSession(true);
       if (p && !p.translateHintSeen) setShowTranslateHint(true);
     });
@@ -189,7 +192,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const playText = async (key: string, text: string) => {
     setListenLoading((p) => ({ ...p, [key]: true }));
     try {
-      const res: any = await translateText({ text, mode: "speak", voice: voiceKey });
+      const res: any = await translateText({ text, mode: "speak", voice: voiceKey, speakingRate: speechRate });
       if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
     } catch (e) {
       console.warn("Écoute échouée:", e);
@@ -202,11 +205,18 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const playCorrected = async (correction: Correction) => {
     const text = correction.corrected.map((t) => t.text).join(" ");
     try {
-      const res: any = await translateText({ text, mode: "speak", voice: voiceKey });
+      const res: any = await translateText({ text, mode: "speak", voice: voiceKey, speakingRate: speechRate });
       if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
     } catch (e) {
       console.warn("Lecture de la correction échouée:", e);
     }
+  };
+
+  // Accès rapide : fait défiler les 4 vitesses et enregistre le choix (réglage global).
+  const cycleRate = async () => {
+    const r = nextRate(speechRate);
+    setSpeechRate(r);
+    await saveSpeechRate(r);
   };
 
   // Assistant — Traduire (FR→EN)
@@ -268,7 +278,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
           interests: p?.interests ?? [],
           goals: p?.goals ?? [],
           job: p?.job ?? null,
-          voice: p?.voice ?? "us-male",
+          voice: p?.voice ?? "us-male", speakingRate: speechRate,
         });
       } else if (daily) {
         const p = await loadProfile();
@@ -277,10 +287,10 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
           interests: p?.interests ?? [],
           goals: p?.goals ?? [],
           job: p?.job ?? null,
-          voice: p?.voice ?? "us-male",
+          voice: p?.voice ?? "us-male", speakingRate: speechRate,
         });
       } else {
-        res = await scenarioOpening({ scenarioId: scenario.id, level, customContext: scenario.custom ?? null, voice: voiceKey });
+        res = await scenarioOpening({ scenarioId: scenario.id, level, customContext: scenario.custom ?? null, voice: voiceKey, speakingRate: speechRate });
       }
       setOpening({
         context_fr: res.data.context_fr,
@@ -364,7 +374,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         sceneContext: welcome ? null : (opening?.context_fr ?? null),
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
-        voice: voiceKey,
+        voice: voiceKey, speakingRate: speechRate,
       });
       console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
@@ -549,6 +559,12 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             <View style={[styles.progressFill, { width: `${chatProgress}%` }]} />
           </View>
         </View>
+        {!showChannelChoice && (
+          <Pressable onPress={cycleRate} hitSlop={8} style={styles.speedPill}>
+            <Feather name="sliders" size={12} color={T.abricotDeep} />
+            <Text style={styles.speedPillText}>{labelForRate(speechRate)}</Text>
+          </Pressable>
+        )}
         {!showChannelChoice && (
           <View style={styles.channelToggle}>
             <Pressable onPress={() => { if (status === "idle") setChannel("voice"); }} style={[styles.channelPill, channel === "voice" && styles.channelPillActive]}>
@@ -844,6 +860,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 56, backgroundColor: T.cream },
   header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
   headerTitle: { color: T.night, fontSize: 17, fontWeight: "800" },
+  speedPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: T.chipAbricot, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 8, marginRight: 6 },
+  speedPillText: { color: T.abricotDeep, fontSize: 11, fontWeight: "800" },
   progressTrack: { height: 6, borderRadius: 3, backgroundColor: "#EAE6DE", overflow: "hidden", marginTop: 6 },
   progressFill: { height: 6, borderRadius: 3, backgroundColor: T.abricot },
   error: { color: "#C0392B", marginBottom: 8, fontWeight: "600" },

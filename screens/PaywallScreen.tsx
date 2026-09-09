@@ -9,7 +9,7 @@ import { ENTITLEMENT_ID } from "../lib/entitlement";
 type PlanId = "weekly" | "monthly" | "yearly";
 
 // Prix de secours si le store est injoignable (affichage seulement, l'achat exige le vrai package)
-const FALLBACK = { weekly: "4,99 €", monthly: "19,99 €", yearly: "99,99 €" };
+const FALLBACK = { weekly: "4,99 €", monthly: "19,99 €", yearly: "49,99 €" };
 
 const BENEFITS = [
   "Discussions à thème illimitées, dans toutes les situations",
@@ -137,7 +137,7 @@ export default function PaywallScreen({
   };
 
   const PLANS: { id: PlanId; title: string; per: string; note?: string; badge?: string }[] = [
-    { id: "yearly", title: "Annuel", per: "/an", note: "soit 8,33 €/mois", badge: "LE PLUS POPULAIRE · −58 %" },
+    { id: "yearly", title: "Annuel", per: "/an", note: "soit 4,17 €/mois", badge: "LE PLUS POPULAIRE" },
     { id: "monthly", title: "Mensuel", per: "/mois" },
     { id: "weekly", title: "Hebdo", per: "/semaine", note: "Sans engagement, pour essayer" },
   ];

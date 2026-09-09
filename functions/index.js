@@ -185,6 +185,13 @@ THIS IS THE FINAL TURN of the session. In "reply_en", warmly acknowledge what th
 
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
+// Vitesse de parole (TTS) : défaut 0.95 (comportement actuel), bornée pour éviter les extrêmes.
+function resolveRate(rate) {
+  const r = typeof rate === "number" ? rate : parseFloat(rate);
+  if (!r || isNaN(r)) return 0.95;
+  return Math.max(0.5, Math.min(1.5, r));
+}
+
 async function convertToWav(audioBase64) {
   const tmp = os.tmpdir();
   const stamp = Date.now() + "_" + Math.random().toString(36).slice(2, 8);
@@ -432,7 +439,7 @@ exports.spikeTurn = onCall(
         ttsClient.synthesizeSpeech({
           input: { text: parsed.reply_en },
           voice: resolveVoice(request.data?.voice),
-          audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+          audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
         }),
         compareMisheard(ai, parsed.transcript, pronunciation?.azureText || ""),
       ]);
@@ -1105,7 +1112,7 @@ Respond ONLY with JSON:
       [ttsResponse] = await ttsClient.synthesizeSpeech({
         input: { text: parsed.reply_en },
         voice: resolveVoice(request.data?.voice),
-        audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+        audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
       });
     } catch (e) {
       console.error("TTS error", e);
@@ -1199,7 +1206,7 @@ Respond ONLY with JSON:
       [ttsResponse] = await ttsClient.synthesizeSpeech({
         input: { text: parsed.reply_en },
         voice: resolveVoice(request.data?.voice),
-        audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+        audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
       });
     } catch (e) {
       console.error("TTS error", e);
@@ -1320,7 +1327,7 @@ exports.translateText = onCall(
         const [resp] = await tts.synthesizeSpeech({
           input: { text },
           voice: resolveVoice(request.data?.voice),
-          audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+          audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
         });
         return { audioBase64: Buffer.from(resp.audioContent).toString("base64") };
       } catch (e) {
@@ -1431,7 +1438,7 @@ Respond ONLY with JSON:
       [ttsResponse] = await ttsClient.synthesizeSpeech({
         input: { text: parsed.reply_en },
         voice: resolveVoice(request.data?.voice),
-        audioConfig: { audioEncoding: "MP3", speakingRate: 0.95 },
+        audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
       });
     } catch (e) {
       console.error("TTS error", e);

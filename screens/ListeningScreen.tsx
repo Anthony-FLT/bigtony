@@ -7,7 +7,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../lib/firebase";
 import { T } from "../lib/theme";
-import { loadProfile } from "../lib/profile";
+import { loadProfile, saveSpeechRate } from "../lib/profile";
+import { labelForRate, nextRate } from "../lib/speech";
 import { getTodayListening, ListeningContent, HardWord } from "../lib/dailyListening";
 import { markChallengeDone } from "../lib/dailyChallenges";
 import { addFavorite } from "../lib/favorites";
@@ -38,32 +39,50 @@ export default function ListeningScreen({ onBack }: { onBack: () => void }) {
   const [wordPopup, setWordPopup] = useState<WordPopup>(null);
   const [selectedWordKey, setSelectedWordKey] = useState<string | null>(null);
   const [favFlash, setFavFlash] = useState(false);
+  const [speechRate, setSpeechRate] = useState<number>(0.95);
+  const voiceRef = useRef<string>("us-male");
   const pulse = useRef(new Animated.Value(1)).current;
+
+  const synthAudio = async (text: string, voice: string, rate: number) => {
+    setAudioLoading(true);
+    setAudioReady(false);
+    try {
+      const res: any = await translateText({ text, mode: "speak", voice, speakingRate: rate });
+      const b64 = res.data?.audioBase64;
+      if (b64) {
+        const path = FileSystem.cacheDirectory + `listen_${Date.now()}.mp3`;
+        await FileSystem.writeAsStringAsync(path, b64, { encoding: FileSystem.EncodingType.Base64 });
+        player.replace(path);
+        setAudioReady(true);
+      }
+    } catch (e) {
+      console.warn("Synthèse audio échouée:", e);
+    } finally {
+      setAudioLoading(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
       const p = await loadProfile();
       const voice = p?.voice ?? "us-male";
+      voiceRef.current = voice;
+      const rate = p?.speechRate ?? 0.95;
+      setSpeechRate(rate);
       const c = await getTodayListening();
       setContent(c);
       setLoading(false);
-      if (c) {
-        try {
-          const res: any = await translateText({ text: c.text, mode: "speak", voice });
-          const b64 = res.data?.audioBase64;
-          if (b64) {
-            const path = FileSystem.cacheDirectory + `listen_${Date.now()}.mp3`;
-            await FileSystem.writeAsStringAsync(path, b64, { encoding: FileSystem.EncodingType.Base64 });
-            player.replace(path);
-            setAudioReady(true);
-          }
-        } catch (e) {
-          console.warn("Synthèse audio échouée:", e);
-        }
-      }
-      setAudioLoading(false);
+      if (c) await synthAudio(c.text, voice, rate);
     })();
   }, []);
+
+  // Accès rapide : change la vitesse, l'enregistre (global) et re-synthétise l'audio.
+  const cycleRate = async () => {
+    const r = nextRate(speechRate);
+    setSpeechRate(r);
+    await saveSpeechRate(r);
+    if (content) synthAudio(content.text, voiceRef.current, r);
+  };
 
   // Pulsation douce du bouton pendant la lecture.
   useEffect(() => {
@@ -206,6 +225,11 @@ export default function ListeningScreen({ onBack }: { onBack: () => void }) {
               </View>
             </View>
 
+            <Pressable onPress={cycleRate} hitSlop={8} style={styles.speedPill}>
+              <Feather name="sliders" size={13} color={T.abricotDeep} />
+              <Text style={styles.speedPillText}>Vitesse : {labelForRate(speechRate)}</Text>
+            </Pressable>
+
             <Pressable onPress={() => setShowText((v) => !v)} style={styles.revealBtn}>
               <Feather name={showText ? "eye-off" : "eye"} size={16} color={T.abricotDeep} />
               <Text style={styles.revealText}>{showText ? "Masquer le texte" : "Afficher le texte"}</Text>
@@ -304,6 +328,8 @@ const styles = StyleSheet.create({
   timeText: { color: "#9DB0D4", fontSize: 11, fontWeight: "700" },
 
   revealBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 10, marginBottom: 10 },
+  speedPill: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, alignSelf: "center", backgroundColor: T.chipAbricot, borderRadius: 12, paddingVertical: 7, paddingHorizontal: 14, marginBottom: 4 },
+  speedPillText: { color: T.abricotDeep, fontSize: 12.5, fontWeight: "800" },
   revealText: { color: T.abricotDeep, fontSize: 13.5, fontWeight: "800" },
 
   textCard: { backgroundColor: T.card, borderRadius: 18, padding: 18, marginBottom: 22 },
