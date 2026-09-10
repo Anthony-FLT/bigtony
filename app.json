@@ -12,15 +12,13 @@
     "android": {
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
-         "foregroundImage": "./assets/icon.png",
-         "backgroundColor": "#F5B788"
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#F5B788"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "package": "fr.elanapp.english"
     },
