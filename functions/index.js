@@ -1254,7 +1254,6 @@ async function assessScripted(wavBuffer, azureKey, referenceText) {
   const nbest = json.NBest?.[0];
   const pa = nbest?.PronunciationAssessment ?? nbest;
   if (pa?.PronScore === undefined) {
-    console.log("Labo PA absent:", JSON.stringify(json).slice(0, 1500));
     return null;
   }
   const wAcc = (w) => w.PronunciationAssessment?.AccuracyScore ?? w.AccuracyScore ?? 0;

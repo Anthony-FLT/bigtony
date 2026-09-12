@@ -44,7 +44,6 @@ export default function ProgressScreen({
   }
 
 const lastScenario = SCENARIOS.find((s) => s.id === m.lastScenario) ?? null;
-  console.log("MOMENTUM lastScenario:", JSON.stringify(m.lastScenario), "| ids connus:", SCENARIOS.map(s => s.id));
   // Aucune séance encore
   if (m.sessionCount === 0) {
     return (

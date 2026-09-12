@@ -136,6 +136,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const [channel, setChannel] = useState<Channel>("voice");
   const [showChannelChoice, setShowChannelChoice] = useState(true);
   const [textInput, setTextInput] = useState("");
+  const [pendingUserText, setPendingUserText] = useState("");
   // Assistant : traduire (FR→EN) + réponse d'exemple
   const [showTranslate, setShowTranslate] = useState(false);
   const [translateInput, setTranslateInput] = useState("");
@@ -376,7 +377,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         isLastTurn: willBeLast,
         voice: voiceKey, speakingRate: speechRate,
       });
-      console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
       playBase64(d.replyAudioBase64); // on lance l'audio SANS attendre qu'il finisse
 
@@ -399,6 +399,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const sendText = async () => {
     const text = textInput.trim();
     if (!text || status === "processing" || reachedLimit) return;
+    setTextInput("");            // vide l'input tout de suite
+    setPendingUserText(text);    // affiche le message dans la conversation tout de suite
     setStatus("processing");
     setError(null); setHint(null);
     try {
@@ -415,9 +417,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
       });
-      console.log("CHAT TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
-      setTextInput("");
+      setPendingUserText("");     // le tour complet prend le relais
       finalizeTurn({
         user: text,
         coach: d.reply_en,
@@ -428,7 +429,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         pronunciation: null, // pas de prononciation en mode texte
         correction: d.correction ?? null,
       });
-    } catch (e: any) { setError(e.message ?? String(e)); }
+    } catch (e: any) { setError(e.message ?? String(e)); setPendingUserText(""); }
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
   };
 
@@ -644,6 +645,10 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             {renderCoachBubble(t.coach, t.hardWords, `t${i}`)}
           </View>
         ))}
+
+        {pendingUserText ? (
+          <View style={styles.meBubble}><Text style={styles.meText}>{pendingUserText}</Text></View>
+        ) : null}
 
         {status === "processing" && (
           <View style={styles.themBubble}>

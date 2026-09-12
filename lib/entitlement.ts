@@ -8,7 +8,6 @@ export async function getAccess(): Promise<Access> {
   try {
     configurePurchases(); // défensif : garantit l'init quel que soit l'ordre d'appel
     const info = await Purchases.getCustomerInfo();
-    console.log("ENTITLEMENTS:", JSON.stringify(info.entitlements.active));
     return { premium: info.entitlements.active[ENTITLEMENT_ID] != null };
   } catch (e) {
     console.warn("getAccess échoué:", e);
