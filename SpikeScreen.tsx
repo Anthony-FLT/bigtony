@@ -110,6 +110,16 @@ function TypingDots() {
   );
 }
 
+// Transforme une erreur technique en message clair pour l'utilisateur (jamais de JSON brut à l'écran).
+function friendlyError(e: any): string {
+  const msg = String(e?.message ?? e ?? "");
+  if (/\b503\b|UNAVAILABLE|high demand|overloaded|try again later/i.test(msg))
+    return "Le coach est très sollicité en ce moment. Réessaie dans un instant.";
+  if (/network|timeout|Failed to fetch|ECONN|internet|offline|deadline/i.test(msg))
+    return "Connexion interrompue. Vérifie ta connexion et réessaie.";
+  return "Une erreur est survenue. Réessaie dans un instant.";
+}
+
 export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer();
@@ -302,7 +312,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       if (ch === "voice") playBase64(res.data.replyAudioBase64);
     } catch (e: any) {
       const msg = String(e?.message || "");
-      setError(msg.includes("UNSAFE_CONTEXT") ? "Ce contexte n'est pas approprié pour une scène. Essaie autre chose." : (e.message ?? String(e)));
+      setError(msg.includes("UNSAFE_CONTEXT") ? "Ce contexte n'est pas approprié pour une scène. Essaie autre chose." : friendlyError(e));
     } finally {
       setStatus("idle");
     }
@@ -346,7 +356,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       recorder.record();
       recordStartRef.current = Date.now();
       setStatus("recording");
-    } catch (e: any) { setError(e.message ?? String(e)); setStatus("idle"); }
+    } catch (e: any) { setError(friendlyError(e)); setStatus("idle"); }
   };
 
   const stopAndSend = async () => {
@@ -377,6 +387,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         isLastTurn: willBeLast,
         voice: voiceKey, speakingRate: speechRate,
       });
+      console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
       playBase64(d.replyAudioBase64); // on lance l'audio SANS attendre qu'il finisse
 
@@ -392,7 +403,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         pronunciation: d.pronunciation ?? null,
         correction: d.correction ?? null,
       });
-    } catch (e: any) { setError(e.message ?? String(e)); }
+    } catch (e: any) { setError(friendlyError(e)); }
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
   };
 
@@ -417,6 +428,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
       });
+      console.log("CHAT TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
       setPendingUserText("");     // le tour complet prend le relais
       finalizeTurn({
@@ -429,7 +441,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         pronunciation: null, // pas de prononciation en mode texte
         correction: d.correction ?? null,
       });
-    } catch (e: any) { setError(e.message ?? String(e)); setPendingUserText(""); }
+    } catch (e: any) { setError(friendlyError(e)); setPendingUserText(""); }
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
   };
 
@@ -451,7 +463,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
         }));
         closeSession(sessionId, res.data, st).catch((e) => console.warn("Clôture échouée:", e));
       }
-    } catch (e: any) { setError(e.message ?? String(e)); }
+    } catch (e: any) { setError(friendlyError(e)); }
     finally { setStatus("idle"); debriefingRef.current = false; }
   };
 
@@ -620,22 +632,19 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             />
 
             {t.pronunciation && (() => {
-              const score = Math.round(t.pronunciation.pronScore);
-              const band =
-                score >= 85 ? { label: "Prononciation claire", color: "#3B9A6A" }
-                : score >= 70 ? { label: "Prononciation correcte", color: "#B8860B" }
-                : { label: "Prononciation à travailler", color: "#C0392B" };
+              const problems = t.misheard ?? [];
+              const clear = problems.length === 0;
+              const color = clear ? "#3B9A6A" : "#C77A2E";
               return (
                 <View style={styles.pronCard}>
                   <View style={styles.pronRow}>
-                    <View style={[styles.pronDot, { backgroundColor: band.color }]} />
-                    <Text style={[styles.pronLabel, { color: band.color }]}>{band.label}</Text>
-                    <Text style={styles.pronScoreNum}>{score}/100</Text>
+                    <View style={[styles.pronDot, { backgroundColor: color }]} />
+                    <Text style={[styles.pronLabel, { color }]}>{clear ? "Prononciation claire" : "Prononciation à revoir"}</Text>
                   </View>
-                  {t.misheard.map((m, k) => (
+                  {problems.map((m, k) => (
                     <View key={k} style={styles.mishRow}>
-                      <Feather name="alert-triangle" size={13} color="#C0392B" />
-                      <Text style={styles.mishText}>« {m.said} » sonne comme « {m.heard} »</Text>
+                      <Feather name="alert-triangle" size={13} color="#C77A2E" />
+                      <Text style={styles.mishText}>« {m.said} » — on a entendu « {m.heard} »</Text>
                     </View>
                   ))}
                 </View>

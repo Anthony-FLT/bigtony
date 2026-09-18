@@ -211,6 +211,40 @@ async function convertToWav(audioBase64) {
   }
 }
 
+// Dictionnaire anglais : sert à ignorer les mots non-anglais (ex. mots français dits en conversation).
+// Chargement défensif : si le package est indisponible, on ne filtre pas (comportement d'avant) — la prod ne casse pas.
+let ENGLISH_WORDS = null;
+try {
+  ENGLISH_WORDS = new Set(require("an-array-of-english-words"));
+} catch (e) {
+  console.warn("Dictionnaire anglais indisponible, filtrage désactivé:", e.message);
+}
+function isEnglishWord(w) {
+  if (!ENGLISH_WORDS) return true; // pas de dictionnaire → on ne filtre rien
+  if (!w) return false;
+  const clean = String(w).toLowerCase().replace(/[^a-z]/g, "");
+  return clean.length > 0 && ENGLISH_WORDS.has(clean);
+}
+
+// Réessai automatique des appels Gemini en cas de surcharge temporaire (503 / UNAVAILABLE).
+// Les autres erreurs (clé, quota dur, requête invalide) remontent immédiatement, sans réessai inutile.
+async function genWithRetry(ai, config) {
+  const delays = [500, 1000]; // 2 réessais : ~0,5s puis ~1s
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await ai.models.generateContent(config);
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      const overloaded = /\b503\b|UNAVAILABLE|high demand|overloaded|try again later/i.test(msg);
+      if (overloaded && attempt < delays.length) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function assessPronunciation(wavBuffer, azureKey) {
   const paConfig = {
     ReferenceText: "",
@@ -257,7 +291,7 @@ async function assessPronunciation(wavBuffer, azureKey) {
 async function compareMisheard(ai, intended, heard) {
   if (!intended || !heard) return [];
   try {
-    const r = await ai.models.generateContent({
+    const r = await genWithRetry(ai, {
       model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text: `Intended: "${intended}"\nRecognized by the speech engine: "${heard}"` }] }],
       config: {
@@ -328,8 +362,7 @@ exports.spikeTurn = onCall(
     let geminiMs = 0;
     let azureMs = 0;
  
-    const geminiPromise = ai.models
-      .generateContent({
+    const geminiPromise = genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [
           {
@@ -450,7 +483,14 @@ exports.spikeTurn = onCall(
       throw new HttpsError("internal", `TTS: ${e.message}`);
     }
     const ttsMs = Date.now() - t1;
- 
+
+    // Filtre dictionnaire : on ignore les mots non-anglais (ex. mots français dits en conversation).
+    // → pas affichés comme erreur, pas ajoutés au Labo. Rétrocompatible (mêmes champs, juste filtrés).
+    if (pronunciation && Array.isArray(pronunciation.weakWords)) {
+      pronunciation.weakWords = pronunciation.weakWords.filter((w) => isEnglishWord(w.word));
+    }
+    misheard = misheard.filter((p) => isEnglishWord(p.said));
+
    return {
       transcript: parsed.transcript,
       reply_en: parsed.reply_en,
@@ -502,7 +542,7 @@ exports.chatTurn = onCall(
     const t0 = Date.now();
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [
           {
@@ -603,7 +643,7 @@ exports.translateToEnglish = onCall(
  
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `French sentence to translate:\n"${text}"` }] }],
         config: {
@@ -653,7 +693,7 @@ exports.dailyTranslation = onCall(
  
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `Topic hints: ${interestsStr}. Job: ${job || "n/a"}. Variety seed: ${seed}.` }] }],
         config: {
@@ -730,7 +770,7 @@ You are given their ${targetLang} translation attempt. Evaluate it fairly and re
  
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `Their ${targetLang} translation attempt:\n"${attempt}"` }] }],
         config: {
@@ -800,7 +840,7 @@ exports.dailyReading = onCall(
  
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `Topic hints: ${interestsStr}. Job: ${job || "n/a"}. Variety seed: ${seed}.` }] }],
         config: {
@@ -904,7 +944,7 @@ exports.suggestExample = onCall(
  
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `${ctx}\n\nConversation so far:\n${historyText}\n\nThe learner is stuck and doesn't know what to reply. Suggest what THEY could say next.` }] }],
         config: {
@@ -1009,7 +1049,7 @@ exports.sessionDebrief = onCall(
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: summary }] }],
         config: {
@@ -1074,7 +1114,7 @@ Respond ONLY with JSON:
 
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Start the scene." }] }],
         config: {
@@ -1171,7 +1211,7 @@ Respond ONLY with JSON:
 
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Invent today's scene." }] }],
         config: {
@@ -1341,7 +1381,7 @@ exports.translateText = onCall(
         ? `Translate this English word or short expression into French. Give ONLY the most common French translation, 1 to 4 words, no explanation.`
         : `Translate this English sentence into natural French. Give ONLY the translation, no quotes, no explanation.`;
     try {
-      const r = await ai.models.generateContent({
+      const r = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text }] }],
         config: { systemInstruction: instruction, temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } },
@@ -1357,7 +1397,7 @@ exports.translateText = onCall(
 // Filtre les contextes de scène personnalisés inappropriés
 async function isContextSafe(ai, text) {
   try {
-    const r = await ai.models.generateContent({
+    const r = await genWithRetry(ai, {
       model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text }] }],
       config: {
@@ -1403,7 +1443,7 @@ Respond ONLY with JSON:
 
     let result;
     try {
-      result = await ai.models.generateContent({
+      result = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Start the welcome chat." }] }],
         config: {
@@ -1480,7 +1520,7 @@ Respond ONLY with JSON:
 Variation token (ignore in output, just use it to vary): ${seed}`;
 
     try {
-      const r = await ai.models.generateContent({
+      const r = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: "Give today's expression." }] }],
         config: {
@@ -1521,11 +1561,16 @@ Respond ONLY with JSON:
 - "ipa": the IPA transcription, US English, with slashes (e.g. "/ʃuːt/").
 - "meaning_fr": a very short French meaning (a few words).
 - "how_to_fr": 2 to 3 sentences IN FRENCH explaining concretely HOW to pronounce this word right — position de la bouche/langue, découpage en syllabes, le(s) son(s) difficile(s) pour un francophone. Pratique et imagé, jamais théorique. Tutoie.
-- "trap_fr": one short French sentence naming THE most common French-speaker mistake on this exact word (ce qu'il ne faut PAS faire).`;
+- "trap_fr": one short French sentence naming THE most common French-speaker mistake on this exact word (ce qu'il ne faut PAS faire).
+- "situation_title_fr": 2 to 4 words IN FRENCH naming a concrete, everyday situation where this word naturally fits (e.g. "Une promenade", "Au restaurant", "Un imprévu").
+- "situation_fr": 1 to 2 sentences IN FRENCH describing the situation and asking the user to SAY something in English using the word (e.g. "Tu racontes ta promenade à un ami. Dis en anglais que tu as traversé un parc. Utilise « ${word} » dans ta réponse."). Tutoie.
+- "starter_en": a short English sentence beginning (2 to 4 words) ending with "…" to help the user start (e.g. "I walked…"). It must NOT already contain the target word.
+- "example_en": one short, natural English sentence (5 to 9 words) that correctly uses the word "${word}" (e.g. "I walked through a park.").
+- "example_fr": the French translation of example_en.`;
 
     let coaching;
     try {
-      const r = await ai.models.generateContent({
+      const r = await genWithRetry(ai, {
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: `Coach the word "${word}".` }] }],
         config: {
@@ -1538,8 +1583,13 @@ Respond ONLY with JSON:
               meaning_fr: { type: Type.STRING },
               how_to_fr: { type: Type.STRING },
               trap_fr: { type: Type.STRING },
+              situation_title_fr: { type: Type.STRING },
+              situation_fr: { type: Type.STRING },
+              starter_en: { type: Type.STRING },
+              example_en: { type: Type.STRING },
+              example_fr: { type: Type.STRING },
             },
-            required: ["ipa", "meaning_fr", "how_to_fr", "trap_fr"],
+            required: ["ipa", "meaning_fr", "how_to_fr", "trap_fr", "situation_title_fr", "situation_fr", "starter_en", "example_en", "example_fr"],
           },
           temperature: 0.5,
           thinkingConfig: { thinkingLevel: "low" },
@@ -1564,5 +1614,98 @@ Respond ONLY with JSON:
     }
 
     return { ...coaching, audioBase64 };
+  }
+);
+
+/* ---------------------------------------------------------------------
+   assessWordUsage — étape 2 du Labo : évalue la phrase orale de l'utilisateur.
+   Transcrit + note la prononciation (phrase libre), puis vérifie via Gemini
+   que le mot cible est bien employé dans une phrase correcte.
+   --------------------------------------------------------------------- */
+exports.assessWordUsage = onCall(
+  { region: "europe-west1", secrets: [GEMINI_API_KEY, AZURE_SPEECH_KEY], memory: "512MiB", timeoutSeconds: 30, maxInstances: 3 },
+  async (request) => {
+    const { word = "", audioBase64 = "" } = request.data || {};
+    if (!word || typeof word !== "string") throw new HttpsError("invalid-argument", "word manquant");
+    if (!audioBase64) throw new HttpsError("invalid-argument", "audio manquant");
+    if (audioBase64.length > MAX_AUDIO_BASE64_LENGTH) throw new HttpsError("invalid-argument", "Audio trop long (garde-fou coût)");
+
+    let wavBuffer;
+    try {
+      wavBuffer = await convertToWav(audioBase64);
+    } catch (e) {
+      console.error("ffmpeg error", e);
+      throw new HttpsError("internal", "Conversion audio échouée");
+    }
+
+    // Prononciation + transcription (sans texte de référence : phrase libre)
+    let pa = null;
+    try {
+      pa = await assessPronunciation(wavBuffer, AZURE_SPEECH_KEY.value());
+    } catch (e) {
+      console.error("Azure PA error", e);
+    }
+    const transcript = pa?.azureText ?? "";
+    const pronScore = pa ? Math.round(pa.pronScore) : null;
+
+    if (!transcript) {
+      return { pronScore, transcript: "", wordUsed: false, sentenceOk: false, feedback_fr: "Je n'ai rien entendu de clair — réessaie en parlant un peu plus fort.", correction: null };
+    }
+
+    // Le mot est-il employé, et la phrase est-elle correcte ?
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+    let check;
+    try {
+      const r = await genWithRetry(ai, {
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `Target word: "${word}". Learner said (transcribed): "${transcript}"` }] }],
+        config: {
+          systemInstruction: `A French learner had to use the English word "${word}" in a spoken English sentence. You are given a transcription of what they said. Judge it fairly and respond ONLY with JSON:
+- "word_used": true if their sentence actually contains and correctly uses the target word "${word}" (a normal inflected form counts), false otherwise.
+- "sentence_ok": true if their sentence is grammatically correct and makes sense in English, false otherwise.
+- "feedback_fr": 1 to 2 sentences EN FRANÇAIS, bienveillant mais honnête. Si le mot cible manque, signale-le gentiment. S'il y a une vraie erreur, nomme-la et donne la bonne formulation entre guillemets. Si tout est bon, félicite sincèrement. Ne félicite jamais une phrase fausse. Tutoie.
+- "correction": an object for a red/green display of THEIR sentence:
+  - "has_errors": true if the sentence has any real error.
+  - "original": their sentence split into word tokens {text, wrong}, wrong=true only on incorrect words. Keep every word, in order.
+  - "corrected": a correct, natural version staying as CLOSE as possible to what they said, split into {text, changed}, changed=true on modified/added words. If has_errors is false, "corrected" equals "original" with all changed=false.
+  Attach punctuation to the adjacent word within its token.
+Note: the transcription may contain minor recognition errors — don't penalize obvious transcription artifacts as if they were the learner's mistakes.`,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              word_used: { type: Type.BOOLEAN },
+              sentence_ok: { type: Type.BOOLEAN },
+              feedback_fr: { type: Type.STRING },
+              correction: {
+                type: Type.OBJECT,
+                properties: {
+                  has_errors: { type: Type.BOOLEAN },
+                  original: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { text: { type: Type.STRING }, wrong: { type: Type.BOOLEAN } }, required: ["text", "wrong"] } },
+                  corrected: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { text: { type: Type.STRING }, changed: { type: Type.BOOLEAN } }, required: ["text", "changed"] } },
+                },
+                required: ["has_errors", "original", "corrected"],
+              },
+            },
+            required: ["word_used", "sentence_ok", "feedback_fr", "correction"],
+          },
+          temperature: 0.3,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+      check = JSON.parse(r.text);
+    } catch (e) {
+      console.error("assessWordUsage gemini error", e);
+      throw new HttpsError("internal", `Éval: ${e.message}`);
+    }
+
+    return {
+      pronScore,
+      transcript,
+      wordUsed: !!check.word_used,
+      sentenceOk: !!check.sentence_ok,
+      feedback_fr: check.feedback_fr ?? "",
+      correction: check.correction ?? null,
+    };
   }
 );

@@ -3,6 +3,7 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
 
 const labAssess = httpsCallable(functions, "labAssess", { timeout: 70000 });
+const assessWordUsageFn = httpsCallable(functions, "assessWordUsage", { timeout: 70000 });
 
 export type Phoneme = { phoneme: string; score: number };
 export type WordScore = { word: string; score: number; errorType: string; phonemes: Phoneme[] };
@@ -27,4 +28,19 @@ export const DRILLS: Drill[] = [
 export async function assessDrill(referenceText: string, audioBase64: string, mimeType = "audio/mp4"): Promise<LabResult> {
   const res: any = await labAssess({ audioBase64, mimeType, referenceText });
   return res.data as LabResult;
+}
+
+// Étape 2 du Labo : évalue la phrase orale (prononciation + mot employé + phrase correcte).
+export type WordUsageResult = {
+  pronScore: number | null;
+  transcript: string;
+  wordUsed: boolean;
+  sentenceOk: boolean;
+  feedback_fr: string;
+  correction: any | null;
+};
+
+export async function assessWordUsage(word: string, audioBase64: string): Promise<WordUsageResult> {
+  const res: any = await assessWordUsageFn({ word, audioBase64 });
+  return res.data as WordUsageResult;
 }
