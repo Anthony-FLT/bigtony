@@ -22,6 +22,7 @@ import { labelForRate, nextRate } from "./lib/speech";
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
+import { addSpeakingSeconds } from "./lib/speakingTime";
 import DebriefView from "./components/DebriefView";
 import CorrectionCard, { Correction, PronStatus } from "./components/CorrectionCard";
 import { StatusBar } from "expo-status-bar";
@@ -148,7 +149,7 @@ function friendlyError(e: any): string {
 }
 
 export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean }) {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
   // metering: niveau sonore en direct pendant l'enregistrement, si le SDK le fournit (voir startRecording).
   // Repli propre si non disponible : recorderState.metering reste undefined, les barres restent au repos.
   const recorderState = useAudioRecorderState(recorder, 80);
@@ -171,7 +172,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const [listenLoading, setListenLoading] = useState<Record<string, boolean>>({});
   const [wordPopup, setWordPopup] = useState<WordPopup>(null);
   const [selectedWordKey, setSelectedWordKey] = useState<string | null>(null);
-  const [favFlash, setFavFlash] = useState(false);
+  const [favFlash, setFavFlash] = useState<string | null>(null);
+  const favFlashAnim = useRef(new Animated.Value(0)).current;
   const [firstSessionCongrats, setFirstSessionCongrats] = useState(false);
   const [showTranslateHint, setShowTranslateHint] = useState(false);
   // Canal de conversation
@@ -396,8 +398,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     setError(null); setHint(null);
     try {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      // isMeteringEnabled : nécessaire pour que recorderState.metering soit alimenté (barres réactives en direct).
-      await recorder.prepareToRecordAsync({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+      // isMeteringEnabled est réglé à la création du recorder (useAudioRecorder ci-dessus).
+      await recorder.prepareToRecordAsync();
       recorder.record();
       recordStartRef.current = Date.now();
       setStatus("recording");
@@ -434,6 +436,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       const uri = recorder.uri;
       if (!uri) throw new Error("Aucun enregistrement produit");
       const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      // Temps de parole : durée réelle de ce tour, cumulée par jour (nouveau suivi, pas de rétroactif).
+      addSpeakingSeconds((Date.now() - recordStartRef.current) / 1000).catch(() => {});
 
       const willBeLast = capped && turns.length + 1 >= sessionLimit;
       const res: any = await spikeTurn({
@@ -533,8 +537,13 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     await addFavorite(w.word, w.fr, scenario.id);
     setWordPopup(null);
     setSelectedWordKey(null);
-    setFavFlash(true);
-    setTimeout(() => setFavFlash(false), 1400);
+    setFavFlash(w.word);
+    favFlashAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(favFlashAnim, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }),
+      Animated.delay(1300),
+      Animated.timing(favFlashAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(() => setFavFlash(null));
   };
 
   // "Ajouter aux révisions" (panneau de correction) : retiré — pas cohérent de forcer une phrase
@@ -650,7 +659,20 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
 
       {error && <Text style={styles.error}>{error}</Text>}
       {hint && <Text style={styles.hint}>{hint}</Text>}
-      {favFlash && <Text style={styles.favFlash}>Ajouté à tes favoris</Text>}
+      {favFlash && (
+        <Animated.View
+          style={[
+            styles.favBadge,
+            {
+              opacity: favFlashAnim,
+              transform: [{ scale: favFlashAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
+            },
+          ]}
+        >
+          <View style={styles.favBadgeIcon}><Feather name="check" size={14} color="#fff" /></View>
+          <Text style={styles.favBadgeText}>« {favFlash} » ajouté à ton dictionnaire !</Text>
+        </Animated.View>
+      )}
 
       <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
         {status === "opening" && !showChannelChoice && (
@@ -962,7 +984,9 @@ const styles = StyleSheet.create({
   progressFill: { height: 6, borderRadius: 3, backgroundColor: T.abricot },
   error: { color: "#C0392B", marginBottom: 8, fontWeight: "600" },
   hint: { color: "#B8860B", marginBottom: 8, fontWeight: "600" },
-  favFlash: { color: "#3B9A6A", marginBottom: 8, fontWeight: "700" },
+  favBadge: { flexDirection: "row", alignItems: "center", gap: 9, alignSelf: "center", backgroundColor: "#2E7D53", borderRadius: 14, paddingVertical: 9, paddingHorizontal: 14, marginBottom: 8 },
+  favBadgeIcon: { width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" },
+  favBadgeText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   openingWait: { color: T.inkSoft, fontSize: 14, fontWeight: "600", textAlign: "center", marginTop: 24 },
   scroll: { flex: 1, marginBottom: 10 },
 

@@ -6,10 +6,10 @@ import { T } from "../lib/theme";
 import { configurePurchases } from "../lib/purchases";
 import { ENTITLEMENT_ID } from "../lib/entitlement";
 
-type PlanId = "weekly" | "monthly" | "yearly";
+type PlanId = "monthly" | "yearly";
 
 // Prix de secours si le store est injoignable (affichage seulement, l'achat exige le vrai package)
-const FALLBACK = { weekly: "4,99 €", monthly: "19,99 €", yearly: "49,99 €" };
+const FALLBACK = { monthly: "19,99 €", yearly: "49,99 €" };
 
 const BENEFITS = [
   "Discussions à thème illimitées, dans toutes les situations",
@@ -83,7 +83,7 @@ export default function PaywallScreen({
   onPurchased: () => void;
 }) {
   const [selected, setSelected] = useState<PlanId>("yearly");
-  const [pkgs, setPkgs] = useState<Record<PlanId, PurchasesPackage | null>>({ weekly: null, monthly: null, yearly: null });
+  const [pkgs, setPkgs] = useState<Record<PlanId, PurchasesPackage | null>>({ monthly: null, yearly: null });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -94,7 +94,7 @@ export default function PaywallScreen({
         const av = offerings.current?.availablePackages ?? [];
        
         const find = (t: string) => av.find((p) => p.packageType === t) ?? null;
-        setPkgs({ yearly: find("ANNUAL"), monthly: find("MONTHLY"), weekly: find("WEEKLY") });
+        setPkgs({ yearly: find("ANNUAL"), monthly: find("MONTHLY") });
       } catch (e) {
         console.warn("getOfferings échoué:", e);
       }
@@ -103,8 +103,22 @@ export default function PaywallScreen({
 
   const price = (id: PlanId) => pkgs[id]?.product.priceString ?? FALLBACK[id];
   const trialDays = (id: PlanId) => trialDaysFor(pkgs[id]);
-  const perLabel = (id: PlanId) => (id === "yearly" ? "/an" : id === "weekly" ? "/semaine" : "/mois");
+  const perLabel = (id: PlanId) => (id === "yearly" ? "/an" : "/mois");
   const selTrial = trialDays(selected);
+
+  // Équivalent mensuel de l'annuel, calculé depuis le vrai prix numérique du store (pas depuis le texte
+  // formaté, pour rester exact quelle que soit la devise) — replié sur 49,99/12 si le store est injoignable.
+  const yearlyMonthlyEquiv = () => {
+    const product: any = pkgs.yearly?.product;
+    const numeric = typeof product?.price === "number" ? product.price : null;
+    const currency = product?.currencyCode ?? "EUR";
+    const value = numeric ?? 49.99;
+    try {
+      return (value / 12).toLocaleString("fr-FR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } catch {
+      return `${(value / 12).toFixed(2)} €`;
+    }
+  };
 
   const buy = async () => {
     const pkg = pkgs[selected];
@@ -136,10 +150,9 @@ export default function PaywallScreen({
     }
   };
 
-  const PLANS: { id: PlanId; title: string; per: string; note?: string; badge?: string }[] = [
-    { id: "yearly", title: "Annuel", per: "/an", note: "soit 4,17 €/mois", badge: "LE PLUS POPULAIRE" },
-    { id: "monthly", title: "Mensuel", per: "/mois" },
-    { id: "weekly", title: "Hebdo", per: "/semaine", note: "Sans engagement, pour essayer" },
+  const PLANS: { id: PlanId; title: string; badge?: string }[] = [
+    { id: "yearly", title: "Annuel", badge: "LE PLUS POPULAIRE" },
+    { id: "monthly", title: "Mensuel" },
   ];
 
   return (
@@ -166,16 +179,40 @@ export default function PaywallScreen({
         {PLANS.map((p) => {
           const isSel = selected === p.id;
           const td = trialDays(p.id);
-          const note = [td ? `${td} jours offerts` : null, p.note].filter(Boolean).join(" · ");
+          const trialNote = td ? `${td} jours offerts · ` : "";
+
+          // Annuel : on met en avant l'équivalent mensuel (gros chiffre), avec le vrai prix
+          // facturé juste en dessous, toujours lisible — jamais caché.
+          if (p.id === "yearly") {
+            return (
+              <Pressable key={p.id} onPress={() => setSelected(p.id)} style={[styles.plan, styles.planYearly, isSel && styles.planSel]}>
+                {p.badge && <View style={styles.badge}><Text style={styles.badgeText}>{p.badge}</Text></View>}
+                <View style={styles.planRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.planTitle}>{p.title}</Text>
+                    <View style={styles.yearlyPriceRow}>
+                      <Text style={styles.yearlyBigPrice}>{yearlyMonthlyEquiv()}</Text>
+                      <Text style={styles.yearlyBigPer}>/mois</Text>
+                    </View>
+                    <Text style={styles.yearlySubNote}>{trialNote}soit {price("yearly")}/an, facturé en une fois</Text>
+                  </View>
+                  <View style={[styles.radio, isSel && styles.radioSel]}>
+                    {isSel && <Feather name="check" size={13} color={T.night} />}
+                  </View>
+                </View>
+              </Pressable>
+            );
+          }
+
+          const note = trialNote.replace(" · ", "");
           return (
             <Pressable key={p.id} onPress={() => setSelected(p.id)} style={[styles.plan, isSel && styles.planSel]}>
-              {p.badge && <View style={styles.badge}><Text style={styles.badgeText}>{p.badge}</Text></View>}
               <View style={styles.planRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.planTitle}>{p.title}</Text>
                   {note ? <Text style={styles.planNote}>{note}</Text> : null}
                 </View>
-                <Text style={styles.planPrice}>{price(p.id)}<Text style={styles.planPer}>{p.per}</Text></Text>
+                <Text style={styles.planPrice}>{price(p.id)}<Text style={styles.planPer}>{perLabel(p.id)}</Text></Text>
                 <View style={[styles.radio, isSel && styles.radioSel]}>
                   {isSel && <Feather name="check" size={13} color={T.night} />}
                 </View>
@@ -189,7 +226,7 @@ export default function PaywallScreen({
             ? `${selTrial} jours gratuits, puis ${price(selected)}${perLabel(selected)}, renouvellement automatique. Annule à tout moment dans le Play Store : si tu annules pendant l'essai, tu ne paieras rien.`
             : selected === "yearly"
             ? "Abonnement renouvelé automatiquement chaque année. Annulable à tout moment dans le Play Store, en un clic."
-            : `Abonnement renouvelé automatiquement (${selected === "weekly" ? "chaque semaine" : "chaque mois"}). Annulable à tout moment dans le Play Store, en un clic.`}
+            : "Abonnement renouvelé automatiquement chaque mois. Annulable à tout moment dans le Play Store, en un clic."}
         </Text>
       </ScrollView>
 
@@ -216,6 +253,11 @@ const styles = StyleSheet.create({
   benefitText: { color: T.night, fontSize: 14.5, fontWeight: "600", lineHeight: 20, flex: 1 },
   plan: { backgroundColor: T.card, borderRadius: 20, padding: 16, marginBottom: 12, borderWidth: 2, borderColor: "transparent" },
   planSel: { borderColor: T.abricot },
+  planYearly: { paddingTop: 14 },
+  yearlyPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 6 },
+  yearlyBigPrice: { color: T.night, fontSize: 32, fontWeight: "800", letterSpacing: -0.8 },
+  yearlyBigPer: { color: T.night, fontSize: 16, fontWeight: "700" },
+  yearlySubNote: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600", marginTop: 4 },
   badge: { alignSelf: "flex-start", backgroundColor: T.abricot, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8, marginBottom: 8 },
   badgeText: { color: T.night, fontSize: 10.5, fontWeight: "800", letterSpacing: 0.4 },
   planRow: { flexDirection: "row", alignItems: "center", gap: 10 },

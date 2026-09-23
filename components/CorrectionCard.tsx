@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { View, Text, StyleSheet, Pressable, Modal } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 
@@ -56,6 +57,7 @@ export default function CorrectionCard({
   onPlayCorrected?: () => void;
 }) {
   const [showDetail, setShowDetail] = useState(false);
+  const insets = useSafeAreaInsets();
   const hasErrors = correction.has_errors;
   const pronClear = pronunciation ? pronunciation.clear : true;
   const allGood = !hasErrors && pronClear;
@@ -107,7 +109,7 @@ export default function CorrectionCard({
       {/* ===== Panneau détaillé ===== */}
       <Modal visible={showDetail} transparent animationType="fade" onRequestClose={() => setShowDetail(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowDetail(false)}>
-          <Pressable style={styles.detailCard} onPress={() => {}}>
+          <Pressable style={[styles.detailCard, { paddingBottom: 22 + insets.bottom }]} onPress={() => {}}>
             <View style={styles.detailHead}>
               <View style={styles.detailHeadLeft}>
                 <View style={styles.sparkDot}><Feather name="edit-3" size={13} color="#FFFFFF" /></View>
@@ -146,12 +148,6 @@ export default function CorrectionCard({
             <View style={styles.explainBox}>
               <Feather name="info" size={15} color={T.inkSoft} style={{ marginTop: 1 }} />
               <Text style={styles.explainText}>{feedback}</Text>
-            </View>
-
-            <View style={styles.detailActions}>
-              <Pressable onPress={() => setShowDetail(false)} style={styles.continueBtn}>
-                <Text style={styles.continueText}>Continuer</Text>
-              </Pressable>
             </View>
           </Pressable>
         </Pressable>
@@ -202,8 +198,4 @@ const styles = StyleSheet.create({
   audioBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#F4F2ED", alignItems: "center", justifyContent: "center", marginTop: 26 },
   explainBox: { flexDirection: "row", gap: 9, backgroundColor: "#F4F2ED", borderRadius: 12, padding: 12, marginTop: 14 },
   explainText: { flex: 1, fontSize: 13.5, fontWeight: "600", color: T.inkSoft, lineHeight: 20 },
-
-  detailActions: { flexDirection: "row", gap: 10, marginTop: 18 },
-  continueBtn: { backgroundColor: T.night, borderRadius: 14, paddingVertical: 13, alignItems: "center" },
-  continueText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 });

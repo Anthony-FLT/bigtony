@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
@@ -16,7 +17,7 @@ import { SCENARIOS, Scenario, pickFirstScenario } from "./lib/scenarios";
 import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
-import FavoritesScreen from "./screens/FavoritesScreen";
+import DictionaryScreen from "./screens/DictionaryScreen";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
@@ -37,7 +38,7 @@ const TABS: { key: Tab; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "settings", icon: "settings" },
 ];
 
-export default function App() {
+function AppInner() {
   const [appState, setAppState] = useState<AppState>("loading");
   const [tab, setTab] = useState<Tab>("home");
   const [activeScenario, setActiveScenario] = useState<Scenario | null>(null);
@@ -58,6 +59,11 @@ export default function App() {
   const [showReading, setShowReading] = useState(false);
   const [showListening, setShowListening] = useState(false);
   const isPremium = access?.premium === true;
+  const insets = useSafeAreaInsets();
+  // Réserve l'espace de la barre de navigation système en bas (boutons ou gestes),
+  // ce qui remonte automatiquement tout le contenu — y compris les barres fixes des écrans.
+  const bgCream = [styles.rootCream, { paddingBottom: insets.bottom }];
+  const bgNight = [styles.rootNight, { paddingBottom: insets.bottom }];
 
   useEffect(() => { configurePurchases(); }, []);
 
@@ -93,12 +99,12 @@ export default function App() {
 
  
   if (appState === "loading") {
-    return <View style={styles.rootCream} />;
+    return <View style={bgCream} />;
   }
 
   if (appState === "onboarding") {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <OnboardingFlow
           onLaunch={() => {
@@ -112,7 +118,7 @@ export default function App() {
 
   if (creatingScene) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <CustomSceneScreen
           onBack={() => setCreatingScene(false)}
@@ -124,7 +130,7 @@ export default function App() {
 
   if (activeScenario) {
     return (
-      <View style={styles.rootNight}>
+      <View style={bgNight}>
         <StatusBar style="light" />
         <SpikeScreen scenario={activeScenario} onExit={() => setActiveScenario(null)} />
       </View>
@@ -132,7 +138,7 @@ export default function App() {
   }
 if (welcomeActive) {
     return (
-      <View style={styles.rootNight}>
+      <View style={bgNight}>
         <StatusBar style="light" />
         <SpikeScreen
           welcome
@@ -148,7 +154,7 @@ if (welcomeActive) {
   }
     if (dailyActive) {
     return (
-      <View style={styles.rootNight}>
+      <View style={bgNight}>
         <StatusBar style="light" />
         <SpikeScreen
           daily
@@ -160,7 +166,7 @@ if (welcomeActive) {
   }
     if (showScenarios) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <View style={{ flex: 1 }}>
           <ScenariosScreen onSelect={(s) => { setShowScenarios(false); setActiveScenario(s); }} onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }} onBack={() => setShowScenarios(false)}/>
@@ -170,15 +176,19 @@ if (welcomeActive) {
   }
   if (showFavorites) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
-        <FavoritesScreen onBack={() => setShowFavorites(false)} />
+        <DictionaryScreen
+          onBack={() => setShowFavorites(false)}
+          onStartConversation={() => { setShowFavorites(false); setDailyActive(true); }}
+          onOpenReading={() => { setShowFavorites(false); setShowReading(true); }}
+        />
       </View>
     );
   }
   if (showTranslation) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <TranslationScreen onBack={() => setShowTranslation(false)} />
       </View>
@@ -186,7 +196,7 @@ if (welcomeActive) {
   }
   if (showReading) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <ReadingScreen onBack={() => setShowReading(false)} />
       </View>
@@ -194,7 +204,7 @@ if (welcomeActive) {
   }
   if (showListening) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <ListeningScreen onBack={() => setShowListening(false)} />
       </View>
@@ -202,7 +212,7 @@ if (welcomeActive) {
   }
   if (showDailyHub) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <DailyHubScreen
           onBack={() => setShowDailyHub(false)}
@@ -215,7 +225,7 @@ if (welcomeActive) {
   }
   if (showPaywall) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
           <PaywallScreen
           dismissable={!paywallHard}
@@ -227,14 +237,14 @@ if (welcomeActive) {
   }
   if (showEditProfile) {
     return (
-      <View style={styles.rootCream}>
+      <View style={bgCream}>
         <StatusBar style="dark" />
         <EditProfileScreen onBack={() => setShowEditProfile(false)} />
       </View>
     );
   }
   return (
-    <View style={styles.rootCream}>
+    <View style={bgCream}>
       <StatusBar style={tab === "home" ? "light" : "dark"} />
       <View style={{ flex: 1 }}>
        {tab === "home" && (
@@ -292,9 +302,17 @@ if (welcomeActive) {
   );
 }
 
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppInner />
+    </SafeAreaProvider>
+  );
+}
+
 const styles = StyleSheet.create({
   rootCream: { flex: 1, backgroundColor: T.cream },
   rootNight: { flex: 1, backgroundColor: T.night },
-  tabBar: { flexDirection: "row", backgroundColor: T.cream, paddingBottom: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.creamLine },
+  tabBar: { flexDirection: "row", backgroundColor: T.cream, paddingBottom: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.creamLine },
   tabItem: { flex: 1, alignItems: "center" },
 });

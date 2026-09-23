@@ -1709,3 +1709,86 @@ Note: the transcription may contain minor recognition errors — don't penalize 
     };
   }
 );
+
+/* ---------------------------------------------------------------------
+   dictionaryEntry — fiche riche pour un mot/expression ajouté au Dictionnaire
+   (ex-Favoris) : type, IPA, définition, exemples en contexte, mots proches.
+   Générée une fois à l'ajout, mise en cache côté client (Firestore).
+   --------------------------------------------------------------------- */
+exports.dictionaryEntry = onCall(
+  { region: "europe-west1", secrets: [GEMINI_API_KEY], memory: "256MiB", timeoutSeconds: 30, maxInstances: 3 },
+  async (request) => {
+    const { word = "", fr = "" } = request.data || {};
+    if (!word || typeof word !== "string") throw new HttpsError("invalid-argument", "word manquant");
+
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+    const prompt = `You are building a rich dictionary entry for a FRENCH speaker learning English, for the English word or expression: "${word}"${fr ? ` (already known to roughly mean "${fr}" in French)` : ""}.
+Respond ONLY with JSON:
+- "word_type": one of "nom", "verbe", "adjectif", "adverbe", "expression" — pick "expression" for any multi-word phrase or idiom, otherwise the grammatical type of the single word.
+- "ipa": the IPA transcription, US English, with slashes (e.g. "/ʃɒp/").
+- "gloss": a very short French gloss (2 to 6 words), like a quick tag under the word (e.g. "boutique, magasin").
+- "definition_en": one clear, simple definition IN ENGLISH (1 sentence), at an intermediate learner's level.
+- "explanation_fr": 1 to 2 sentences IN FRENCH giving more context or nuance than a bare translation would (when/how it's used). Tutoie.
+- "register_tags": an array of 1 to 2 short French tags describing register/frequency (e.g. "Courant", "Plutôt à l'oral", "Familier", "Soutenu").
+- "related_words": an array of 3 to 5 short related English words or near-synonyms (single words or short phrases, no translations).
+- "examples": an array of EXACTLY 3 objects, each {"category", "en", "fr"}, where "category" is one of "pro" (au travail), "voyage" (en voyage), "quotidien" (vie de tous les jours) — one example per category — "en" is a short natural English sentence (6 to 12 words) that clearly uses "${word}" in that context, and "fr" is its French translation.`;
+
+    let entry;
+    try {
+      const r = await genWithRetry(ai, {
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: `Dictionary entry for "${word}".` }] }],
+        config: {
+          systemInstruction: prompt,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              word_type: { type: Type.STRING },
+              ipa: { type: Type.STRING },
+              gloss: { type: Type.STRING },
+              definition_en: { type: Type.STRING },
+              explanation_fr: { type: Type.STRING },
+              register_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+              related_words: { type: Type.ARRAY, items: { type: Type.STRING } },
+              examples: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    category: { type: Type.STRING },
+                    en: { type: Type.STRING },
+                    fr: { type: Type.STRING },
+                  },
+                  required: ["category", "en", "fr"],
+                },
+              },
+            },
+            required: ["word_type", "ipa", "gloss", "definition_en", "explanation_fr", "register_tags", "related_words", "examples"],
+          },
+          temperature: 0.5,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      });
+      entry = JSON.parse(r.text);
+    } catch (e) {
+      console.error("dictionaryEntry error", e);
+      throw new HttpsError("internal", `Dictionnaire: ${e.message}`);
+    }
+
+    // Garde-fou : ne garder que des catégories connues (le reste, filtré côté client de toute façon).
+    const VALID_CAT = new Set(["pro", "voyage", "quotidien"]);
+    const examples = Array.isArray(entry.examples) ? entry.examples.filter((e) => VALID_CAT.has(e?.category)) : [];
+
+    return {
+      word_type: entry.word_type,
+      ipa: entry.ipa,
+      gloss: entry.gloss,
+      definition_en: entry.definition_en,
+      explanation_fr: entry.explanation_fr,
+      register_tags: Array.isArray(entry.register_tags) ? entry.register_tags : [],
+      related_words: Array.isArray(entry.related_words) ? entry.related_words : [],
+      examples,
+    };
+  }
+);

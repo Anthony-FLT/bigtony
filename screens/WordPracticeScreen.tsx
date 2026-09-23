@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAudioRecorder, useAudioPlayer, RecordingPresets, setAudioModeAsync, AudioModule } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
@@ -20,6 +21,7 @@ const toIPA = (ph: string) => ARPA_IPA[ph.toLowerCase().replace(/[0-9]/g, "")] |
 export default function WordPracticeScreen({ word, heardAs, onClose }: { word: string; heardAs?: string; onClose: () => void }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer();
+  const insets = useSafeAreaInsets();
   const [coaching, setCoaching] = useState<Coaching | null>(null);
   const [step, setStep] = useState<"discover" | "use">("discover");
   const [status, setStatus] = useState<"idle" | "recording" | "processing">("idle");
@@ -31,8 +33,16 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
   const [showExample, setShowExample] = useState(false);
   const [usage, setUsage] = useState<WordUsageResult | null>(null);
   const recStart = useRef(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const PASS_SCORE = 85; // seuil de validation de l'étape 1
 
   useEffect(() => { getWordCoaching(word).then(setCoaching); }, [word]);
+  // Fait défiler jusqu'au résultat dès qu'il arrive
+  useEffect(() => {
+    if (score === null && !usage) return;
+    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+    return () => clearTimeout(t);
+  }, [score, usage]);
 
   const playB64 = async (b64: string) => {
     try {
@@ -123,7 +133,7 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 26, paddingBottom: 240 }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 26, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {!coaching ? (
           <ActivityIndicator color={T.abricotDeep} style={{ marginTop: 40 }} />
         ) : step === "discover" ? (
@@ -168,7 +178,7 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
                   </View>
                 )}
                 <Text style={styles.verdict}>
-                  {score >= 85 ? "Excellent — passe à l'étape suivante."
+                  {score >= PASS_SCORE ? "Excellent — passe à l'étape suivante."
                     : score >= 70 ? "Presque ! Réécoute le modèle et réessaie."
                     : "Reprends doucement en suivant le conseil ci-dessus."}
                 </Text>
@@ -251,7 +261,7 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
       </ScrollView>
 
       {/* Barre du bas : micro + navigation d'étape */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: 30 + insets.bottom }]}>
         <View style={styles.micWrap}>
           <Pressable onPressIn={startRec} onPressOut={stopRec} disabled={status === "processing" || !coaching} style={[styles.mic, status === "recording" && styles.micActive]}>
             {status === "processing" ? <ActivityIndicator color="#fff" /> : <Feather name="mic" size={28} color={status === "recording" ? "#fff" : T.night} />}
@@ -262,10 +272,12 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
         </View>
 
         {step === "discover" ? (
+          score !== null && score >= PASS_SCORE ? (
           <Pressable onPress={() => setStep("use")} disabled={!coaching} style={styles.nextBtn}>
             <Text style={styles.nextText}>Utiliser ce mot</Text>
             <Feather name="arrow-right" size={18} color={T.abricotDeep} />
           </Pressable>
+          ) : null
         ) : (
           <Pressable onPress={onClose} hitSlop={8} style={{ paddingVertical: 8 }}>
             <Text style={styles.skip}>Passer ce mot</Text>
@@ -347,7 +359,7 @@ const styles = StyleSheet.create({
   doneBtn: { backgroundColor: T.abricot, borderRadius: 16, paddingVertical: 15, alignItems: "center", marginTop: 8 },
   doneText: { color: T.night, fontSize: 15, fontWeight: "800" },
 
-  bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, alignItems: "center", paddingBottom: 30, paddingTop: 10, backgroundColor: T.cream, paddingHorizontal: 26 },
+  bottomBar: { alignItems: "center", paddingBottom: 30, paddingTop: 10, backgroundColor: T.cream, paddingHorizontal: 26 },
   micWrap: { alignItems: "center" },
   mic: { width: 76, height: 76, borderRadius: 38, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
   micActive: { backgroundColor: T.corail },
