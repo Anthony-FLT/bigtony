@@ -89,7 +89,7 @@ export default function HomeScreen({
           <View style={{ flex: 1 }}>
             <Text style={styles.hello}>Salut {profile?.name ?? ""} </Text>
             <Text style={styles.helloSub}>Prêt à parler anglais aujourd'hui ?</Text>
-            <WeekStrip days={week} dark />
+            <WeekStrip days={week} goal={profile?.weeklyGoal ?? 3} dark />
           </View>
           <View style={styles.streakPill}>
             <Feather name="zap" size={16} color={T.abricot} />

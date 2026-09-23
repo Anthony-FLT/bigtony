@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="330" height="130" viewBox="0 0 330 130" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><linearGradient id="lr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E4DEFA"></stop><stop offset="1" stop-color="#F5F1FF"></stop></linearGradient></defs>
+<rect width="330" height="130" fill="url(#lr)"></rect>
+<rect x="18" y="14" width="78" height="70" rx="8" fill="#ffffff" opacity="0.85"></rect><path d="M57 14v70M18 49h78" stroke="#E4DEFA" stroke-width="3"></path><circle cx="78" cy="32" r="9" fill="#FDC36E"></circle>
+<rect x="0" y="108" width="330" height="22" fill="#D6CEF3"></rect>
+<path d="M112 20q18 -8 30 6" fill="none" stroke="#1D2B4B" stroke-width="3" stroke-linecap="round"></path><path d="M134 22h22l-4 12h-14z" fill="#FF9E60"></path><path d="M112 20v88" stroke="#1D2B4B" stroke-width="3"></path><rect x="102" y="104" width="20" height="5" rx="2" fill="#1D2B4B"></rect>
+<path d="M150 98c20-8 38-8 55 2 17-10 35-10 55-2v10c-20-8-38-8-55 2-17-10-35-10-55-2z" fill="#B7A9F0"></path>
+<path d="M152 94c20-10 36-10 53 0v14c-17-10-33-10-53 0z" fill="#ffffff"></path><path d="M205 94c17-10 33-10 53 0v14c-20-10-36-10-53 0z" fill="#FBF8FF"></path>
+<path d="M162 100q18-7 36 0M164 106q16-6 32 0M214 100q18-7 36 0M216 106q16-6 32 0" fill="none" stroke="#C9C0EE" stroke-width="2" stroke-linecap="round"></path>
+<path d="M205 94v14" stroke="#B7A9F0" stroke-width="2"></path>
+<path d="M290 42c-4-8 4-10 0-18" fill="none" stroke="#FF9E60" stroke-width="2.5" stroke-linecap="round"></path><path d="M298 42c-4-8 4-10 0-18" fill="none" stroke="#FF9E60" stroke-width="2.5" stroke-linecap="round" opacity="0.6"></path>
+<rect x="270" y="92" width="48" height="12" rx="3" fill="#FF9E60"></rect><rect x="274" y="80" width="42" height="12" rx="3" fill="#1D2B4B"></rect><rect x="268" y="68" width="46" height="12" rx="3" fill="#FDC36E"></rect><path d="M278 86h24M276 74h20" stroke="#ffffff" stroke-width="2" opacity="0.7"></path>
+<rect x="282" y="46" width="22" height="20" rx="4" fill="#ffffff"></rect><path d="M304 52a5 5 0 010 9" fill="none" stroke="#ffffff" stroke-width="3"></path>
+<path d="M30 108l4-16h20l4 16z" fill="#FF9E60"></path><path d="M44 92c-10 0-14-8-12-16 8 2 12 8 12 16zM44 92c2-10 8-14 16-12-2 8-8 12-16 12zM44 90c-4-10 0-18 4-20 3 8 1 16-4 20z" fill="#6FC08F"></path>
+</svg>

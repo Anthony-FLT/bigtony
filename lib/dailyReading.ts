@@ -49,3 +49,32 @@ export async function getTodayReading(): Promise<ReadingContent | null> {
     return null;
   }
 }
+
+// Réponses déjà données aujourd'hui (pour ne pas perdre le résultat en quittant/revenant sur l'écran).
+export async function getTodayReadingAnswers(): Promise<Record<number, number>> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return {};
+  try {
+    const snap = await getDoc(doc(db, "users", uid, "dailyChallenges", todayKey()));
+    const d: any = snap.data() || {};
+    return d.readingAnswers ?? {};
+  } catch (e) {
+    console.warn("getTodayReadingAnswers échoué:", e);
+    return {};
+  }
+}
+
+// Enregistre une réponse au fil de l'eau (merge : n'écrase pas les autres questions déjà répondues).
+export async function saveReadingAnswer(questionIndex: number, optionIndex: number): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(
+      doc(db, "users", uid, "dailyChallenges", todayKey()),
+      { readingAnswers: { [questionIndex]: optionIndex } },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("saveReadingAnswer échoué:", e);
+  }
+}

@@ -49,3 +49,31 @@ export async function getTodayListening(): Promise<ListeningContent | null> {
     return null;
   }
 }
+
+// Réponses déjà données aujourd'hui (même principe que la lecture — pour ne pas perdre le résultat).
+export async function getTodayListeningAnswers(): Promise<Record<number, number>> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return {};
+  try {
+    const snap = await getDoc(doc(db, "users", uid, "dailyChallenges", todayKey()));
+    const d: any = snap.data() || {};
+    return d.listeningAnswers ?? {};
+  } catch (e) {
+    console.warn("getTodayListeningAnswers échoué:", e);
+    return {};
+  }
+}
+
+export async function saveListeningAnswer(questionIndex: number, optionIndex: number): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(
+      doc(db, "users", uid, "dailyChallenges", todayKey()),
+      { listeningAnswers: { [questionIndex]: optionIndex } },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("saveListeningAnswer échoué:", e);
+  }
+}

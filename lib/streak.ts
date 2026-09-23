@@ -42,7 +42,16 @@ export function milestoneReached(streak: number): number | null {
   return STREAK_MILESTONES.includes(streak) ? streak : null;
 }
 
-// Les 7 jours de la semaine EN COURS (lundi → dimanche) : true = au moins une session ce jour-là.
+// Objectif hebdomadaire : jours pratiqués cette semaine vs objectif fixé.
+export type WeeklyGoalStatus = { done: number; goal: number; reached: boolean; remaining: number };
+
+export async function getWeeklyGoalStatus(goal: number): Promise<WeeklyGoalStatus> {
+  const g = goal && goal > 0 ? goal : 3;
+  const week = await getWeekActivity();
+  const done = week.filter(Boolean).length;
+  const remaining = Math.max(0, g - done);
+  return { done, goal: g, reached: done >= g, remaining };
+}
 export async function getWeekActivity(): Promise<boolean[]> {
   const week = new Array(7).fill(false) as boolean[];
   const uid = auth.currentUser?.uid;
