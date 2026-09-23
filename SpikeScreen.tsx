@@ -5,6 +5,7 @@ import { SkeletonCard, SkeletonLine, SkeletonBox } from "./components/Skeleton";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   useAudioRecorder,
+  useAudioRecorderState,
   useAudioPlayer,
   RecordingPresets,
   AudioModule,
@@ -22,8 +23,34 @@ import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
 import { recordStumble } from "./lib/practiceWords";
 import DebriefView from "./components/DebriefView";
-import CorrectionCard, { Correction } from "./components/CorrectionCard";
+import CorrectionCard, { Correction, PronStatus } from "./components/CorrectionCard";
 import { StatusBar } from "expo-status-bar";
+
+// Illustrations : scènes préenregistrées (mêmes visuels que l'écran de sélection) + une image générique pour la discussion du jour.
+import EntretienEmbaucheImg from "./assets/scenes/01-entretien-embauche.svg";
+import PointHebdoVisioImg from "./assets/scenes/02-point-hebdo-visio.svg";
+import PresenterProjetImg from "./assets/scenes/03-presenter-projet.svg";
+import NegocierSalaireImg from "./assets/scenes/04-negocier-salaire.svg";
+import ArriveeHotelImg from "./assets/scenes/05-arrivee-hotel.svg";
+import ControleAeroportImg from "./assets/scenes/06-controle-aeroport.svg";
+import CommanderRestaurantImg from "./assets/scenes/07-commander-restaurant.svg";
+import RencontrerQuelquunImg from "./assets/scenes/08-rencontrer-quelquun.svg";
+import CafeEntreAmisImg from "./assets/scenes/09-cafe-entre-amis.svg";
+import DemanderCheminImg from "./assets/scenes/10-demander-chemin.svg";
+import DailySceneImg from "./assets/hub/daily-scene-aleatoire.svg";
+
+const SCENE_ILLUSTRATIONS: Record<string, React.ComponentType<any>> = {
+  "entretien-embauche": EntretienEmbaucheImg,
+  "point-hebdo-teams": PointHebdoVisioImg,
+  "presentation-pro": PresenterProjetImg,
+  "negociation-salaire": NegocierSalaireImg,
+  "arrivee-hotel": ArriveeHotelImg,
+  "aeroport-controle": ControleAeroportImg,
+  "restaurant-commande": CommanderRestaurantImg,
+  "rencontre-inconnu": RencontrerQuelquunImg,
+  "cafe-ami": CafeEntreAmisImg,
+  "demander-chemin": DemanderCheminImg,
+};
 
 const spikeTurn = httpsCallable(functions, "spikeTurn", { timeout: 70000 });
 const chatTurn = httpsCallable(functions, "chatTurn", { timeout: 40000 });
@@ -122,7 +149,12 @@ function friendlyError(e: any): string {
 
 export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // metering: niveau sonore en direct pendant l'enregistrement, si le SDK le fournit (voir startRecording).
+  // Repli propre si non disponible : recorderState.metering reste undefined, les barres restent au repos.
+  const recorderState = useAudioRecorderState(recorder, 80);
   const player = useAudioPlayer();
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const SceneIllustration = (daily || welcome) ? DailySceneImg : SCENE_ILLUSTRATIONS[scenario.id];
   const [turns, setTurns] = useState<Turn[]>([]);
   const [opening, setOpening] = useState<Opening>(null);
   const [debrief, setDebrief] = useState<Debrief>(null);
@@ -191,6 +223,18 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     }, 4500);
     return () => clearTimeout(t);
   }, [showTranslateHint]);
+
+  // Chronomètre pendant l'enregistrement.
+  useEffect(() => {
+    if (status !== "recording") { setRecordingSeconds(0); return; }
+    const start = Date.now();
+    const id = setInterval(() => setRecordingSeconds(Math.floor((Date.now() - start) / 1000)), 200);
+    return () => clearInterval(id);
+  }, [status]);
+
+  // Poids fixes par barre (variation visuelle) — le niveau réel (metering) module leur hauteur en direct.
+  const WAVE_BARS = 28;
+  const waveWeights = useRef(Array.from({ length: WAVE_BARS }, () => 0.5 + Math.random() * 0.5)).current;
 
   const playBase64 = async (base64: string) => {
     const p = FileSystem.cacheDirectory + `reply_${Date.now()}.mp3`;
@@ -352,11 +396,29 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     setError(null); setHint(null);
     try {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+      // isMeteringEnabled : nécessaire pour que recorderState.metering soit alimenté (barres réactives en direct).
+      await recorder.prepareToRecordAsync({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
       recorder.record();
       recordStartRef.current = Date.now();
       setStatus("recording");
     } catch (e: any) { setError(friendlyError(e)); setStatus("idle"); }
+  };
+
+  // Annule l'enregistrement en cours (icône poubelle) — rien n'est envoyé.
+  const cancelRecording = async () => {
+    if (status !== "recording") return;
+    try {
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    } catch (e) { console.warn("Annulation échouée:", e); }
+    setStatus("idle");
+  };
+
+  // Un tap démarre, un tap envoie (pas un "maintenir" : la carte d'enregistrement remplace le bouton
+  // à l'écran, ce qui interromprait un geste de pression continue sur le même élément).
+  const toggleRecording = () => {
+    if (status === "idle") startRecording();
+    else if (status === "recording") stopAndSend();
   };
 
   const stopAndSend = async () => {
@@ -475,6 +537,9 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     setTimeout(() => setFavFlash(false), 1400);
   };
 
+  // "Ajouter aux révisions" (panneau de correction) : retiré — pas cohérent de forcer une phrase
+  // entière dans le Labo, qui est pensé pour des mots.
+
   const onWordTap = async (raw: string, knownFr: string, key: string) => {
     const word = raw.replace(/[^A-Za-z'-]/g, "");
     if (!word) return;
@@ -534,6 +599,16 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       {renderBubbleText(text, hardWords, key)}
       {bubbleFr[key] ? <Text style={styles.translation}>{bubbleFr[key]}</Text> : null}
       <View style={styles.bubbleActions}>
+        <Pressable onPress={() => playText(key, text)} style={styles.translateBtn} hitSlop={8}>
+          {listenLoading[key] ? (
+            <ActivityIndicator size="small" color="#CFC8BE" />
+          ) : (
+            <>
+              <Feather name="play" size={13} color="#CFC8BE" />
+              <Text style={styles.translateBtnText}>Réécouter</Text>
+            </>
+          )}
+        </Pressable>
         <Pressable onPress={() => toggleBubble(key, text)} style={styles.translateBtn} hitSlop={8}>
           {bubbleLoading[key] ? (
             <ActivityIndicator size="small" color="#CFC8BE" />
@@ -544,18 +619,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             </>
           )}
         </Pressable>
-        {channel === "text" && (
-          <Pressable onPress={() => playText(key, text)} style={styles.translateBtn} hitSlop={8}>
-            {listenLoading[key] ? (
-              <ActivityIndicator size="small" color="#CFC8BE" />
-            ) : (
-              <>
-                <Feather name="volume-2" size={13} color="#CFC8BE" />
-                <Text style={styles.translateBtnText}>Écouter</Text>
-              </>
-            )}
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -577,16 +640,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             <Feather name="sliders" size={12} color={T.abricotDeep} />
             <Text style={styles.speedPillText}>{labelForRate(speechRate)}</Text>
           </Pressable>
-        )}
-        {!showChannelChoice && (
-          <View style={styles.channelToggle}>
-            <Pressable onPress={() => { if (status === "idle") setChannel("voice"); }} style={[styles.channelPill, channel === "voice" && styles.channelPillActive]}>
-              <Feather name="mic" size={16} color={channel === "voice" ? T.night : T.inkSoft} />
-            </Pressable>
-            <Pressable onPress={() => { if (status === "idle") setChannel("text"); }} style={[styles.channelPill, channel === "text" && styles.channelPillActive]}>
-              <Feather name="message-square" size={16} color={channel === "text" ? T.night : T.inkSoft} />
-            </Pressable>
-          </View>
         )}
         {turns.length > 0 && !debrief && (
           <Pressable onPress={runDebrief} disabled={status !== "idle"} hitSlop={10} style={styles.closeBtn}>
@@ -613,10 +666,24 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
 
         {opening && (
           <>
-            <View style={styles.sceneCard}>
-              <Text style={styles.sceneK}>LA SCÈNE</Text>
-              <Text style={styles.sceneText}>{opening.context_fr}</Text>
-            </View>
+            {turns.length === 0 ? (
+              <View style={styles.sceneCard}>
+                {SceneIllustration && (
+                  <View style={styles.sceneImgWrap}><SceneIllustration width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} /></View>
+                )}
+                <View style={styles.sceneTextInner}>
+                  <Text style={styles.sceneK}>LA SCÈNE</Text>
+                  <Text style={styles.sceneText}>{opening.context_fr}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.scenePill}>
+                {SceneIllustration && (
+                  <View style={styles.scenePillImgWrap}><SceneIllustration width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} /></View>
+                )}
+                <Text style={styles.scenePillText} numberOfLines={1}>{opening.context_fr}</Text>
+              </View>
+            )}
             {renderCoachBubble(opening.reply_en, opening.hardWords, "op")}
           </>
         )}
@@ -628,28 +695,9 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             <CorrectionCard
               correction={t.correction ?? { has_errors: false, original: [], corrected: [] }}
               feedback={t.feedback ?? ""}
+              pronunciation={t.pronunciation ? { clear: (t.misheard ?? []).length === 0, problems: t.misheard ?? [] } : undefined}
               onPlayCorrected={t.correction?.has_errors ? () => playCorrected(t.correction!) : undefined}
             />
-
-            {t.pronunciation && (() => {
-              const problems = t.misheard ?? [];
-              const clear = problems.length === 0;
-              const color = clear ? "#3B9A6A" : "#C77A2E";
-              return (
-                <View style={styles.pronCard}>
-                  <View style={styles.pronRow}>
-                    <View style={[styles.pronDot, { backgroundColor: color }]} />
-                    <Text style={[styles.pronLabel, { color }]}>{clear ? "Prononciation claire" : "Prononciation à revoir"}</Text>
-                  </View>
-                  {problems.map((m, k) => (
-                    <View key={k} style={styles.mishRow}>
-                      <Feather name="alert-triangle" size={13} color="#C77A2E" />
-                      <Text style={styles.mishText}>« {m.said} » — on a entendu « {m.heard} »</Text>
-                    </View>
-                  ))}
-                </View>
-              );
-            })()}
 
             {renderCoachBubble(t.coach, t.hardWords, `t${i}`)}
           </View>
@@ -693,24 +741,49 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             </Pressable>
           </View>
         ) : channel === "voice" ? (
-          <View style={styles.controls}>
-            <View style={styles.micZone}>
-              <Pressable
-                onPressIn={startRecording}
-                onPressOut={stopAndSend}
-                disabled={status !== "idle" && status !== "recording"}
-                style={[styles.mic, status === "recording" && styles.micActive]}
-              >
-                <Feather name="mic" size={30} color="#fff" />
-              </Pressable>
-              <Text style={styles.micLabel}>
-                {status === "recording" ? "Relâche pour envoyer" : "Maintiens pour parler"}
-              </Text>
+          status === "recording" ? (
+            <View style={styles.recCard}>
+              <View style={styles.waveformRow}>
+                {waveWeights.map((w, i) => {
+                  // metering (dBFS, très négatif = silence, proche de 0 = fort) — normalisé en 0..1.
+                  // Repli : si non disponible sur ce SDK/appareil, level reste à un niveau bas fixe (barres calmes, pas figées à plat).
+                  const metering = recorderState.metering;
+                  const level = typeof metering === "number" ? Math.max(0, Math.min(1, (metering + 55) / 55)) : 0.15;
+                  const h = 4 + w * level * 34;
+                  return <View key={i} style={[styles.waveBarLive, { height: h }]} />;
+                })}
+              </View>
+              <View style={styles.recRow}>
+                <Pressable onPress={cancelRecording} style={styles.cancelBtn} hitSlop={10}>
+                  <Feather name="trash-2" size={18} color="#C0392B" />
+                </Pressable>
+                <Pressable onPress={toggleRecording} style={[styles.mic, styles.micActive]}>
+                  <Feather name="mic" size={28} color="#fff" />
+                </Pressable>
+                <Text style={styles.recTime}>{Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, "0")}</Text>
+              </View>
+              <Text style={styles.recHint}>Touche le micro pour envoyer · la poubelle pour annuler</Text>
             </View>
-          </View>
+          ) : (
+            <View style={styles.controls}>
+              <Pressable onPress={() => setChannel("text")} style={styles.keyboardBtn} hitSlop={10}>
+                <MaterialCommunityIcons name="keyboard-outline" size={20} color={T.inkSoft} />
+              </Pressable>
+              <View style={styles.micZone}>
+                <Pressable onPress={toggleRecording} disabled={status !== "idle"} style={styles.mic}>
+                  <Feather name="mic" size={30} color="#fff" />
+                </Pressable>
+                <Text style={styles.micLabel}>Touche pour parler</Text>
+              </View>
+              <View style={{ width: 44 }} />
+            </View>
+          )
         ) : (
           <View style={styles.textControls}>
             <View style={styles.inputRow}>
+              <Pressable onPress={() => { if (status === "idle") setChannel("voice"); }} style={styles.keyboardBtn} hitSlop={10}>
+                <Feather name="mic" size={19} color={T.inkSoft} />
+              </Pressable>
               <TextInput
                 style={styles.textInput}
                 value={textInput}
@@ -839,10 +912,19 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
             ) : wordPopup?.fr ? (
               <>
                 <Text style={styles.wordFr}>{wordPopup.fr}</Text>
-                <Pressable onPress={() => addWordToFav({ word: wordPopup!.word, fr: wordPopup!.fr })} style={styles.wordFavBtn}>
-                  <Feather name="star" size={16} color={T.night} />
-                  <Text style={styles.wordFavText}>Ajouter aux favoris</Text>
-                </Pressable>
+                <View style={styles.wordBtnRow}>
+                  <Pressable onPress={() => playText(`pop-${wordPopup!.word}`, wordPopup!.word)} style={styles.wordListenBtn}>
+                    {listenLoading[`pop-${wordPopup!.word}`] ? (
+                      <ActivityIndicator size="small" color={T.night} />
+                    ) : (
+                      <><Feather name="volume-2" size={15} color={T.night} /><Text style={styles.wordListenText}>Écouter</Text></>
+                    )}
+                  </Pressable>
+                  <Pressable onPress={() => addWordToFav({ word: wordPopup!.word, fr: wordPopup!.fr })} style={styles.wordFavBtn}>
+                    <Feather name="star" size={16} color={T.night} />
+                    <Text style={styles.wordFavText}>Ajouter à mes mots</Text>
+                  </Pressable>
+                </View>
               </>
             ) : (
               <Text style={styles.wordFrMuted}>Traduction indisponible</Text>
@@ -885,9 +967,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, marginBottom: 10 },
 
   // Toggle de canal (voix / texte) dans le header
-  channelToggle: { flexDirection: "row", backgroundColor: "#F2ECE3", borderRadius: 10, padding: 2, gap: 2 },
-  channelPill: { paddingVertical: 6, paddingHorizontal: 9, borderRadius: 8 },
-  channelPillActive: { backgroundColor: "#FFFFFF" },
+  keyboardBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#F2ECE3", alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#F2ECE3", alignItems: "center", justifyContent: "center" },
 
   // Assistant : barre de deux boutons
@@ -910,9 +990,14 @@ const styles = StyleSheet.create({
   assistListen: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 4 },
   assistListenText: { color: T.inkSoft, fontSize: 12.5, fontWeight: "700" },
 
-  sceneCard: { backgroundColor: "#FFFFFF", borderRadius: 18, padding: 14, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: T.abricot },
+  sceneCard: { backgroundColor: "#FFFFFF", borderRadius: 18, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: T.abricot, overflow: "hidden" },
+  sceneImgWrap: { height: 90, backgroundColor: T.creamLine },
+  sceneTextInner: { padding: 14 },
   sceneK: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 4 },
   sceneText: { color: T.inkSoft, fontSize: 13, fontWeight: "600", lineHeight: 20 },
+  scenePill: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FFFFFF", borderRadius: 14, paddingVertical: 7, paddingHorizontal: 10, marginBottom: 12, alignSelf: "flex-start", maxWidth: "80%" },
+  scenePillImgWrap: { width: 26, height: 26, borderRadius: 8, overflow: "hidden", backgroundColor: T.creamLine },
+  scenePillText: { color: T.inkSoft, fontSize: 12, fontWeight: "700", flexShrink: 1 },
 
   themBubble: { backgroundColor: T.night, borderRadius: 20, borderTopLeftRadius: 6, padding: 13, marginBottom: 10, marginRight: 38, alignItems: "flex-start" },
   themText: { color: "#F2ECE1", fontSize: 14, fontWeight: "600", lineHeight: 22 },
@@ -927,14 +1012,6 @@ const styles = StyleSheet.create({
   meBubble: { backgroundColor: T.abricot, borderRadius: 20, borderTopRightRadius: 6, padding: 13, marginBottom: 8, marginLeft: 38 },
   meText: { color: T.night, fontSize: 14, fontWeight: "700", lineHeight: 21 },
 
-  pronCard: { backgroundColor: "#FFFFFF", borderRadius: 14, padding: 12, marginBottom: 10, marginRight: 38 },
-  pronRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pronDot: { width: 9, height: 9, borderRadius: 5 },
-  pronLabel: { fontSize: 13, fontWeight: "800" },
-  pronScoreNum: { color: T.inkSoft, fontSize: 12, fontWeight: "700", marginLeft: "auto" },
-  mishRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7 },
-  mishText: { color: "#C0392B", fontSize: 12.5, fontWeight: "700", flex: 1 },
-
   controls: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingBottom: 24 },
   controlsSpacer: { width: 84 },
   endButton: { width: 84, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 11, alignItems: "center" },
@@ -943,6 +1020,14 @@ const styles = StyleSheet.create({
   mic: { width: 76, height: 76, borderRadius: 38, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
   micActive: { backgroundColor: "#E8734D" },
   micLabel: { color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 9 },
+
+  recCard: { backgroundColor: "#FFFFFF", borderRadius: 24, marginHorizontal: 20, marginBottom: 20, padding: 18, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 6 },
+  waveformRow: { flexDirection: "row", alignItems: "center", gap: 3, height: 40, alignSelf: "stretch", justifyContent: "center" },
+  waveBarLive: { width: 3, borderRadius: 1.5, backgroundColor: T.abricot },
+  recRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", alignSelf: "stretch", marginTop: 14 },
+  cancelBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#FBDAD3", alignItems: "center", justifyContent: "center" },
+  recTime: { color: T.inkSoft, fontSize: 13, fontWeight: "700", width: 44, textAlign: "right" },
+  recHint: { color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 12 },
   limitButton: { flex: 1, backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", marginHorizontal: 20 },
   limitButtonText: { color: T.night, fontSize: 15, fontWeight: "800" },
 
@@ -975,7 +1060,10 @@ const styles = StyleSheet.create({
   wordEn: { color: T.night, fontSize: 24, fontWeight: "800", letterSpacing: -0.4 },
   wordFr: { color: T.abricotDeep, fontSize: 18, fontWeight: "700", marginTop: 6 },
   wordFrMuted: { color: T.inkSoft, fontSize: 14, fontWeight: "600", marginTop: 6, textAlign: "center" },
-  wordFavBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: T.abricot, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 20, marginTop: 18 },
+  wordBtnRow: { flexDirection: "row", gap: 10, marginTop: 18, alignSelf: "stretch" },
+  wordListenBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: "#F0EAE0", borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16 },
+  wordListenText: { color: T.night, fontSize: 13.5, fontWeight: "800" },
+  wordFavBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: T.abricot, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16 },
   wordFavText: { color: T.night, fontSize: 14, fontWeight: "800" },
 
   congratsOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.8)", alignItems: "center", justifyContent: "center", padding: 36 },
