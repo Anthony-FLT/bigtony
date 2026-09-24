@@ -5,6 +5,7 @@ import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { getChallengesDone, HUB_CHALLENGES, ChallengeType } from "../lib/dailyChallenges";
 import { markTrialExerciseUsed } from "../lib/profile";
+import { logTrialExerciseStart } from "../lib/analytics";
 
 import TuileLecture from "../assets/hub/tuile-lecture.svg";
 import TuileTraduction from "../assets/hub/tuile-traduction.svg";
@@ -77,6 +78,7 @@ export default function DailyHubScreen({
     if (premium) { OPEN[c]?.(); return; }
     if (trialExercisesDone[c] || justUsed[c]) { onLocked(); return; }
     setJustUsed((prev) => ({ ...prev, [c]: true }));
+    logTrialExerciseStart(c);
     markTrialExerciseUsed(c).catch(() => {});
     OPEN[c]?.();
   };

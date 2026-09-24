@@ -5,6 +5,7 @@ import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { T } from "../lib/theme";
 import { configurePurchases } from "../lib/purchases";
 import { ENTITLEMENT_ID } from "../lib/entitlement";
+import { logPurchaseStart, logPurchaseComplete, logPurchaseFailed, logPurchaseRestored, logPaywallDismissed } from "../lib/analytics";
 
 type PlanId = "monthly" | "yearly";
 
@@ -127,10 +128,15 @@ export default function PaywallScreen({
       return;
     }
     setBusy(true);
+    logPurchaseStart(selected);
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
-      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) onPurchased();
+      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
+        logPurchaseComplete(selected);
+        onPurchased();
+      }
     } catch (e: any) {
+      logPurchaseFailed(selected, e.userCancelled ? "user_cancelled" : (e.message ?? String(e)));
       if (!e.userCancelled) Alert.alert("Achat impossible", e.message ?? String(e));
     } finally {
       setBusy(false);
@@ -141,7 +147,7 @@ export default function PaywallScreen({
     setBusy(true);
     try {
       const info = await Purchases.restorePurchases();
-      if (info.entitlements.active[ENTITLEMENT_ID]) onPurchased();
+      if (info.entitlements.active[ENTITLEMENT_ID]) { logPurchaseRestored(); onPurchased(); }
       else Alert.alert("Aucun achat trouvé", "Aucun abonnement actif n'est associé à ton compte Google.");
     } catch (e: any) {
       Alert.alert("Restauration impossible", e.message ?? String(e));
@@ -158,7 +164,7 @@ export default function PaywallScreen({
   return (
     <View style={styles.container}>
       {dismissable && (
-        <Pressable onPress={onClose} hitSlop={12} style={styles.close}>
+        <Pressable onPress={() => { logPaywallDismissed(); onClose(); }} hitSlop={12} style={styles.close}>
           <Feather name="x" size={22} color={T.night} />
         </Pressable>
       )}

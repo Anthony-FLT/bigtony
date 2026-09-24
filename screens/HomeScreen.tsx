@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Modal
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { useTourTarget } from "../TourContext";
+import { PaywallSource } from "../lib/analytics";
 import { getTodayDailySession, isDailyDone } from "../lib/daily";
 import { computeStreak, milestoneReached } from "../lib/streak";
 import { loadProfile, Profile, saveMilestone } from "../lib/profile";
@@ -42,7 +43,7 @@ export default function HomeScreen({
   onGoScenarios: () => void;
   onGoDailyHub: () => void;
   onGoFavorites: () => void;
-  onShowPaywall: () => void;
+  onShowPaywall: (source: PaywallSource) => void;
 }) {
   const parlerTarget = useTourTarget("home-parler");
   const reviserTarget = useTourTarget("home-reviser");
@@ -87,7 +88,7 @@ export default function HomeScreen({
 
   const toggleExprFav = async () => {
     if (!expr) return;
-    if (!premium) { onShowPaywall(); return; }
+    if (!premium) { onShowPaywall("daily_expression_favorite"); return; }
     if (exprFav) { await removeFavorite(expr.en); setExprFav(false); }
     else { await addFavorite(expr.en, expr.fr); setExprFav(true); }
   };
@@ -131,7 +132,7 @@ export default function HomeScreen({
               </View>
             </Pressable>
           ) : (
-            <Pressable style={styles.dailyCard} onPress={onShowPaywall}>
+            <Pressable style={styles.dailyCard} onPress={() => onShowPaywall("welcome_already_used")}>
               <View style={styles.dailyBlob} />
               <Image source={CHAT_IMG} style={styles.dailyImg} resizeMode="contain" />
               <View style={styles.dailyKRow}>

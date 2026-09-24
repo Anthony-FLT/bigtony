@@ -18,6 +18,7 @@ import { Scenario } from "./lib/scenarios";
 import { T } from "./lib/theme";
 import { startSession, addTurn, closeSession, SessionTurn } from "./lib/sessions";
 import { loadProfile, markFirstSessionDone, markTranslateHintSeen, VoiceKey, saveSpeechRate } from "./lib/profile";
+import { logWelcomeConversationAbandon, logWelcomeConversationComplete } from "./lib/analytics";
 import { labelForRate, nextRate } from "./lib/speech";
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
@@ -520,6 +521,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   };
   const confirmExit = () => {
     setShowExitConfirm(false);
+    logWelcomeConversationAbandon();
     markFirstSessionDone().catch(() => {});
     onExit();
   };
@@ -531,6 +533,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
     setStatus("debriefing"); setError(null);
     try {
       if (isFirstSession) markFirstSessionDone();
+      if (welcome) logWelcomeConversationComplete();
       const res: any = await sessionDebrief({
         turns: turns.map((t) => ({ user: t.user, coach: t.coach, pronunciation: t.pronunciation })),
       });

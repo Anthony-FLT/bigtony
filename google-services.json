@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "920576203413",
+    "project_id": "erbol-1307",
+    "storage_bucket": "erbol-1307.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:920576203413:android:a893830df0c80cbdb3599c",
+        "android_client_info": {
+          "package_name": "fr.elanapp.english"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "920576203413-91gtd30tak9qbfbrqvdiajpm9ah7ml0l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBjkGey0gQ-RIlxM-KxViFxZYuZqxEL4oE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "920576203413-91gtd30tak9qbfbrqvdiajpm9ah7ml0l.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

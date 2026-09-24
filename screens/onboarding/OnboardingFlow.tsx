@@ -5,6 +5,7 @@ import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } fr
 import * as FileSystem from "expo-file-system/legacy";
 import { T } from "../../lib/theme";
 import { Goal, Feeling, Gender, VoiceKey, saveProfile } from "../../lib/profile";
+import { logOnboardingTestSkipped } from "../../lib/analytics";
 import { GOALS, FEELINGS, GENDERS, INTERESTS } from "../../lib/onboardingData";
 import { Level, LEVEL_OPTIONS, calibrateLevel } from "../../lib/level";
 import { assessDrill } from "../../lib/labo";
@@ -62,6 +63,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
 
   const next = () => setStep((s) => Math.min(TOTAL - 1, s + 1) as Step);
   const back = () => setStep((s) => Math.max(0, s - 1) as Step);
+  const skipTest = () => { logOnboardingTestSkipped(); next(); };
 
   const startTest = async () => {
     if (testStatus !== "idle" && testStatus !== "done") return;
@@ -273,7 +275,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
                 {testStatus === "recording" ? "Relâche quand tu as fini" : testStatus === "done" ? "Réessayer" : "Maintiens et lis la phrase"}
               </Text>
               {testStatus !== "done" && testStatus !== "recording" && (
-                <Pressable onPress={next} hitSlop={10} style={{ marginTop: 14 }}>
+                <Pressable onPress={skipTest} hitSlop={10} style={{ marginTop: 14 }}>
                   <Text style={styles.testSkipLink}>Passer ce test</Text>
                 </Pressable>
               )}
@@ -405,7 +407,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
       </ScrollView>
 
       {step < TOTAL - 1 ? (
-        <Pressable onPress={next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
+        <Pressable onPress={step === 4 && testStatus !== "done" ? skipTest : next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
           <Text style={styles.ctaText}>
             {step === 0 ? "On commence"
               : step === 4 && testStatus !== "done" ? "Passer ce test"

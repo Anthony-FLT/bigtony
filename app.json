@@ -20,7 +20,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "package": "fr.elanapp.english"
+      "package": "fr.elanapp.english",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,7 +36,8 @@
           "icon": "./assets/notification-icon.png",
           "color": "#1c2b46"
         }
-      ]
+      ],
+      ["@react-native-firebase/app"]
     ],
     "extra": {
       "eas": {

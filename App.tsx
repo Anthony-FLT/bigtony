@@ -20,6 +20,7 @@ import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
 import { TourProvider, useTourTarget } from "./TourContext";
 import TourOverlay, { TourStep } from "./TourOverlay";
+import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown } from "./lib/analytics";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
@@ -43,10 +44,10 @@ const TABS: { key: Tab; icon: keyof typeof Feather.glyphMap }[] = [
 // Contenu du tour guidé — à ajuster librement, c'est une proposition de départ.
 const TOUR_STEPS: TourStep[] = [
   { targetId: "home-parler", title: "Parle avec ton coach", body: "Choisis une situation réelle (entretien, voyage…) et entraîne-toi à voix haute, sans jugement." },
-  { targetId: "home-hub", title: "Tes défis du jour", body: "Trois mini-exercices chaque jour : lecture, traduction et écoute pour progresser en douceur." },
+  { targetId: "home-hub", title: "Tes défis du jour", body: "Trois mini-exercices chaque jour — lecture, traduction, écoute — pour progresser en douceur." },
   { targetId: "home-reviser", title: "Ton dictionnaire", body: "Les mots que tu gardes pendant tes conversations arrivent ici, avec leur définition." },
   { targetId: "tab-labo", title: "Le Labo", body: "Les mots qui te résistent à l'oral atterrissent ici pour que tu les retravailles, un par un.", placement: "top" },
-  { targetId: "tab-progres", title: "Tes progrès", body: "Ta série, ton temps de parole, et ce qu'il te reste à travailler en un coup d'œil.", placement: "top" },
+  { targetId: "tab-progres", title: "Tes progrès", body: "Ta série, ton temps de parole, et ce qu'il te reste à travailler — en un coup d'œil.", placement: "top" },
 ];
 
 function AppInner() {
@@ -124,6 +125,7 @@ function AppInner() {
         <StatusBar style="dark" />
         <OnboardingFlow
           onLaunch={() => {
+            logOnboardingComplete();
             setAppState("ready");
           }}
         />
@@ -189,7 +191,7 @@ if (welcomeActive) {
             onSelect={(s) => { setShowScenarios(false); setActiveScenario(s); }}
             onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }}
             onBack={() => setShowScenarios(false)}
-            onLocked={() => setShowPaywall(true)}
+            onLocked={() => { logPaywallShown("scenarios"); setShowPaywall(true); }}
           />
         </View>
       </View>
@@ -242,7 +244,7 @@ if (welcomeActive) {
           onOpenListening={() => setShowListening(true)}
           premium={isPremium}
           trialExercisesDone={trialExercisesDone}
-          onLocked={() => setShowPaywall(true)}
+          onLocked={() => { logPaywallShown("daily_hub"); setShowPaywall(true); }}
         />
       </View>
     );
@@ -279,20 +281,20 @@ if (welcomeActive) {
             premium={isPremium}
             firstSessionDone={firstSessionDone}
             trialExercisesDone={trialExercisesDone}
-            onStartWelcome={() => { if (isPremium || !firstSessionDone) setWelcomeActive(true); else setShowPaywall(true); }}
-            onStartDaily={() => { if (isPremium) setDailyActive(true); else setShowPaywall(true); }}
+            onStartWelcome={() => { if (isPremium || !firstSessionDone) { logWelcomeConversationStart(); setWelcomeActive(true); } else { logPaywallShown("welcome_already_used"); setShowPaywall(true); } }}
+            onStartDaily={() => { if (isPremium) setDailyActive(true); else { logPaywallShown("daily_conversation"); setShowPaywall(true); } }}
             onGoLabo={() => setTab("labo")}
             onGoScenarios={() => setShowScenarios(true)}
-            onGoDailyHub={() => { if (isPremium || !allTrialExercisesUsed) setShowDailyHub(true); else setShowPaywall(true); }}
+            onGoDailyHub={() => { if (isPremium || !allTrialExercisesUsed) setShowDailyHub(true); else { logPaywallShown("daily_hub"); setShowPaywall(true); } }}
             onGoFavorites={() => setShowFavorites(true)}
-            onShowPaywall={() => setShowPaywall(true)}
+            onShowPaywall={(source) => { logPaywallShown(source); setShowPaywall(true); }}
           />
         )}
-        {tab === "labo" && <LaboScreen refreshKey={laboKey} premium={isPremium} onLocked={() => setShowPaywall(true)} />}
+        {tab === "labo" && <LaboScreen refreshKey={laboKey} premium={isPremium} onLocked={() => { logPaywallShown("labo_add_word"); setShowPaywall(true); }} />}
         {tab === "progres" && (
           <ProgressScreen
             refreshKey={progressKey}
-            onResume={(s) => { if (isPremium) setActiveScenario(s); else setShowPaywall(true); }}
+            onResume={(s) => { if (isPremium) setActiveScenario(s); else { logPaywallShown("scenarios"); setShowPaywall(true); } }}
             onGoLabo={() => setTab("labo")}
             onGoFavorites={() => setShowFavorites(true)}
           />
