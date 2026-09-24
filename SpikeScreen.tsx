@@ -148,7 +148,7 @@ function friendlyError(e: any): string {
   return "Une erreur est survenue. Réessaie dans un instant.";
 }
 
-export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean }) {
+export default function SpikeScreen({ scenario, onExit, daily, welcome, premium }: { scenario: Scenario; onExit: () => void; daily?: boolean; welcome?: boolean; premium?: boolean }) {
   const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
   // metering: niveau sonore en direct pendant l'enregistrement, si le SDK le fournit (voir startRecording).
   // Repli propre si non disponible : recorderState.metering reste undefined, les barres restent au repos.
@@ -192,6 +192,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
   const recordStartRef = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
   const debriefingRef = useRef(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   const sessionLimit = welcome ? WELCOME_LIMIT : (isFirstSession ? FIRST_SESSION_LIMIT : SCENARIO_LIMIT);
   const capped = true;
@@ -511,6 +512,18 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
   };
 
+  // La flèche retour sort sans rien marquer, SAUF pour la démo freemium (welcome, non premium) :
+  // là, on prévient avant de perdre la conversation, et on ne consomme l'essai qu'en cas de confirmation.
+  const handleBack = () => {
+    if (welcome && !premium && turns.length > 0) { setShowExitConfirm(true); return; }
+    onExit();
+  };
+  const confirmExit = () => {
+    setShowExitConfirm(false);
+    markFirstSessionDone().catch(() => {});
+    onExit();
+  };
+
   const runDebrief = async () => {
     setFirstSessionCongrats(false);
     if (turns.length === 0 || debriefingRef.current) return;
@@ -637,7 +650,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
     <View style={styles.container}>
     <StatusBar style="dark" />
       <View style={styles.header}>
-        <Pressable onPress={onExit} hitSlop={12}><Feather name="chevron-left" size={26} color={T.inkSoft} /></Pressable>
+        <Pressable onPress={handleBack} hitSlop={12}><Feather name="chevron-left" size={26} color={T.inkSoft} /></Pressable>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>{daily ? "Discussion du jour" : scenario.title}</Text>
           <View style={styles.progressTrack}>
@@ -839,6 +852,21 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome }: { scen
       )}
 
       {/* Choix du canal au lancement */}
+      <Modal visible={showExitConfirm} transparent animationType="fade" onRequestClose={() => setShowExitConfirm(false)}>
+        <Pressable style={styles.exitOverlay} onPress={() => setShowExitConfirm(false)}>
+          <Pressable style={styles.exitCard} onPress={() => {}}>
+            <Text style={styles.exitTitle}>Ta conversation sera perdue</Text>
+            <Text style={styles.exitBody}>Tu es sur ta conversation de présentation gratuite — elle ne peut se faire qu'une fois. Es-tu sûr de vouloir quitter maintenant ?</Text>
+            <Pressable onPress={confirmExit} style={styles.exitDangerBtn}>
+              <Text style={styles.exitDangerText}>Quitter quand même</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowExitConfirm(false)} style={{ paddingVertical: 12, alignItems: "center" }}>
+              <Text style={styles.exitCancelText}>Continuer la conversation</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={showChannelChoice} transparent animationType="fade">
         <View style={styles.choiceOverlay}>
           <View style={styles.choiceCard}>
@@ -993,6 +1021,13 @@ const styles = StyleSheet.create({
   // Toggle de canal (voix / texte) dans le header
   keyboardBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#F2ECE3", alignItems: "center", justifyContent: "center" },
   closeBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#F2ECE3", alignItems: "center", justifyContent: "center" },
+  exitOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.55)", alignItems: "center", justifyContent: "center", padding: 30 },
+  exitCard: { backgroundColor: "#FFFFFF", borderRadius: 20, padding: 22, width: "100%" },
+  exitTitle: { color: T.night, fontSize: 17, fontWeight: "800", marginBottom: 8 },
+  exitBody: { color: T.inkSoft, fontSize: 13.5, fontWeight: "600", lineHeight: 20, marginBottom: 18 },
+  exitDangerBtn: { backgroundColor: "#C0392B", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  exitDangerText: { color: "#fff", fontSize: 14.5, fontWeight: "800" },
+  exitCancelText: { color: T.abricotDeep, fontSize: 14, fontWeight: "800" },
 
   // Assistant : barre de deux boutons
   assistBar: { flexDirection: "row", justifyContent: "center", gap: 10, marginBottom: 10 },

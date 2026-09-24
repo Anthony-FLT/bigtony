@@ -9,7 +9,7 @@ import { SkeletonHeader, SkeletonCard, SkeletonLine, SkeletonBox } from "../comp
 // Lit un timestamp en millisecondes, qu'il vienne de Firestore (Timestamp) ou soit déjà un nombre.
 const ms = (t: any) => (t?.toMillis ? t.toMillis() : typeof t === "number" ? t : 0);
 
-export default function LaboScreen({ refreshKey }: { refreshKey: number }) {
+export default function LaboScreen({ refreshKey, premium, onLocked }: { refreshKey: number; premium: boolean; onLocked: () => void }) {
   const [daily, setDaily] = useState<PracticeWord[] | null>(null);
   const [all, setAll] = useState<PracticeWord[]>([]);
   const [practiceWord, setPracticeWord] = useState<PracticeWord | null>(null);
@@ -86,9 +86,10 @@ export default function LaboScreen({ refreshKey }: { refreshKey: number }) {
         </View>
       )}
 
-      <Pressable style={styles.addCard} onPress={() => setShowAdd(true)}>
+      <Pressable style={styles.addCard} onPress={() => (premium ? setShowAdd(true) : onLocked())}>
         <View style={styles.addIcon}><Feather name="plus" size={20} color={T.night} /></View>
         <Text style={styles.addText}>Ajouter un mot à travailler</Text>
+        {!premium && <Feather name="lock" size={16} color={T.night} style={{ marginLeft: "auto" }} />}
       </Pressable>
 
       {others.length > 0 && (

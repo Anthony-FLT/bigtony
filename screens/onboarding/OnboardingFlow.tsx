@@ -135,7 +135,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
     (step === 1 && goals.length > 0) ||
     (step === 2 && !!feeling) ||
     (step === 3 && !!declaredLevel) ||
-    (step === 4 && testStatus === "done") ||
+    step === 4 ||
     step === 5 ||
     step === 6 ||
     (step === 7 && name.trim().length > 0) ||
@@ -156,14 +156,14 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
             <View style={styles.blob2} />
           </View>
           <Text style={styles.launchTitle}>
-            {name.trim() ? `À toi de jouer, ${name.trim()}.` : "À toi de jouer."}
+            {name.trim() ? `Bienvenue, ${name.trim()}.` : "Bienvenue."}
           </Text>
           <Text style={styles.launchLead}>
-            Ta première conversation t'attend. Pas de stress : tu parles, on t'écoute, et on te guide pas à pas.
+            Ta conversation de présentation t'attend dans l'app. Pas de stress : tu parles, on t'écoute, et on te guide pas à pas.
           </Text>
         </View>
         <Pressable onPress={() => onLaunch(goals)} style={styles.cta}>
-          <Text style={styles.ctaText}>Lancer ma première scène</Text>
+          <Text style={styles.ctaText}>Découvrir l'app</Text>
         </Pressable>
       </View>
     );
@@ -272,6 +272,11 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
               <Text style={styles.testMicLabel}>
                 {testStatus === "recording" ? "Relâche quand tu as fini" : testStatus === "done" ? "Réessayer" : "Maintiens et lis la phrase"}
               </Text>
+              {testStatus !== "done" && testStatus !== "recording" && (
+                <Pressable onPress={next} hitSlop={10} style={{ marginTop: 14 }}>
+                  <Text style={styles.testSkipLink}>Passer ce test</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         )}
@@ -403,7 +408,7 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
         <Pressable onPress={next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
           <Text style={styles.ctaText}>
             {step === 0 ? "On commence"
-              : step === 4 && testStatus !== "done" ? "Fais le test d'abord"
+              : step === 4 && testStatus !== "done" ? "Passer ce test"
               : isValidation ? "Continuer"
               : "Continuer"}
           </Text>
@@ -489,6 +494,7 @@ const styles = StyleSheet.create({
   testMic: { width: 72, height: 72, borderRadius: 36, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
   testMicActive: { backgroundColor: T.corail },
   testMicLabel: { color: T.inkSoft, fontSize: 13, fontWeight: "600", marginTop: 9 },
+  testSkipLink: { color: T.abricotDeep, fontSize: 13.5, fontWeight: "800", textDecorationLine: "underline" },
 
   validWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
   validIcon: { width: 88, height: 88, borderRadius: 44, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center", marginBottom: 24 },

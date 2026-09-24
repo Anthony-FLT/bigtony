@@ -25,6 +25,9 @@ export type Profile = {
   speechRate?: number;
   weeklyGoal?: number;
   firstSessionDone?: boolean;
+  trialExerciseDone?: boolean;
+  trialExercisesDone?: { reading?: boolean; translation?: boolean; listening?: boolean };
+  tourSeen?: boolean;
   translateHintSeen?: boolean;
   lastMilestone?: number;
 };
@@ -50,6 +53,13 @@ export async function loadProfile(): Promise<Profile | null> {
       speechRate: data.speechRate ?? 0.95,
       weeklyGoal: data.weeklyGoal ?? 3,
       firstSessionDone: data.firstSessionDone ?? false,
+      trialExerciseDone: data.trialExerciseDone ?? false,
+      trialExercisesDone: {
+        reading: data.trialExercisesDone?.reading ?? data.trialExerciseDone ?? false,
+        translation: data.trialExercisesDone?.translation ?? data.trialExerciseDone ?? false,
+        listening: data.trialExercisesDone?.listening ?? data.trialExerciseDone ?? false,
+      },
+      tourSeen: data.tourSeen ?? false,
       translateHintSeen: data.translateHintSeen ?? false,
       lastMilestone: data.lastMilestone ?? 0,
     };
@@ -79,6 +89,28 @@ export async function markFirstSessionDone(): Promise<void> {
     await setDoc(doc(db, "users", uid), { firstSessionDone: true }, { merge: true });
   } catch (e) {
     console.warn("markFirstSessionDone échoué:", e);
+  }
+}
+
+export async function markTrialExerciseUsed(type: "reading" | "translation" | "listening"): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    // Fusion imbriquée : Firestore merge:true fusionne récursivement les objets, donc ça ne remplace
+    // pas les autres exercices déjà marqués — seul trialExercisesDone.<type> est touché.
+    await setDoc(doc(db, "users", uid), { trialExercisesDone: { [type]: true } }, { merge: true });
+  } catch (e) {
+    console.warn("markTrialExerciseUsed échoué:", e);
+  }
+}
+
+export async function markTourSeen(): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { tourSeen: true }, { merge: true });
+  } catch (e) {
+    console.warn("markTourSeen échoué:", e);
   }
 }
 

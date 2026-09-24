@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Modal, Image } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
+import { useTourTarget } from "../TourContext";
 import { getTodayDailySession, isDailyDone } from "../lib/daily";
 import { computeStreak, milestoneReached } from "../lib/streak";
 import { loadProfile, Profile, saveMilestone } from "../lib/profile";
@@ -21,20 +22,32 @@ const WORDS_IMG = require("../assets/illustrations/words.png");
 export default function HomeScreen({
   refreshKey,
   premium,
+  firstSessionDone,
+  trialExercisesDone,
+  onStartWelcome,
   onStartDaily,
   onGoLabo,
   onGoScenarios,
   onGoDailyHub,
   onGoFavorites,
+  onShowPaywall,
 }: {
   refreshKey: number;
   premium: boolean;
+  firstSessionDone: boolean;
+  trialExercisesDone: { reading?: boolean; translation?: boolean; listening?: boolean };
+  onStartWelcome: () => void;
   onStartDaily: () => void;
   onGoLabo: () => void;
   onGoScenarios: () => void;
   onGoDailyHub: () => void;
   onGoFavorites: () => void;
+  onShowPaywall: () => void;
 }) {
+  const parlerTarget = useTourTarget("home-parler");
+  const reviserTarget = useTourTarget("home-reviser");
+  const hubTarget = useTourTarget("home-hub");
+  const allTrialExercisesUsed = !!(trialExercisesDone.reading && trialExercisesDone.translation && trialExercisesDone.listening);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [dailyDone, setDailyDone] = useState<boolean | null>(null);
   const [streak, setStreak] = useState(0);
@@ -74,6 +87,7 @@ export default function HomeScreen({
 
   const toggleExprFav = async () => {
     if (!expr) return;
+    if (!premium) { onShowPaywall(); return; }
     if (exprFav) { await removeFavorite(expr.en); setExprFav(false); }
     else { await addFavorite(expr.en, expr.fr); setExprFav(true); }
   };
@@ -101,20 +115,37 @@ export default function HomeScreen({
 
         {/* Discussion du jour — la vedette */}
         {!premium ? (
-          <Pressable style={styles.dailyCard} onPress={onStartDaily}>
-            <View style={styles.dailyBlob} />
-            <Image source={CHAT_IMG} style={styles.dailyImg} resizeMode="contain" />
-            <View style={styles.dailyKRow}>
-              <Feather name="message-circle" size={14} color={T.abricot} />
-              <Text style={styles.dailyK}>TON COACH T'ATTEND</Text>
-            </View>
-            <Text style={styles.dailyTitle}>Commence tes 3 jours gratuits</Text>
-            <Text style={styles.dailySub}>Discussions, Labo, favoris — tout est débloqué pendant l'essai.</Text>
-            <View style={styles.dailyBtn}>
-              <Feather name="unlock" size={18} color={T.night} />
-              <Text style={styles.dailyBtnText}>Voir les offres</Text>
-            </View>
-          </Pressable>
+          !firstSessionDone ? (
+            <Pressable style={styles.dailyCard} onPress={onStartWelcome}>
+              <View style={styles.dailyBlob} />
+              <Image source={CHAT_IMG} style={styles.dailyImg} resizeMode="contain" />
+              <View style={styles.dailyKRow}>
+                <Feather name="gift" size={14} color={T.abricot} />
+                <Text style={styles.dailyK}>À ESSAYER GRATUITEMENT</Text>
+              </View>
+              <Text style={styles.dailyTitle}>Ta conversation de présentation t'attend</Text>
+              <Text style={styles.dailySub}>Découvre le coach IA, sans engagement.</Text>
+              <View style={styles.dailyBtn}>
+                <Feather name="mic" size={18} color={T.night} />
+                <Text style={styles.dailyBtnText}>Commencer</Text>
+              </View>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.dailyCard} onPress={onShowPaywall}>
+              <View style={styles.dailyBlob} />
+              <Image source={CHAT_IMG} style={styles.dailyImg} resizeMode="contain" />
+              <View style={styles.dailyKRow}>
+                <Feather name="unlock" size={14} color={T.abricot} />
+                <Text style={styles.dailyK}>TU AS TESTÉ L'APP</Text>
+              </View>
+              <Text style={styles.dailyTitle}>Débloque un accès illimité</Text>
+              <Text style={styles.dailySub}>Discussions, Labo, favoris — tout, chaque jour.</Text>
+              <View style={styles.dailyBtn}>
+                <Feather name="unlock" size={18} color={T.night} />
+                <Text style={styles.dailyBtnText}>Voir les offres</Text>
+              </View>
+            </Pressable>
+          )
         ) : dailyDone === null ? (
           <View style={[styles.dailyCard, { alignItems: "center", justifyContent: "center" }]}>
             <ActivityIndicator color={T.abricot} />
@@ -159,12 +190,12 @@ export default function HomeScreen({
       {/* ===== Contenu (fond clair) ===== */}
       <Text style={styles.trainTitle}>S'entraîner</Text>
       <View style={styles.tileRow}>
-        <Pressable style={[styles.tile, styles.tilePeach]} onPress={onGoScenarios}>
+        <Pressable ref={parlerTarget.ref} onLayout={parlerTarget.onLayout} style={[styles.tile, styles.tilePeach]} onPress={onGoScenarios}>
           <Image source={MIC_IMG} style={styles.tileImg} resizeMode="contain" />
           <Text style={styles.tileLabel}>Parler</Text>
           <Text style={styles.tileSub}>Une scène au choix</Text>
         </Pressable>
-        <Pressable style={[styles.tile, styles.tileLavender]} onPress={onGoFavorites}>
+        <Pressable ref={reviserTarget.ref} onLayout={reviserTarget.onLayout} style={[styles.tile, styles.tileLavender]} onPress={onGoFavorites}>
           <Image source={WORDS_IMG} style={styles.tileImg} resizeMode="contain" />
           <Text style={styles.tileLabel}>Réviser</Text>
           <Text style={styles.tileSub}>Tes mots favoris</Text>
@@ -172,23 +203,28 @@ export default function HomeScreen({
       </View>
 
       {/* Défis du jour */}
-      <Pressable style={styles.hubCard} onPress={onGoDailyHub}>
+      <Pressable ref={hubTarget.ref} onLayout={hubTarget.onLayout} style={styles.hubCard} onPress={onGoDailyHub}>
+        {!premium && allTrialExercisesUsed && <View style={styles.lockBadge}><Feather name="lock" size={12} color="#fff" /></View>}
         <Image source={TARGET_IMG} style={styles.hubImg} resizeMode="contain" />
         <View style={{ flex: 1 }}>
           <Text style={styles.hubTitle}>Défis du jour</Text>
           <Text style={styles.hubSub}>
-            {hubDone > 0
+            {!premium && !allTrialExercisesUsed
+              ? "3 exercices à l'essai, gratuitement"
+              : hubDone > 0
               ? `${hubDone} / ${total} fait${hubDone > 1 ? "s" : ""} aujourd'hui${hubDone >= total ? " 🎉" : ""}`
               : "Lecture, traduction, écoute"}
           </Text>
         </View>
-        <View style={[styles.ringBadge, hubDone >= total && styles.ringBadgeDone]}>
-          {hubDone >= total ? (
-            <Feather name="check" size={22} color={T.night} />
-          ) : (
-            <Text style={styles.ringText}>{hubDone}/{total}</Text>
-          )}
-        </View>
+        {premium && (
+          <View style={[styles.ringBadge, hubDone >= total && styles.ringBadgeDone]}>
+            {hubDone >= total ? (
+              <Feather name="check" size={22} color={T.night} />
+            ) : (
+              <Text style={styles.ringText}>{hubDone}/{total}</Text>
+            )}
+          </View>
+        )}
       </Pressable>
 
       {/* Expression du jour */}
@@ -284,6 +320,7 @@ const styles = StyleSheet.create({
   hubTitle: { color: "#fff", fontSize: 16, fontWeight: "800" },
   hubSub: { color: "#9DB0D4", fontSize: 13, fontWeight: "600", marginTop: 2 },
   ringBadge: { width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: T.abricot, alignItems: "center", justifyContent: "center" },
+  lockBadge: { position: "absolute", top: 10, right: 10, zIndex: 2, width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(27,42,74,0.85)", alignItems: "center", justifyContent: "center" },
   ringBadgeDone: { backgroundColor: T.abricot },
   ringText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 

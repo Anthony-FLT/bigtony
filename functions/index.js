@@ -226,6 +226,37 @@ function isEnglishWord(w) {
   return clean.length > 0 && ENGLISH_WORDS.has(clean);
 }
 
+// Filet de sécurité : Gemini produit parfois, par artefact, des entités HTML dans son texte
+// (ex. "tr&egrave;s" ou "tr&#232;s" au lieu de "très") — jamais demandé dans nos prompts, mais
+// React Native ne les décode jamais côté affichage, donc on neutralise ici avant que ça sorte.
+const HTML_NAMED_ENTITIES = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+  eacute: "é", egrave: "è", ecirc: "ê", euml: "ë",
+  agrave: "à", acirc: "â", auml: "ä",
+  icirc: "î", iuml: "ï",
+  ocirc: "ô", ouml: "ö",
+  ucirc: "û", ugrave: "ù", uuml: "ü",
+  ccedil: "ç", oelig: "œ", aelig: "æ",
+};
+function decodeHtmlEntities(str) {
+  if (typeof str !== "string" || !str.includes("&")) return str;
+  return str
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => HTML_NAMED_ENTITIES[name.toLowerCase()] ?? m);
+}
+// Applique le décodage récursivement, quelle que soit la forme du résultat JSON (texte, tableau, objet imbriqué).
+function decodeEntitiesDeep(value) {
+  if (typeof value === "string") return decodeHtmlEntities(value);
+  if (Array.isArray(value)) return value.map(decodeEntitiesDeep);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = decodeEntitiesDeep(v);
+    return out;
+  }
+  return value;
+}
+
 // Réessai automatique des appels Gemini en cas de surcharge temporaire (503 / UNAVAILABLE).
 // Les autres erreurs (clé, quota dur, requête invalide) remontent immédiatement, sans réessai inutile.
 async function genWithRetry(ai, config) {
@@ -1068,7 +1099,7 @@ exports.sessionDebrief = onCall(
           thinkingConfig: { thinkingLevel: "low" },
         },
       });
-      return JSON.parse(result.text);
+      return decodeEntitiesDeep(JSON.parse(result.text));
     } catch (e) {
       console.error("Debrief error", e, result?.text);
       throw new HttpsError("internal", `Debrief: ${e.message}`);

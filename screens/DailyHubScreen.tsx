@@ -4,6 +4,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Anima
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { getChallengesDone, HUB_CHALLENGES, ChallengeType } from "../lib/dailyChallenges";
+import { markTrialExerciseUsed } from "../lib/profile";
 
 import TuileLecture from "../assets/hub/tuile-lecture.svg";
 import TuileTraduction from "../assets/hub/tuile-traduction.svg";
@@ -41,13 +42,20 @@ export default function DailyHubScreen({
   onOpenReading,
   onOpenTranslation,
   onOpenListening,
+  premium,
+  trialExercisesDone,
+  onLocked,
 }: {
   onBack: () => void;
   onOpenReading?: () => void;
   onOpenTranslation?: () => void;
   onOpenListening?: () => void;
+  premium: boolean;
+  trialExercisesDone: { reading?: boolean; translation?: boolean; listening?: boolean };
+  onLocked: () => void;
 }) {
   const [done, setDone] = useState<Record<ChallengeType, boolean> | null>(null);
+  const [justUsed, setJustUsed] = useState<Partial<Record<ChallengeType, boolean>>>({});
 
   useEffect(() => {
     getChallengesDone().then(setDone);
@@ -61,6 +69,16 @@ export default function DailyHubScreen({
 
   const OPEN: Record<ChallengeType, (() => void) | undefined> = {
     reading: onOpenReading, translation: onOpenTranslation, listening: onOpenListening,
+  };
+
+  const isLocked = (c: ChallengeType) => !premium && (!!trialExercisesDone[c] || !!justUsed[c]);
+
+  const handleOpen = (c: ChallengeType) => {
+    if (premium) { OPEN[c]?.(); return; }
+    if (trialExercisesDone[c] || justUsed[c]) { onLocked(); return; }
+    setJustUsed((prev) => ({ ...prev, [c]: true }));
+    markTrialExerciseUsed(c).catch(() => {});
+    OPEN[c]?.();
   };
 
   return (
@@ -130,18 +148,23 @@ export default function DailyHubScreen({
         ) : (
           HUB_CHALLENGES.map((c) => {
             const isDone = done[c];
-            const onPress = OPEN[c];
+            const cardLocked = isLocked(c);
             const Tile = TILE[c];
             return (
-              <Pressy key={c} onPress={onPress} disabled={!onPress} style={styles.card}>
-                <View style={styles.tileWrap}><Tile width={68} height={68} /></View>
+              <Pressy key={c} onPress={() => handleOpen(c)} style={styles.card}>
+                <View style={styles.tileWrap}>
+                  <Tile width={68} height={68} />
+                  {cardLocked && <View style={styles.tileLockOverlay}><Feather name="lock" size={16} color="#fff" /></View>}
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardOverline}>{LABEL[c].toUpperCase()} · {DURATION[c]}</Text>
                   <Text style={styles.cardTitle}>{LABEL[c]} du jour</Text>
-                  <Text style={styles.cardSub}>{isDone ? "Terminé · bravo !" : DESC[c]}</Text>
+                  <Text style={styles.cardSub}>{isDone ? "Terminé · bravo !" : cardLocked ? "Débloque l'accès illimité" : DESC[c]}</Text>
                 </View>
                 {isDone ? (
                   <View style={styles.doneBadge}><Feather name="check" size={18} color="#fff" /></View>
+                ) : cardLocked ? (
+                  <View style={styles.goBadge}><Feather name="lock" size={13} color={T.night} /></View>
                 ) : (
                   <View style={styles.goBadge}>
                     <Text style={styles.goText}>Go</Text>
@@ -186,6 +209,7 @@ const styles = StyleSheet.create({
 
   card: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: T.card, borderRadius: 22, padding: 18, marginBottom: 14 },
   tileWrap: { width: 68, height: 68, borderRadius: 18, overflow: "hidden" },
+  tileLockOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(27,42,74,0.55)", alignItems: "center", justifyContent: "center" },
   cardOverline: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.4 },
   cardTitle: { color: T.night, fontSize: 16.5, fontWeight: "800", marginTop: 3 },
   cardSub: { color: T.inkSoft, fontSize: 13, fontWeight: "600", marginTop: 2, lineHeight: 18 },
