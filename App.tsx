@@ -6,7 +6,7 @@ import { Feather } from "@expo/vector-icons";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import { T } from "./lib/theme";
-import { loadProfile, markTourSeen } from "./lib/profile";
+import { loadProfile, markTourSeen, markTrialExerciseUsed } from "./lib/profile";
 import HomeScreen from "./screens/HomeScreen";
 import ScenariosScreen from "./screens/ScenariosScreen";
 import PlaceholderScreen from "./screens/PlaceholderScreen";
@@ -20,7 +20,7 @@ import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
 import { TourProvider, useTourTarget } from "./TourContext";
 import TourOverlay, { TourStep } from "./TourOverlay";
-import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown } from "./lib/analytics";
+import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown, logTrialExerciseStart } from "./lib/analytics";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
@@ -203,8 +203,17 @@ if (welcomeActive) {
         <StatusBar style="dark" />
         <DictionaryScreen
           onBack={() => setShowFavorites(false)}
-          onStartConversation={() => { setShowFavorites(false); setDailyActive(true); }}
-          onOpenReading={() => { setShowFavorites(false); setShowReading(true); }}
+          onStartConversation={() => {
+            setShowFavorites(false);
+            if (isPremium) { setDailyActive(true); }
+            else { logPaywallShown("daily_conversation"); setShowPaywall(true); }
+          }}
+          onOpenReading={() => {
+            setShowFavorites(false);
+            if (isPremium) { setShowReading(true); }
+            else if (!trialExercisesDone.reading) { logTrialExerciseStart("reading"); markTrialExerciseUsed("reading").catch(() => {}); setShowReading(true); }
+            else { logPaywallShown("daily_hub"); setShowPaywall(true); }
+          }}
         />
       </View>
     );
