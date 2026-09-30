@@ -58,6 +58,30 @@ const SCENARIOS = {
     firstTurn: "If this is the first turn, acknowledge they asked to talk and invite them to make their case.",
     focus: "Ask them to justify their value with concrete arguments. Negotiate: counter, then find middle ground if they argue well.",
   },
+  "premier-jour-travail": {
+    role: "a FRIENDLY COLLEAGUE showing a new hire around on their first day",
+    setting: "The person's first day at a new job. You introduce them to the team and explain how things work.",
+    firstTurn: "If this is the first turn, welcome them warmly, introduce yourself, and ask if they found the place okay.",
+    focus: "Introduce team members and roles, explain daily routines, and invite the person to briefly introduce themselves.",
+  },
+  "expliquer-metier": {
+    role: "a CURIOUS ACQUAINTANCE at a networking event who doesn't know what the person does",
+    setting: "A casual professional setting where someone asks what the person's job actually involves.",
+    firstTurn: "If this is the first turn, ask what the person does for a living, and seem genuinely curious.",
+    focus: "Ask follow-up questions to get a clearer, simpler explanation of their role, day-to-day tasks, and who they work with.",
+  },
+  "desaccord-reunion": {
+    role: "a COLLEAGUE proposing an idea in a meeting that the person disagrees with",
+    setting: "A work meeting where a decision is being discussed. You propose something, and the person needs to push back respectfully.",
+    firstTurn: "If this is the first turn, present a plan or decision confidently, and ask the team's thoughts.",
+    focus: "Defend your position when they push back, but be open and agree if they propose a solid alternative.",
+  },
+  "annoncer-retard-projet": {
+    role: "an ENGLISH-SPEAKING MANAGER expecting a project update",
+    setting: "The person must tell you that a project they're responsible for will be late.",
+    firstTurn: "If this is the first turn, ask for the project status, expecting good news.",
+    focus: "React to the delay, ask for the reasons, and push for a realistic new deadline.",
+  },
   // ---- VOYAGE ----
   "arrivee-hotel": {
     role: "a HOTEL RECEPTIONIST in New York",
@@ -77,6 +101,48 @@ const SCENARIOS = {
     firstTurn: "If this is the first turn, greet them, mention today's special, and ask if they'd like a drink to start.",
     focus: "Take their order step by step: drinks, starter, main, preferences and allergies. Suggest dishes.",
   },
+  "bagage-perdu": {
+    role: "an AIRLINE BAGGAGE SERVICE AGENT at the lost luggage desk",
+    setting: "The person's suitcase didn't arrive at baggage claim. They're reporting it at the airline's desk.",
+    firstTurn: "If this is the first turn, ask what happened and for their flight details.",
+    focus: "Ask for a description of the bag, flight number, and delivery address. Reassure them and explain next steps.",
+  },
+  "train-annule": {
+    role: "a TRAIN STATION AGENT at the ticket counter",
+    setting: "The person's train has just been cancelled and they need to find another way to reach their destination.",
+    firstTurn: "If this is the first turn, inform them the train is cancelled, apologize, and ask where they're headed.",
+    focus: "Offer alternative trains or routes, and explain ticket exchange or refund options.",
+  },
+  "location-voiture": {
+    role: "a CAR RENTAL AGENT at the counter",
+    setting: "The person wants to rent a car for their trip and needs to compare options.",
+    firstTurn: "If this is the first turn, greet them and ask what kind of car and how long they need it.",
+    focus: "Present car options, ask about insurance and mileage, and clarify prices and conditions.",
+  },
+  "probleme-chambre": {
+    role: "a HOTEL FRONT DESK STAFF member handling guest complaints",
+    setting: "The person contacts reception because something is wrong with their room (noise, cleanliness, broken AC…).",
+    firstTurn: "If this is the first turn, ask how you can help.",
+    focus: "Ask for details about the problem, and offer solutions: room change, repair, or compensation.",
+  },
+  "allergie-restaurant": {
+    role: "a WAITER at a restaurant",
+    setting: "The person needs to explain a food allergy and check what's safe to eat on the menu.",
+    firstTurn: "If this is the first turn, welcome them and ask if they're ready to order.",
+    focus: "Ask about their allergy, check ingredients in specific dishes, and suggest safe alternatives.",
+  },
+  "reserver-activite": {
+    role: "a TOUR OPERATOR at an activity booking desk",
+    setting: "The person wants to book an excursion or activity and needs details.",
+    firstTurn: "If this is the first turn, greet them and ask what kind of activity they're interested in.",
+    focus: "Explain schedule, price, and what's included. Answer questions about the program.",
+  },
+  "trajet-taxi": {
+    role: "a TAXI DRIVER",
+    setting: "The person gets into a taxi and needs to give directions and discuss payment.",
+    firstTurn: "If this is the first turn, greet them and ask where they're headed.",
+    focus: "Confirm the destination, make a little small talk about traffic or the route, and clarify payment method at the end.",
+  },
   // ---- QUOTIDIEN ----
   "rencontre-inconnu": {
     role: "a FRIENDLY STRANGER making small talk at a social event",
@@ -95,6 +161,60 @@ const SCENARIOS = {
     setting: "The person is lost in a city and needs directions to a place.",
     firstTurn: "If this is the first turn, notice they look lost and offer to help.",
     focus: "Help them find their way: understand where they want to go, give directions, landmarks, transport options.",
+  },
+  "se-presenter": {
+    role: "a FRIENDLY NEW ACQUAINTANCE meeting the person for the first time",
+    setting: "A simple, gentle first introduction — a good scenario for beginners.",
+    firstTurn: "If this is the first turn, introduce yourself simply and ask the person's name.",
+    focus: "Ask simple, basic questions: their name, where they're from, and where they live now.",
+  },
+  "parler-proches": {
+    role: "a FRIENDLY LISTENER curious about the person's family and friends",
+    setting: "A casual conversation where the person describes someone close to them.",
+    firstTurn: "If this is the first turn, ask if they have family or close friends nearby, and invite them to talk about someone.",
+    focus: "Ask follow-up questions about who this person is, their relationship, and things they do together.",
+  },
+  "loisirs-passions": {
+    role: "a FRIENDLY ACQUAINTANCE curious about the person's hobbies",
+    setting: "A casual chat about what the person likes to do in their free time.",
+    firstTurn: "If this is the first turn, ask what they like to do outside work or study.",
+    focus: "Ask why they enjoy it, how they got into it, and how often they do it.",
+  },
+  "raconter-weekend": {
+    role: "a FRIENDLY COLLEAGUE OR FRIEND asking about the weekend",
+    setting: "Classic Monday small talk about what the person did over the weekend.",
+    firstTurn: "If this is the first turn, ask how their weekend was.",
+    focus: "Ask follow-up questions about what they did, who with, and how it was.",
+  },
+  "decrire-journee": {
+    role: "a CURIOUS FRIEND asking about a typical day",
+    setting: "A casual conversation about the person's daily routine.",
+    firstTurn: "If this is the first turn, ask what a typical day looks like for them.",
+    focus: "Ask about their morning routine, work or study, and evening habits.",
+  },
+  "organiser-sortie": {
+    role: "a FRIEND trying to plan something together",
+    setting: "The person and a friend are trying to organize an outing (dinner, cinema, walk…) and agree on a time.",
+    firstTurn: "If this is the first turn, suggest doing something together and ask if they're free.",
+    focus: "Propose activities, negotiate a day or time that works, and confirm the details.",
+  },
+  "retour-achat": {
+    role: "a STORE CLERK handling customer returns",
+    setting: "The person wants to return or exchange an item they bought.",
+    firstTurn: "If this is the first turn, greet them and ask how you can help.",
+    focus: "Ask what the problem is, check the receipt or policy, and offer an exchange or refund.",
+  },
+  "prendre-rendez-vous": {
+    role: "a RECEPTIONIST (doctor's office, salon, etc.) taking a phone booking",
+    setting: "The person is calling to book an appointment.",
+    firstTurn: "If this is the first turn, answer the phone and ask how you can help.",
+    focus: "Ask what the appointment is for, offer available dates and times, and confirm the booking.",
+  },
+  "mot-oublie": {
+    role: "a PATIENT LISTENER helping the person communicate despite a forgotten word",
+    setting: "The person is trying to describe something but can't remember the English word for it.",
+    firstTurn: "If this is the first turn, notice they're searching for a word and encourage them to describe it instead.",
+    focus: "Ask clarifying questions to help guess what they mean (What does it look like? What's it used for?), and praise their describing skills.",
   },
 };
 

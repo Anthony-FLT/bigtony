@@ -1,33 +1,45 @@
 import { useRef } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, Animated } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, Animated, Image } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { SCENARIOS, Scenario, ScenarioCategory } from "../lib/scenarios";
 import { T } from "../lib/theme";
 
-// Illustrations (SVG importés directement grâce à react-native-svg-transformer)
-import EntretienEmbaucheImg from "../assets/scenes/01-entretien-embauche.svg";
-import PointHebdoVisioImg from "../assets/scenes/02-point-hebdo-visio.svg";
-import PresenterProjetImg from "../assets/scenes/03-presenter-projet.svg";
-import NegocierSalaireImg from "../assets/scenes/04-negocier-salaire.svg";
-import ArriveeHotelImg from "../assets/scenes/05-arrivee-hotel.svg";
-import ControleAeroportImg from "../assets/scenes/06-controle-aeroport.svg";
-import CommanderRestaurantImg from "../assets/scenes/07-commander-restaurant.svg";
-import RencontrerQuelquunImg from "../assets/scenes/08-rencontrer-quelquun.svg";
-import CafeEntreAmisImg from "../assets/scenes/09-cafe-entre-amis.svg";
-import DemanderCheminImg from "../assets/scenes/10-demander-chemin.svg";
-
-// Correspondance id de scénario -> illustration (les noms de fichiers ne correspondent pas tous aux ids)
-const ILLUSTRATIONS: Record<string, React.ComponentType<any>> = {
-  "entretien-embauche": EntretienEmbaucheImg,
-  "point-hebdo-teams": PointHebdoVisioImg,
-  "presentation-pro": PresenterProjetImg,
-  "negociation-salaire": NegocierSalaireImg,
-  "arrivee-hotel": ArriveeHotelImg,
-  "aeroport-controle": ControleAeroportImg,
-  "restaurant-commande": CommanderRestaurantImg,
-  "rencontre-inconnu": RencontrerQuelquunImg,
-  "cafe-ami": CafeEntreAmisImg,
-  "demander-chemin": DemanderCheminImg,
+// Illustrations (.png, nommées directement d'après l'id du scénario — Metro exige des chemins
+// statiques dans require(), donc chaque entrée est écrite explicitement, pas générée dynamiquement).
+const ILLUSTRATIONS: Record<string, any> = {
+  // Pro
+  "entretien-embauche": require("../assets/scenes/entretien-embauche.png"),
+  "point-hebdo-teams": require("../assets/scenes/point-hebdo-teams.png"),
+  "presentation-pro": require("../assets/scenes/presentation-pro.png"),
+  "negociation-salaire": require("../assets/scenes/negociation-salaire.png"),
+  "premier-jour-travail": require("../assets/scenes/premier-jour-travail.png"),
+  "expliquer-metier": require("../assets/scenes/expliquer-metier.png"),
+  "desaccord-reunion": require("../assets/scenes/desaccord-reunion.png"),
+  "annoncer-retard-projet": require("../assets/scenes/annoncer-retard-projet.png"),
+  // Voyage
+  "arrivee-hotel": require("../assets/scenes/arrivee-hotel.png"),
+  "aeroport-controle": require("../assets/scenes/aeroport-controle.png"),
+  "restaurant-commande": require("../assets/scenes/restaurant-commande.png"),
+  "bagage-perdu": require("../assets/scenes/bagage-perdu.png"),
+  "train-annule": require("../assets/scenes/train-annule.png"),
+  "location-voiture": require("../assets/scenes/location-voiture.png"),
+  "probleme-chambre": require("../assets/scenes/probleme-chambre.png"),
+  "allergie-restaurant": require("../assets/scenes/allergie-restaurant.png"),
+  "reserver-activite": require("../assets/scenes/reserver-activite.png"),
+  "trajet-taxi": require("../assets/scenes/trajet-taxi.png"),
+  // Quotidien
+  "rencontre-inconnu": require("../assets/scenes/rencontre-inconnu.png"),
+  "cafe-ami": require("../assets/scenes/cafe-ami.png"),
+  "demander-chemin": require("../assets/scenes/demander-chemin.png"),
+  "se-presenter": require("../assets/scenes/se-presenter.png"),
+  "parler-proches": require("../assets/scenes/parler-proches.png"),
+  "loisirs-passions": require("../assets/scenes/loisirs-passions.png"),
+  "raconter-weekend": require("../assets/scenes/raconter-weekend.png"),
+  "decrire-journee": require("../assets/scenes/decrire-journee.png"),
+  "organiser-sortie": require("../assets/scenes/organiser-sortie.png"),
+  "retour-achat": require("../assets/scenes/retour-achat.png"),
+  "prendre-rendez-vous": require("../assets/scenes/prendre-rendez-vous.png"),
+  "mot-oublie": require("../assets/scenes/mot-oublie.png"),
 };
 
 const CATEGORIES: { key: ScenarioCategory; label: string }[] = [
@@ -50,12 +62,12 @@ function Pressy({ onPress, style, children }: { onPress: () => void; style?: any
 }
 
 function SceneCard({ s, width, imgHeight, locked }: { s: Scenario; width: number; imgHeight: number; locked?: boolean }) {
-  const Illustration = ILLUSTRATIONS[s.id];
+  const source = ILLUSTRATIONS[s.id];
   return (
     <View style={[styles.card, { width }]}>
       <View style={[styles.cardImg, { height: imgHeight }]}>
-        {Illustration ? (
-          <Illustration width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
+        {source ? (
+          <Image source={source} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
         ) : (
           <View style={styles.cardImgFallback} />
         )}

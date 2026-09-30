@@ -1,15 +1,17 @@
-import { useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, ActivityIndicator } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, ActivityIndicator, Animated, Easing, Image, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { T } from "../../lib/theme";
-import { Goal, Feeling, Gender, VoiceKey, saveProfile } from "../../lib/profile";
+import { Goal, AgeRange, Gender, VoiceKey, saveProfile } from "../../lib/profile";
 import { logOnboardingTestSkipped } from "../../lib/analytics";
-import { GOALS, FEELINGS, GENDERS, INTERESTS } from "../../lib/onboardingData";
+import { GOALS, GENDERS, INTERESTS } from "../../lib/onboardingData";
 import { Level, LEVEL_OPTIONS, calibrateLevel } from "../../lib/level";
 import { assessDrill } from "../../lib/labo";
 import TimeWheel from "../../components/TimeWheel";
+import PaywallScreen from "../PaywallScreen";
 import { requestNotifPermission, scheduleDailyReminder } from "../../lib/notifications";
 
 // Écrans (steps) : q = question, v = validation
@@ -19,12 +21,66 @@ import { requestNotifPermission, scheduleDailyReminder } from "../../lib/notific
 type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 const TOTAL = 12;
 
+// Écran final : préparation du coach (0 → 100 %)
+const PREP_DURATION = 6000;
+const PREP_RING = 190;
+const PREP_STROKE = 14;
+
+const AGE_OPTIONS: { key: AgeRange; label: string }[] = [
+  { key: "18-24", label: "18 – 24 ans" },
+  { key: "25-34", label: "25 – 34 ans" },
+  { key: "35-44", label: "35 – 44 ans" },
+  { key: "45-54", label: "45 – 54 ans" },
+  { key: "55+", label: "55 ans et plus" },
+];
+
 const COACH_VOICES: { key: VoiceKey; label: string }[] = [
   { key: "us-female", label: "Femme · US" },
   { key: "us-male", label: "Homme · US" },
   { key: "uk-female", label: "Femme · UK" },
   { key: "uk-male", label: "Homme · UK" },
 ];
+
+// Écran d'accueil : deux bandes de scènes qui défilent lentement
+const BRAND_ICON = require("../../assets/icon.png");
+const HERO_TOP = [
+  { img: require("../../assets/scenes/entretien-embauche.png"), label: "Entretien d'embauche" },
+  { img: require("../../assets/scenes/cafe-ami.png"), label: "Commander un café" },
+  { img: require("../../assets/scenes/probleme-chambre.png"), label: "Un souci à l'hôtel" },
+  { img: require("../../assets/scenes/aeroport-controle.png"), label: "Passer la douane" },
+  { img: require("../../assets/scenes/point-hebdo-teams.png"), label: "Réunion en visio" },
+];
+const HERO_BOTTOM = [
+  { img: require("../../assets/scenes/restaurant-commande.png"), label: "Commander au restaurant" },
+  { img: require("../../assets/scenes/demander-chemin.png"), label: "Demander son chemin" },
+  { img: require("../../assets/scenes/location-voiture.png"), label: "Louer une voiture" },
+  { img: require("../../assets/scenes/trajet-taxi.png"), label: "Prendre un taxi" },
+  { img: require("../../assets/scenes/se-presenter.png"), label: "Se présenter" },
+];
+// Écran 2 : carrousel des bénéfices (captures d'écran de l'app dans un cadre de téléphone)
+const BENEFIT_SHOTS = {
+  conversation: require("../../assets/onboarding/benefit-conversation.png"),
+  correction: require("../../assets/onboarding/benefit-correction.png"),
+  daily: require("../../assets/onboarding/benefit-daily.png"),
+};
+const BENEFIT_SCENES = [
+  { img: require("../../assets/scenes/entretien-embauche.png"), tag: "Travail", label: "Entretien" },
+  { img: require("../../assets/scenes/point-hebdo-teams.png"), tag: "Travail", label: "Réunion d'équipe" },
+  { img: require("../../assets/scenes/trajet-taxi.png"), tag: "Voyage", label: "Prendre un taxi" },
+  { img: require("../../assets/scenes/restaurant-commande.png"), tag: "Voyage", label: "Au restaurant" },
+  { img: require("../../assets/scenes/se-presenter.png"), tag: "Quotidien", label: "Se présenter" },
+  { img: require("../../assets/scenes/cafe-ami.png"), tag: "Quotidien", label: "Commander un café" },
+];
+const BENEFITS = [
+  { key: "conversation", title: "Parle à voix haute,", accent: "on t'écoute", text: "Ton coach IA te répond comme dans un vrai échange. Zéro jugement." },
+  { key: "correction", title: "Corrigé à", accent: "chaque phrase", text: "La bonne version à écouter, et l'explication en français, sans jargon." },
+  { key: "scenes", title: "Les situations de", accent: "ta vraie vie", text: "Entretien, réunion, voyage, café entre amis... ou ta propre scène." },
+  { key: "daily", title: "Un peu chaque jour,", accent: "beaucoup de progrès", text: "3 mini-défis quotidiens, un labo pour tes mots difficiles et ton dictionnaire perso." },
+] as const;
+const BENEFIT_INTERVAL = 3000;
+
+const HERO_CARD_W = 168;
+const HERO_CARD_GAP = 14;
 
 const TEST_SENTENCE = "I think this is worth thirty-three dollars";
 const MIN_REC_MS = 700;
@@ -36,12 +92,14 @@ function targetLevel(current: Level): Level {
   return CECRL[Math.min(CECRL.length - 1, i + 2)];
 }
 
-export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[]) => void }) {
+export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals: Goal[]) => void; onLogin?: () => void }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [step, setStep] = useState<Step>(0);
   const [launching, setLaunching] = useState(false);
+  const [showBenefits, setShowBenefits] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [feeling, setFeeling] = useState<Feeling | null>(null);
+  const [ageRange, setAgeRange] = useState<AgeRange | null>(null);
   const [declaredLevel, setDeclaredLevel] = useState<Level | null>(null);
   const [testScore, setTestScore] = useState<number | null>(null);
   const [name, setName] = useState("");
@@ -61,8 +119,11 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
   const toggleInterest = (i: string) =>
     setInterests((p) => (p.includes(i) ? p.filter((x) => x !== i) : p.length < 5 ? [...p, i] : p));
 
-  const next = () => setStep((s) => Math.min(TOTAL - 1, s + 1) as Step);
-  const back = () => setStep((s) => Math.max(0, s - 1) as Step);
+  // L'écran 5 (« C'est déjà un bon départ ») n'a de sens que si le test a été fait
+  const next = () =>
+    setStep((s) => Math.min(TOTAL - 1, s + 1 === 5 && testStatus !== "done" ? 6 : s + 1) as Step);
+  const back = () =>
+    setStep((s) => Math.max(0, s - 1 === 5 && testStatus !== "done" ? 4 : s - 1) as Step);
   const skipTest = () => { logOnboardingTestSkipped(); next(); };
 
   const startTest = async () => {
@@ -104,19 +165,26 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
     }
   };
 
-  const finishToLaunch = async () => {
+  // Étape 10 : la permission de notification est demandée ici, au moment où l'heure est choisie
+  const confirmReminder = async () => {
     try {
       const granted = await requestNotifPermission();
       if (granted) await scheduleDailyReminder(remHour, remMinute);
     } catch (e) {
       console.warn("Rappel onboarding échoué:", e);
     }
+    next();
+  };
+
+  // Le paywall s'affiche tout de suite, la sauvegarde du profil se fait derrière
+  const finishToLaunch = async () => {
+    setShowPaywall(true);
     setSaving(true);
     try {
       await saveProfile({
         name: name.trim() || undefined,
         goals,
-        feeling: feeling ?? undefined,
+        ageRange: ageRange ?? undefined,
         job: job.trim() || undefined,
         gender: gender ?? undefined,
         interests,
@@ -128,14 +196,13 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
       console.warn("Sauvegarde onboarding échouée:", e);
     } finally {
       setSaving(false);
-      setLaunching(true);
     }
   };
 
   const canContinue =
     step === 0 ||
     (step === 1 && goals.length > 0) ||
-    (step === 2 && !!feeling) ||
+    (step === 2 && !!ageRange) ||
     (step === 3 && !!declaredLevel) ||
     step === 4 ||
     step === 5 ||
@@ -148,6 +215,22 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
 
   // Progression continue (0 → 1)
   const progress = step / (TOTAL - 1);
+
+  // Paywall après la préparation du coach : fermeture possible au bout de 7 s, puis écran « Bienvenue »
+  if (showPaywall) {
+    const toWelcome = () => {
+      setShowPaywall(false);
+      setLaunching(true);
+    };
+    return (
+      <PaywallScreen
+        closeDelayMs={7000}
+        planLabel={`${finalLevel} → ${goalTarget}`}
+        onClose={toWelcome}
+        onPurchased={toWelcome}
+      />
+    );
+  }
 
   if (launching) {
     return (
@@ -171,7 +254,23 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
     );
   }
 
- const isValidation = step === 5 || step === 11;
+  // 0 — Écran d'accueil animé (plein écran, sans barre de progression)
+  // 0 bis — Carrousel des bénéfices, juste après l'accueil
+  if (step === 0) {
+    return showBenefits ? (
+      <BenefitsCarousel onDone={next} />
+    ) : (
+      <WelcomeHero onStart={() => setShowBenefits(true)} onLogin={onLogin} />
+    );
+  }
+
+  // 11 — Préparation du coach (plein écran)
+  if (step === 11) {
+    const picked = interests.slice(0, 2).map((i) => i.toLowerCase()).join(", ");
+    return <PrepScreen sceneHint={picked} saving={saving} onDone={finishToLaunch} />;
+  }
+
+  const isValidation = step === 5;
 
   return (
     <View style={styles.container}>
@@ -189,22 +288,6 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
-        {/* 0 — Accroche */}
-        {step === 0 && (
-          <View style={styles.hero}>
-            <View style={styles.blobWrap}>
-              <View style={styles.blob1} />
-              <View style={styles.blob2} />
-            </View>
-            <Text style={styles.big}>Arrête de traduire</Text>
-            <Text style={styles.bigAccent}>dans ta tête.</Text>
-            <Text style={styles.lead}>
-              Ici, on ne révise pas de la grammaire : on parle, pour de vrai. Dix minutes par jour, et l'anglais finit
-              par sortir tout seul.
-            </Text>
-          </View>
-        )}
-
         {/* 1 — Objectifs (multi) */}
         {step === 1 && (
           <View>
@@ -216,14 +299,32 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
           </View>
         )}
 
-        {/* 2 — Ressenti */}
+        {/* 2 — Tranche d'âge */}
         {step === 2 && (
           <View>
-            <Text style={styles.title}>Qu'est-ce qui te bloque le plus ?</Text>
-            <Text style={styles.sub}>Pour ajuster notre façon de te parler.</Text>
-            {FEELINGS.map((f) => (
-              <SelectCard key={f.key} icon={f.icon} title={f.title} desc={f.desc} active={feeling === f.key} onPress={() => setFeeling(f.key)} />
-            ))}
+            <Text style={styles.title}>Quel âge as-tu ?</Text>
+            <Text style={styles.sub}>Pour te proposer des scènes qui collent à ta vie.</Text>
+            <View style={styles.ageGrid}>
+              {AGE_OPTIONS.map((a) => {
+                const on = ageRange === a.key;
+                return (
+                  <Pressable key={a.key} onPress={() => setAgeRange(a.key)} style={[styles.ageChip, on && styles.ageChipOn]}>
+                    {on && <Feather name="check" size={15} color={T.abricot} />}
+                    <Text style={[styles.ageText, on && styles.ageTextOn]}>{a.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => {
+                setAgeRange(null);
+                next();
+              }}
+              hitSlop={10}
+              style={{ alignSelf: "center", marginTop: 22 }}
+            >
+              <Text style={styles.ageSkip}>Je préfère ne pas répondre</Text>
+            </Pressable>
           </View>
         )}
 
@@ -392,36 +493,316 @@ export default function OnboardingFlow({ onLaunch }: { onLaunch: (goals: Goal[])
         </View>
       )}
 
-        {/* 11 — VALIDATION finale */}
-        {step === 11 && (
-          <View style={styles.validWrap}>
-            <View style={styles.validIcon}>
-              <Feather name="check" size={40} color="#fff" />
-            </View>
-            <Text style={styles.validTitle}>Tout est prêt{name.trim() ? `, ${name.trim()}` : ""}.</Text>
-            <Text style={styles.validLead}>
-              On a calé ton niveau, tes objectifs et tes sujets préférés. Ta première conversation t'attend.
-            </Text>
-          </View>
-        )}
       </ScrollView>
 
-      {step < TOTAL - 1 ? (
-        <Pressable onPress={step === 4 && testStatus !== "done" ? skipTest : next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
-          <Text style={styles.ctaText}>
-            {step === 0 ? "On commence"
-              : step === 4 && testStatus !== "done" ? "Passer ce test"
-              : isValidation ? "Continuer"
-              : "Continuer"}
-          </Text>
-        </Pressable>
-      ) : (
-        <Pressable onPress={finishToLaunch} disabled={saving} style={[styles.cta, saving && styles.ctaOff]}>
-          <Text style={styles.ctaText}>{saving ? "…" : "C'est parti"}</Text>
-        </Pressable>
-      )}
+      <Pressable onPress={step === 4 && testStatus !== "done" ? skipTest : step === 10 ? confirmReminder : next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
+        <Text style={styles.ctaText}>
+            {step === 4 && testStatus !== "done" ? "Passer ce test"
+            : isValidation ? "Continuer"
+            : "Continuer"}
+        </Text>
+      </Pressable>
     </View>
   );
+}
+
+// Préparation du coach : anneau 0 → 100 %, les étapes passent au vert une à une
+function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: boolean; onDone: () => void }) {
+  const insets = useSafeAreaInsets();
+  const progress = useRef(new Animated.Value(0)).current;
+  const [pct, setPct] = useState(0);
+
+  useEffect(() => {
+    const id = progress.addListener(({ value }) => setPct(Math.round(value * 100)));
+    Animated.timing(progress, { toValue: 1, duration: PREP_DURATION, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }).start();
+    return () => progress.removeListener(id);
+  }, [progress]);
+
+  const items = [
+    { label: "Analyse de ton niveau", at: 22 },
+    { label: sceneHint ? `Sélection de tes scènes : ${sceneHint}` : "Sélection de tes scènes", at: 48 },
+    { label: "Réglage de la voix de ton coach", at: 74 },
+    { label: "Préparation de ta 1re conversation", at: 100 },
+  ];
+  const ready = pct >= 100;
+
+  // Anneau : deux demi-cercles qui pivotent (droite de 0 à 50 %, gauche de 50 à 100 %)
+  const rightRot = progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: ["-135deg", "45deg", "45deg"] });
+  const leftRot = progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: ["-135deg", "-135deg", "45deg"] });
+
+  return (
+    <View style={[styles.heroScreen, { paddingTop: insets.top + 36, paddingBottom: insets.bottom + 16 }]}>
+      <View style={styles.prepRing}>
+        <View style={styles.prepHalfRight}>
+          <Animated.View style={[styles.prepArc, styles.prepArcRight, { transform: [{ rotate: rightRot }] }]} />
+        </View>
+        <View style={styles.prepHalfLeft}>
+          <Animated.View style={[styles.prepArc, styles.prepArcLeft, { transform: [{ rotate: leftRot }] }]} />
+        </View>
+        <View style={styles.prepDot} />
+        <Text style={styles.prepPct}>{pct}%</Text>
+      </View>
+
+      <Text style={styles.prepTitle}>{ready ? "Ton coach est prêt !" : "On prépare ton coach..."}</Text>
+      <Text style={styles.prepSub}>{ready ? "Tout est calé pour toi." : "Ça prend quelques secondes."}</Text>
+
+      <View style={styles.prepCard}>
+        {items.map((it) => {
+          const done = pct >= it.at;
+          return (
+            <View key={it.at} style={styles.prepRow}>
+              <View style={[styles.prepCheck, done && styles.prepCheckOn]}>
+                <Feather name="check" size={13} color={done ? T.night : "#C9C1B8"} />
+              </View>
+              <Text style={[styles.prepLabel, done && styles.prepLabelOn]}>{it.label}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.prepTip}>
+        <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={T.abricotDeep} style={{ marginTop: 1 }} />
+        <Text style={styles.prepTipText}>
+          <Text style={{ fontWeight: "800", color: T.night }}>Le savais-tu ? </Text>
+          Mieux vaut 10 minutes chaque jour qu'une heure le dimanche : c'est la régularité qui crée le déclic.
+        </Text>
+      </View>
+
+      <View style={{ flex: 1 }} />
+
+      <Pressable onPress={onDone} disabled={!ready || saving} style={[styles.cta, (!ready || saving) && styles.ctaOff]}>
+        <Text style={styles.ctaText}>{saving ? "…" : "Voir mon offre"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// Écran d'accueil : logo, deux bandes de scènes en défilement lent, bulles flottantes
+function WelcomeHero({ onStart, onLogin }: { onStart: () => void; onLogin?: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.heroScreen, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }]}>
+      <View style={styles.brandRow}>
+        <Image source={BRAND_ICON} style={styles.brandIcon} />
+        <View>
+          <Text style={styles.brandName}>
+            d<Text style={{ color: T.abricotDeep }}>é</Text>clic
+          </Text>
+          <Text style={styles.brandSub}>ANGLAIS</Text>
+        </View>
+      </View>
+
+      <View style={styles.marquee}>
+        <View style={styles.marqueeBand}>
+          <MarqueeRow items={HERO_TOP} direction="left" duration={70000} />
+          <MarqueeRow items={HERO_BOTTOM} direction="right" duration={80000} />
+        </View>
+
+        <FloatBubble delay={0} style={[styles.bubbleDark, { top: 14, left: 22 }]}>
+          <Text style={styles.bubbleDarkText}>Hi! Nice to meet you</Text>
+        </FloatBubble>
+        <FloatBubble delay={900} style={{ top: 150, right: 14 }}>
+          <Text style={styles.bubbleText}>
+            I would like <Text style={styles.bubbleWrong}>an</Text> <Text style={styles.bubbleRight}>a</Text> coffee
+          </Text>
+        </FloatBubble>
+        <FloatBubble delay={1800} style={[styles.bubbleRow, { top: 262, left: 40 }]}>
+          <View style={styles.bubbleCheck}>
+            <Feather name="check" size={12} color="#fff" />
+          </View>
+          <Text style={styles.bubbleOk}>Prononciation claire</Text>
+        </FloatBubble>
+      </View>
+
+      <View style={{ flex: 1 }} />
+
+      <View style={styles.heroText}>
+        <Text style={styles.big}>Parle anglais</Text>
+        <Text style={styles.bigAccent}>sans bloquer.</Text>
+        <Text style={styles.lead}>
+          Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent.
+        </Text>
+      </View>
+
+      <Pressable onPress={onStart} style={[styles.cta, { marginBottom: onLogin ? 16 : 0 }]}>
+        <Text style={styles.ctaText}>Commencer</Text>
+      </Pressable>
+      {onLogin ? (
+        <Pressable onPress={onLogin} hitSlop={10} style={{ alignSelf: "center", paddingVertical: 4 }}>
+          <Text style={styles.heroLogin}>J'ai déjà un compte</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// Carrousel des bénéfices : défilement auto toutes les 3 s, swipe possible
+function BenefitsCarousel({ onDone }: { onDone: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+  const [index, setIndex] = useState(0);
+  const phoneH = Math.min(440, height * 0.5);
+
+  const goTo = (i: number) => {
+    scrollRef.current?.scrollTo({ x: i * width, animated: true });
+    setIndex(i);
+  };
+
+  // Relancé à chaque changement de slide : un swipe manuel remet le compteur à zéro
+  useEffect(() => {
+    const t = setTimeout(() => goTo((index + 1) % BENEFITS.length), BENEFIT_INTERVAL);
+    return () => clearTimeout(t);
+  }, [index, width]);
+
+  const onContinue = () => {
+    if (index < BENEFITS.length - 1) goTo(index + 1);
+    else onDone();
+  };
+
+  return (
+    <View style={[styles.heroScreen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
+      <Pressable onPress={onDone} hitSlop={10} style={styles.skipBtn}>
+        <Text style={styles.skipText}>Passer</Text>
+      </Pressable>
+
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        style={{ flex: 1 }}
+        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
+      >
+        {BENEFITS.map((b) => (
+          <View key={b.key} style={{ width, flex: 1 }}>
+            <View style={styles.benefitVisual}>
+              {b.key === "scenes" ? <SceneGrid width={width} /> : <PhoneShot source={BENEFIT_SHOTS[b.key]} height={phoneH} />}
+
+              {b.key === "conversation" && (
+                <FloatBubble delay={0} style={[styles.bubbleRow, { top: "58%", left: 22 }]}>
+                  <View style={styles.bubbleDot} />
+                  <Text style={styles.bubbleOk}>Prononciation claire</Text>
+                </FloatBubble>
+              )}
+              {b.key === "correction" && (
+                <FloatBubble delay={0} style={[styles.bubbleRow, { top: "22%", right: 26 }]}>
+                  <Text style={styles.chipWrong}>an</Text>
+                  <Feather name="arrow-right" size={14} color={T.night} />
+                  <Text style={styles.chipRight}>a</Text>
+                </FloatBubble>
+              )}
+              {b.key === "scenes" && (
+                <FloatBubble delay={0} style={[styles.bubbleDark, { top: -6, right: 30 }]}>
+                  <Text style={styles.bubbleDarkText}>+ ta propre scène</Text>
+                </FloatBubble>
+              )}
+              {b.key === "daily" && (
+                <FloatBubble delay={0} style={[styles.bubbleRow, { top: "14%", right: 26 }]}>
+                  <MaterialCommunityIcons name="fire" size={17} color={T.abricotDeep} />
+                  <Text style={styles.bubbleText}>Ta série continue</Text>
+                </FloatBubble>
+              )}
+            </View>
+
+            <View style={styles.benefitText}>
+              <Text style={styles.benefitTitle}>{b.title}</Text>
+              <Text style={[styles.benefitTitle, { color: T.abricotDeep }]}>{b.accent}</Text>
+              <Text style={styles.benefitLead}>{b.text}</Text>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+
+      <View style={styles.dots}>
+        {BENEFITS.map((b, i) => (
+          <View key={b.key} style={i === index ? styles.dotActive : styles.dot} />
+        ))}
+      </View>
+
+      <Pressable onPress={onContinue} style={styles.cta}>
+        <Text style={styles.ctaText}>Continuer</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// Capture d'écran de l'app dans un cadre de téléphone
+function PhoneShot({ source, height }: { source: any; height: number }) {
+  return (
+    <View style={[styles.phone, { height, width: height * 0.48 }]}>
+      <Image source={source} style={styles.phoneScreen} resizeMode="cover" />
+    </View>
+  );
+}
+
+// Grille 2 x 3 de scènes
+function SceneGrid({ width }: { width: number }) {
+  const cardW = Math.min(150, (width - 52 - 12) / 2);
+  return (
+    <View style={[styles.sceneGrid, { width: cardW * 2 + 12 }]}>
+      {BENEFIT_SCENES.map((sc) => (
+        <View key={sc.label} style={[styles.sceneCard, { width: cardW }]}>
+          <View>
+            <Image source={sc.img} style={styles.sceneImg} />
+            <Text style={styles.sceneTag}>{sc.tag}</Text>
+          </View>
+          <Text style={styles.sceneLabel} numberOfLines={1}>{sc.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Bande de cartes en boucle infinie (la liste est dupliquée pour un raccord invisible)
+function MarqueeRow({ items, direction, duration }: { items: { img: any; label: string }[]; direction: "left" | "right"; duration: number }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const setWidth = items.length * (HERO_CARD_W + HERO_CARD_GAP);
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.timing(progress, { toValue: 1, duration, easing: Easing.linear, useNativeDriver: true })
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [progress, duration]);
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: direction === "left" ? [0, -setWidth] : [-setWidth, 0],
+  });
+
+  return (
+    <Animated.View style={[styles.marqueeRow, { width: setWidth * 2, transform: [{ translateX }] }]}>
+      {[...items, ...items].map((it, i) => (
+        <View key={i} style={styles.heroCard}>
+          <Image source={it.img} style={styles.heroCardImg} />
+          <Text style={styles.heroCardLabel} numberOfLines={1}>{it.label}</Text>
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
+
+// Bulle qui flotte doucement de haut en bas
+function FloatBubble({ delay, style, children }: { delay: number; style?: any; children: ReactNode }) {
+  const y = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(y, { toValue: -6, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(y, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    const t = setTimeout(() => anim.start(), delay);
+    return () => {
+      clearTimeout(t);
+      anim.stop();
+    };
+  }, [y, delay]);
+
+  return <Animated.View style={[styles.bubble, style, { transform: [{ translateY: y }] }]}>{children}</Animated.View>;
 }
 
 // Courbe de progression stylisée (barres montantes en dégradé abricot)
@@ -461,6 +842,48 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 26, paddingBottom: 20 },
 
   hero: { paddingTop: 20 },
+
+  heroScreen: { flex: 1, backgroundColor: T.cream },
+  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 22 },
+  brandIcon: { width: 56, height: 56, borderRadius: 16 },
+  brandName: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.8, lineHeight: 32 },
+  brandSub: { fontSize: 11, fontWeight: "800", color: T.inkSoft, letterSpacing: 4, marginTop: 2 },
+  marquee: { height: 330, overflow: "hidden" },
+  marqueeBand: { marginHorizontal: -60, marginTop: 22, transform: [{ rotate: "-4deg" }] },
+  marqueeRow: { flexDirection: "row", paddingVertical: 8 },
+  heroCard: { width: HERO_CARD_W, marginRight: HERO_CARD_GAP, backgroundColor: T.card, borderRadius: 20, padding: 6, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  heroCardImg: { width: "100%", height: 92, borderRadius: 15 },
+  heroCardLabel: { fontSize: 13, fontWeight: "800", color: T.night, marginTop: 8, marginBottom: 4, marginHorizontal: 4 },
+  bubble: { position: "absolute", backgroundColor: T.card, borderRadius: 14, paddingVertical: 9, paddingHorizontal: 14, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  bubbleDark: { backgroundColor: T.night },
+  bubbleDarkText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  bubbleText: { color: T.night, fontSize: 14, fontWeight: "800" },
+  bubbleWrong: { color: T.corail, textDecorationLine: "line-through" },
+  bubbleRight: { color: "#2E9E6B" },
+  bubbleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  bubbleCheck: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#2E9E6B", alignItems: "center", justifyContent: "center" },
+  bubbleOk: { color: "#1F7A52", fontSize: 13.5, fontWeight: "800" },
+  heroText: { paddingHorizontal: 26, marginBottom: 22 },
+  skipBtn: { alignSelf: "flex-end", paddingHorizontal: 26, paddingVertical: 6 },
+  skipText: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
+  benefitVisual: { flex: 1, alignItems: "center", justifyContent: "center" },
+  benefitText: { paddingHorizontal: 30, paddingTop: 18, paddingBottom: 8, alignItems: "center" },
+  benefitTitle: { fontSize: 28, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.6, lineHeight: 33 },
+  benefitLead: { fontSize: 15, color: T.inkSoft, textAlign: "center", lineHeight: 22, marginTop: 10 },
+  phone: { backgroundColor: T.night, borderRadius: 34, padding: 7, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  phoneScreen: { flex: 1, width: "100%", borderRadius: 27 },
+  bubbleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#2E9E6B" },
+  chipWrong: { color: T.corail, fontWeight: "800", fontSize: 14, textDecorationLine: "line-through", backgroundColor: "#FDE3E0", borderRadius: 7, paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" },
+  chipRight: { color: "#1F7A52", fontWeight: "800", fontSize: 14, backgroundColor: "#DDF3E7", borderRadius: 7, paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" },
+  sceneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  sceneCard: { backgroundColor: T.card, borderRadius: 18, padding: 5, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  sceneImg: { width: "100%", height: 88, borderRadius: 14 },
+  sceneTag: { position: "absolute", top: 6, left: 6, backgroundColor: T.card, color: T.abricotDeep, fontSize: 11, fontWeight: "800", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" },
+  sceneLabel: { fontSize: 13, fontWeight: "800", color: T.night, marginTop: 7, marginBottom: 4, marginHorizontal: 4 },
+  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, marginVertical: 18 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.creamLine },
+  dotActive: { width: 12, height: 12, borderRadius: 6, backgroundColor: T.abricot, borderWidth: 2, borderColor: T.chipAbricot },
+  heroLogin: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
   blobWrap: { height: 120, marginBottom: 20, alignItems: "center", justifyContent: "center" },
   blob1: { position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: T.abricot, opacity: 0.9, transform: [{ scaleX: 1.15 }] },
   blob2: { position: "absolute", width: 80, height: 80, borderRadius: 40, backgroundColor: T.miel, right: 60, top: 10 },
@@ -469,6 +892,12 @@ const styles = StyleSheet.create({
   lead: { fontSize: 16, fontWeight: "600", color: T.inkSoft, lineHeight: 24 },
 
   title: { fontSize: 25, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
+  ageGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12 },
+  ageChip: { width: "48%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: T.card, borderRadius: 18, paddingVertical: 20, borderWidth: 1.5, borderColor: T.card },
+  ageChipOn: { backgroundColor: T.night, borderColor: T.night, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  ageText: { fontSize: 15.5, fontWeight: "800", color: T.night },
+  ageTextOn: { color: "#fff" },
+  ageSkip: { fontSize: 14, fontWeight: "800", color: T.inkSoft, textDecorationLine: "underline" },
   sub: { fontSize: 15, fontWeight: "600", color: T.inkSoft, lineHeight: 22, marginTop: 6, marginBottom: 20 },
 
   selectCard: { backgroundColor: T.card, borderRadius: 20, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 10, borderWidth: 2, borderColor: "transparent" },
@@ -538,6 +967,24 @@ const styles = StyleSheet.create({
   interestText: { fontSize: 14, fontWeight: "700", color: T.inkSoft },
   interestTextOn: { color: T.night },
 
+  prepRing: { width: PREP_RING, height: PREP_RING, borderRadius: PREP_RING / 2, borderWidth: PREP_STROKE, borderColor: T.creamLine, alignSelf: "center", alignItems: "center", justifyContent: "center", marginBottom: 26 },
+  prepHalfRight: { position: "absolute", top: -PREP_STROKE, left: PREP_RING / 2 - PREP_STROKE, width: PREP_RING / 2, height: PREP_RING, overflow: "hidden" },
+  prepHalfLeft: { position: "absolute", top: -PREP_STROKE, left: -PREP_STROKE, width: PREP_RING / 2, height: PREP_RING, overflow: "hidden" },
+  prepArc: { position: "absolute", top: 0, width: PREP_RING, height: PREP_RING, borderRadius: PREP_RING / 2, borderWidth: PREP_STROKE, borderColor: "transparent" },
+  prepArcRight: { left: -PREP_RING / 2, borderTopColor: T.abricot, borderRightColor: T.abricot },
+  prepArcLeft: { left: 0, borderBottomColor: T.abricot, borderLeftColor: T.abricot },
+  prepDot: { position: "absolute", top: -PREP_STROKE, width: PREP_STROKE, height: PREP_STROKE, borderRadius: PREP_STROKE / 2, backgroundColor: T.abricot },
+  prepPct: { fontSize: 44, fontWeight: "800", color: T.night, letterSpacing: -1 },
+  prepTitle: { fontSize: 24, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.4 },
+  prepSub: { fontSize: 15, fontWeight: "600", color: T.inkSoft, textAlign: "center", marginTop: 6, marginBottom: 22 },
+  prepCard: { backgroundColor: T.card, borderRadius: 22, paddingVertical: 8, paddingHorizontal: 18, marginHorizontal: 20, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  prepRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11 },
+  prepCheck: { width: 24, height: 24, borderRadius: 12, backgroundColor: "#F1ECE6", alignItems: "center", justifyContent: "center" },
+  prepCheckOn: { backgroundColor: "#7ED3A4" },
+  prepLabel: { flex: 1, fontSize: 15, fontWeight: "800", color: "#C9C1B8" },
+  prepLabelOn: { color: T.night },
+  prepTip: { flexDirection: "row", gap: 10, backgroundColor: T.chipAbricot, borderRadius: 18, padding: 16, marginHorizontal: 20, marginTop: 18 },
+  prepTipText: { flex: 1, fontSize: 13.5, fontWeight: "600", color: T.inkSoft, lineHeight: 20 },
   launchWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 26 },
   launchTitle: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.5, marginBottom: 12 },
   launchLead: { fontSize: 16, fontWeight: "600", color: T.inkSoft, lineHeight: 24 },

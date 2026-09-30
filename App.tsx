@@ -6,7 +6,7 @@ import { Feather } from "@expo/vector-icons";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import { T } from "./lib/theme";
-import { loadProfile, markTourSeen, markTrialExerciseUsed } from "./lib/profile";
+import { loadProfile, markTrialExerciseUsed, saveGiftExpiresAt, markRatingAsked } from "./lib/profile";
 import HomeScreen from "./screens/HomeScreen";
 import ScenariosScreen from "./screens/ScenariosScreen";
 import PlaceholderScreen from "./screens/PlaceholderScreen";
@@ -18,12 +18,14 @@ import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
-import { TourProvider, useTourTarget } from "./TourContext";
-import TourOverlay, { TourStep } from "./TourOverlay";
-import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown, logTrialExerciseStart } from "./lib/analytics";
+import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown, logTrialExerciseStart, logGiftRevealShown, logGiftDeclined, logRatingShown } from "./lib/analytics";
+import GiftRevealModal from "./components/GiftRevealModal";
+import FloatingGiftButton from "./components/FloatingGiftButton";
+import RatingModal from "./components/RatingModal";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
+import Purchases from "react-native-purchases";
 import { scheduleExpressionReminder, getExpressionReminderEnabled } from "./lib/notifications";
 import EditProfileScreen from "./screens/EditProfileScreen";
 import DailyHubScreen from "./screens/DailyHubScreen";
@@ -41,14 +43,10 @@ const TABS: { key: Tab; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "settings", icon: "settings" },
 ];
 
-// Contenu du tour guidé — à ajuster librement, c'est une proposition de départ.
-const TOUR_STEPS: TourStep[] = [
-  { targetId: "home-parler", title: "Parle avec ton coach", body: "Choisis une situation réelle (entretien, voyage…) et entraîne-toi à voix haute, sans jugement." },
-  { targetId: "home-hub", title: "Tes défis du jour", body: "Trois mini-exercices chaque jour — lecture, traduction, écoute — pour progresser en douceur." },
-  { targetId: "home-reviser", title: "Ton dictionnaire", body: "Les mots que tu gardes pendant tes conversations arrivent ici, avec leur définition." },
-  { targetId: "tab-labo", title: "Le Labo", body: "Les mots qui te résistent à l'oral atterrissent ici pour que tu les retravailles, un par un.", placement: "top" },
-  { targetId: "tab-progres", title: "Tes progrès", body: "Ta série, ton temps de parole, et ce qu'il te reste à travailler — en un coup d'œil.", placement: "top" },
-];
+// Offre Google Play « developer determined » proposée à la fin de la conversation de présentation
+const GIFT_OFFER_ID = "cadeau-50";
+const GIFT_DISCOUNT = 50; // affiché dans la popup (le paywall recalcule depuis le vrai prix)
+const GIFT_DURATION_MS = 10 * 60 * 1000;
 
 function AppInner() {
   const [appState, setAppState] = useState<AppState>("loading");
@@ -72,9 +70,11 @@ function AppInner() {
   const [showListening, setShowListening] = useState(false);
   const [firstSessionDone, setFirstSessionDone] = useState(false);
   const [trialExercisesDone, setTrialExercisesDone] = useState<{ reading?: boolean; translation?: boolean; listening?: boolean }>({});
-  const [tourActive, setTourActive] = useState(false);
-  const laboTarget = useTourTarget("tab-labo");
-  const progresTarget = useTourTarget("tab-progres");
+  const [giftPaywall, setGiftPaywall] = useState(false);
+  const [giftExpiresAt, setGiftExpiresAt] = useState<number | null>(null);
+  const [showGiftReveal, setShowGiftReveal] = useState(false);
+  const [ratingAsked, setRatingAsked] = useState(true); // true tant que le profil n'est pas chargé : on ne demande rien
+  const [showRating, setShowRating] = useState(false);
   const isPremium = access?.premium === true;
   const insets = useSafeAreaInsets();
   // Réserve l'espace de la barre de navigation système en bas (boutons ou gestes),
@@ -89,6 +89,14 @@ function AppInner() {
       if (!u) {
         signInAnonymously(auth).catch((e) => console.error("Anon auth:", e));
         return;
+      }
+      // Relie le client RevenueCat à l'uid Firebase : dans RevenueCat, l'App User ID devient l'uid
+      // (les achats faits avant sous un ID anonyme RevenueCat sont rattachés automatiquement)
+      try {
+        configurePurchases();
+        await Purchases.logIn(u.uid);
+      } catch (e) {
+        console.warn("RevenueCat logIn échoué:", e);
       }
       const profile = await loadProfile();
       setAppState(profile?.onboarded ? "ready" : "onboarding");
@@ -106,7 +114,9 @@ function AppInner() {
       const p = await loadProfile();
       setFirstSessionDone(!!p?.firstSessionDone);
       setTrialExercisesDone(p?.trialExercisesDone ?? {});
-      if (!p?.tourSeen) setTourActive(true);
+      setRatingAsked(!!p?.ratingAsked);
+      // Offre cadeau encore valable (ex. app fermée puis rouverte) : l'icône cadeau revient
+      if (p?.giftExpiresAt && p.giftExpiresAt > Date.now()) setGiftExpiresAt(p.giftExpiresAt);
     })();
   }, [appState, homeKey]);
 
@@ -161,9 +171,17 @@ if (welcomeActive) {
           welcome
           premium={isPremium}
           scenario={{ id: "welcome", title: "On fait connaissance", emoji: "", category: "quotidien", description: "" }}
-          onExit={() => {
+          onExit={(offerGift) => {
             setWelcomeActive(false);
             setHomeKey((k) => k + 1);
+            // Conversation de présentation terminée (ou quittée après au moins un échange) en freemium : cadeau
+            if (offerGift && !isPremium) {
+              logGiftRevealShown();
+              const expiresAt = Date.now() + GIFT_DURATION_MS;
+              setGiftExpiresAt(expiresAt);
+              saveGiftExpiresAt(expiresAt);
+              setShowGiftReveal(true);
+            }
           }}
         />
       </View>
@@ -176,7 +194,17 @@ if (welcomeActive) {
         <SpikeScreen
           daily
           scenario={{ id: "daily", title: "Discussion du jour", emoji: "", category: "quotidien", description: "" }}
-          onExit={() => { setDailyActive(false); setHomeKey((k) => k + 1); }}
+          onExit={(completed) => {
+            setDailyActive(false);
+            setHomeKey((k) => k + 1);
+            // Premier daily terminé par un abonné (ou en essai) : on demande une note, une seule fois
+            if (completed && isPremium && !ratingAsked) {
+              setRatingAsked(true);
+              markRatingAsked();
+              logRatingShown();
+              setShowRating(true);
+            }
+          }}
         />
       </View>
     );
@@ -264,8 +292,10 @@ if (welcomeActive) {
         <StatusBar style="dark" />
           <PaywallScreen
           dismissable={!paywallHard}
-          onClose={() => { setShowPaywall(false); setPaywallHard(false); }}
-          onPurchased={() => { setShowPaywall(false); setPaywallHard(false); }}
+          giftOfferId={giftPaywall ? GIFT_OFFER_ID : undefined}
+          giftExpiresAt={giftPaywall ? giftExpiresAt ?? undefined : undefined}
+          onClose={() => { setShowPaywall(false); setPaywallHard(false); setGiftPaywall(false); }}
+          onPurchased={() => { setShowPaywall(false); setPaywallHard(false); setGiftPaywall(false); setGiftExpiresAt(null); saveGiftExpiresAt(null); }}
         />
       </View>
     );
@@ -321,16 +351,48 @@ if (welcomeActive) {
             }}
           />
         )}
+
+        {/* Icône cadeau flottante : rouvre l'offre tant qu'elle n'a pas expiré */}
+        {tab === "home" && giftExpiresAt !== null && !isPremium && !showGiftReveal && (
+          <FloatingGiftButton
+            expiresAt={giftExpiresAt}
+            discount={GIFT_DISCOUNT}
+            onPress={() => {
+              logPaywallShown("gift");
+              setGiftPaywall(true);
+              setShowPaywall(true);
+            }}
+            onExpire={() => setGiftExpiresAt(null)}
+          />
+        )}
       </View>
+
+      <RatingModal visible={showRating} onClose={() => setShowRating(false)} />
+
+      {giftExpiresAt !== null && (
+        <GiftRevealModal
+          visible={showGiftReveal}
+          discount={GIFT_DISCOUNT}
+          giftOfferId={GIFT_OFFER_ID}
+          expiresAt={giftExpiresAt}
+          onAccept={() => {
+            setShowGiftReveal(false);
+            logPaywallShown("gift");
+            setGiftPaywall(true);
+            setShowPaywall(true);
+          }}
+          onDecline={() => {
+            logGiftDeclined();
+            setShowGiftReveal(false); // l'offre reste accessible via l'icône cadeau jusqu'à expiration
+          }}
+        />
+      )}
 
       <View style={styles.tabBar}>
         {TABS.map((t) => {
-          const target = t.key === "labo" ? laboTarget : t.key === "progres" ? progresTarget : null;
           return (
             <Pressable
               key={t.key}
-              ref={target?.ref}
-              onLayout={target?.onLayout}
               onPress={() => {
                 if (t.key === "progres") setProgressKey((k) => k + 1);
                 if (t.key === "labo") setLaboKey((k) => k + 1);
@@ -344,7 +406,6 @@ if (welcomeActive) {
         })}
       </View>
 
-      <TourOverlay steps={TOUR_STEPS} active={tourActive} onFinish={() => { setTourActive(false); markTourSeen().catch(() => {}); }} />
     </View>
   );
 }
@@ -352,9 +413,7 @@ if (welcomeActive) {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <TourProvider>
-        <AppInner />
-      </TourProvider>
+      <AppInner />
     </SafeAreaProvider>
   );
 }

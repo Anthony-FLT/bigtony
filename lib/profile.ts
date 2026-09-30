@@ -10,11 +10,13 @@ export type Feeling = "panique" | "cherche-mots" | "passer-cap";
 export type Gender = "homme" | "femme" | "non-precise";
 // Voix du coach (choix utilisateur)
 export type VoiceKey = "us-male" | "us-female" | "uk-male" | "uk-female";
+export type AgeRange = "18-24" | "25-34" | "35-44" | "45-54" | "55+";
 
 export type Profile = {
   onboarded: boolean;
   goals?: Goal[];
   feeling?: Feeling;
+  ageRange?: AgeRange;
   job?: string;
   gender?: Gender;
   interests?: string[];
@@ -30,6 +32,9 @@ export type Profile = {
   tourSeen?: boolean;
   translateHintSeen?: boolean;
   lastMilestone?: number;
+  giftExpiresAt?: number | null; // fin de l'offre cadeau (timestamp ms), null une fois utilisée
+  ratingAsked?: boolean; // la note in-app a déjà été demandée (une seule fois)
+  appRating?: number; // note in-app de 1 à 5
 };
 
 export async function loadProfile(): Promise<Profile | null> {
@@ -62,6 +67,9 @@ export async function loadProfile(): Promise<Profile | null> {
       tourSeen: data.tourSeen ?? false,
       translateHintSeen: data.translateHintSeen ?? false,
       lastMilestone: data.lastMilestone ?? 0,
+      giftExpiresAt: data.giftExpiresAt ?? null,
+      ratingAsked: data.ratingAsked ?? false,
+      appRating: data.appRating,
     };
   } catch (e) {
     console.warn("loadProfile échoué:", e);
@@ -151,6 +159,38 @@ export async function saveWeeklyGoal(weeklyGoal: number): Promise<void> {
     await setDoc(doc(db, "users", uid), { weeklyGoal }, { merge: true });
   } catch (e) {
     console.warn("saveWeeklyGoal échoué:", e);
+  }
+}
+
+// Offre cadeau : heure d'expiration (null = plus d'offre, par ex. après achat)
+export async function saveGiftExpiresAt(giftExpiresAt: number | null): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { giftExpiresAt }, { merge: true });
+  } catch (e) {
+    console.warn("saveGiftExpiresAt échoué:", e);
+  }
+}
+
+// Note in-app : marquée comme demandée dès l'affichage, pour ne jamais la redemander
+export async function markRatingAsked(): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { ratingAsked: true }, { merge: true });
+  } catch (e) {
+    console.warn("markRatingAsked échoué:", e);
+  }
+}
+
+export async function saveAppRating(appRating: number): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { appRating, appRatingAt: serverTimestamp(), ratingAsked: true }, { merge: true });
+  } catch (e) {
+    console.warn("saveAppRating échoué:", e);
   }
 }
 

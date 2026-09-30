@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Alert } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { useEffect, useRef, useState } from "react";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Alert, Animated, Easing, Image } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { T } from "../lib/theme";
 import { configurePurchases } from "../lib/purchases";
@@ -12,12 +13,28 @@ type PlanId = "monthly" | "yearly";
 // Prix de secours si le store est injoignable (affichage seulement, l'achat exige le vrai package)
 const FALLBACK = { monthly: "19,99 €", yearly: "49,99 €" };
 
+const ICONS = {
+  conversations: require("../assets/paywall/ic_paywall_conversations_illimitees.png"),
+  correction: require("../assets/paywall/ic_paywall_correction_chaque_phrase.png"),
+  labo: require("../assets/paywall/ic_paywall_labo_prononciation.png"),
+  defis: require("../assets/paywall/ic_paywall_defis_quotidiens.png"),
+  today: require("../assets/paywall/ic_paywall_timeline_aujourdhui_acces.png"),
+  reminder: require("../assets/paywall/ic_paywall_timeline_jour5_rappel.png"),
+  billing: require("../assets/paywall/ic_paywall_timeline_jour7_abonnement.png"),
+  planReady: require("../assets/paywall/ic_paywall_plan_pret_check.png"),
+  selected: require("../assets/paywall/ic_paywall_offre_selectionnee_check.png"),
+  close: require("../assets/paywall/ic_paywall_fermer.png"),
+  shield: require("../assets/paywall/ic_paywall_annulation_garantie.png"),
+};
+
 const BENEFITS = [
-  "Discussions à thème illimitées, dans toutes les situations",
-  "Ta propre scène : décris-la, on la joue",
-  "Tes mots favoris, gardés et travaillés",
-  "Discussion du jour et Labo à volonté",
+  { icon: ICONS.conversations, title: "Conversations illimitées", desc: "Toutes les scènes, et même la tienne" },
+  { icon: ICONS.correction, title: "Corrigé à chaque phrase", desc: "Avec la bonne version à écouter" },
+  { icon: ICONS.labo, title: "Labo de prononciation", desc: "Tes mots difficiles, un par un" },
+  { icon: ICONS.defis, title: "3 défis chaque jour", desc: "Lecture, traduction, écoute" },
 ];
+
+const GREEN = "#2E9E6B";
 
 // — Détection de l'essai gratuit, sans rien écrire en dur —
 function periodUnitToDays(n: any, unit: any): number | null {
@@ -78,47 +95,144 @@ export default function PaywallScreen({
   onClose,
   dismissable = true,
   onPurchased,
+  closeDelayMs = 0,
+  planLabel,
+  giftOfferId,
+  giftExpiresAt,
 }: {
   onClose: () => void;
   dismissable?: boolean;
   onPurchased: () => void;
+  closeDelayMs?: number; // la croix n'apparaît qu'après ce délai
+  planLabel?: string; // ex. "A2 → B2" : affiche le badge « Ton plan … est prêt »
+  giftOfferId?: string; // offre Play « developer determined » (ex. "cadeau-50") : mode cadeau, annuel seul
+  giftExpiresAt?: number; // fin de l'offre cadeau (timestamp ms) : compte à rebours, puis retour au paywall classique
 }) {
+  const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<PlanId>("yearly");
   const [pkgs, setPkgs] = useState<Record<PlanId, PurchasesPackage | null>>({ monthly: null, yearly: null });
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false); // offres (et essai gratuit) récupérées
+  const [now, setNow] = useState(Date.now());
+
+  // Compte à rebours de l'offre cadeau
+  useEffect(() => {
+    if (!giftExpiresAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [giftExpiresAt]);
+
+  // Croix : apparition en fondu après closeDelayMs
+  const [canClose, setCanClose] = useState(closeDelayMs <= 0);
+  const closeOpacity = useRef(new Animated.Value(closeDelayMs <= 0 ? 1 : 0)).current;
+  useEffect(() => {
+    if (closeDelayMs <= 0) return;
+    const t = setTimeout(() => {
+      setCanClose(true);
+      Animated.timing(closeOpacity, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+    }, closeDelayMs);
+    return () => clearTimeout(t);
+  }, [closeDelayMs, closeOpacity]);
+
+  // Timeline : les 3 pastilles sont grisées, puis se colorent et gonflent l'une après l'autre
+  const steps = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+  useEffect(() => {
+    if (!loaded) return;
+    Animated.sequence([
+      Animated.delay(500),
+      Animated.stagger(
+        1000,
+        steps.map((v) => Animated.timing(v, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }))
+      ),
+    ]).start();
+  }, [steps, loaded]);
+
+  // Badge « 7 jours gratuits » : légère respiration
+  const breath = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [breath]);
+  const breathScale = breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] });
 
   useEffect(() => {
+    // Filet de sécurité : si le store ne répond pas, on affiche quand même (prix de secours) au bout de 5 s
+    const timeout = setTimeout(() => setLoaded(true), 5000);
     (async () => {
       try {
         configurePurchases();
         const offerings = await Purchases.getOfferings();
         const av = offerings.current?.availablePackages ?? [];
-       
         const find = (t: string) => av.find((p) => p.packageType === t) ?? null;
         setPkgs({ yearly: find("ANNUAL"), monthly: find("MONTHLY") });
       } catch (e) {
         console.warn("getOfferings échoué:", e);
+      } finally {
+        clearTimeout(timeout);
+        setLoaded(true);
       }
     })();
+    return () => clearTimeout(timeout);
   }, []);
 
   const price = (id: PlanId) => pkgs[id]?.product.priceString ?? FALLBACK[id];
   const trialDays = (id: PlanId) => trialDaysFor(pkgs[id]);
   const perLabel = (id: PlanId) => (id === "yearly" ? "/an" : "/mois");
   const selTrial = trialDays(selected);
+  const yearTrial = trialDays("yearly");
+  const monthTrial = trialDays("monthly");
 
-  // Équivalent mensuel de l'annuel, calculé depuis le vrai prix numérique du store (pas depuis le texte
-  // formaté, pour rester exact quelle que soit la devise) — replié sur 49,99/12 si le store est injoignable.
-  const yearlyMonthlyEquiv = () => {
-    const product: any = pkgs.yearly?.product;
-    const numeric = typeof product?.price === "number" ? product.price : null;
-    const currency = product?.currencyCode ?? "EUR";
-    const value = numeric ?? 49.99;
+  // Prix numériques (repli sur les prix de secours si le store est injoignable)
+  const numeric = (id: PlanId, fallback: number) => {
+    const p: any = pkgs[id]?.product;
+    return typeof p?.price === "number" ? p.price : fallback;
+  };
+  const currency = ((pkgs.yearly?.product as any)?.currencyCode as string) ?? "EUR";
+  const money = (v: number) => {
     try {
-      return (value / 12).toLocaleString("fr-FR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return v.toLocaleString("fr-FR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
     } catch {
-      return `${(value / 12).toFixed(2)} €`;
+      return `${v.toFixed(2)} €`;
     }
+  };
+  const yearlyValue = numeric("yearly", 49.99);
+  const monthlyValue = numeric("monthly", 19.99);
+  const discount = Math.round((1 - yearlyValue / (monthlyValue * 12)) * 100);
+
+  // — Mode cadeau : offre réduite sur l'annuel, trouvée par son identifiant d'offre Play ou son tag —
+  const yearlyOptions: any[] = (pkgs.yearly?.product as any)?.subscriptionOptions ?? [];
+  const giftOption: any =
+    giftOfferId
+      ? yearlyOptions.find((o) => (typeof o?.id === "string" && o.id.endsWith(`:${giftOfferId}`)) || (Array.isArray(o?.tags) && o.tags.includes(giftOfferId))) ?? null
+      : null;
+  const giftPhase: any = giftOption ? giftOption.introPhase ?? giftOption.pricingPhases?.[0] ?? null : null;
+  const giftMicros = Number(giftPhase?.price?.amountMicros ?? 0);
+  const giftRemaining = giftExpiresAt ? giftExpiresAt - now : Infinity;
+  const isGift = !!giftOption && giftMicros > 0 && giftRemaining > 0;
+  const giftClock = Number.isFinite(giftRemaining)
+    ? `${String(Math.floor(Math.max(0, giftRemaining) / 60000)).padStart(2, "0")}:${String(Math.floor((Math.max(0, giftRemaining) % 60000) / 1000)).padStart(2, "0")}`
+    : "";
+  const giftValue = giftMicros / 1_000_000;
+  const giftPrice: string = giftPhase?.price?.formatted ?? money(giftValue);
+  const giftDiscount = isGift ? Math.round((1 - giftValue / yearlyValue) * 100) : 0;
+
+  // Diagnostic temporaire : liste des offres annuelles vues par l'app (à retirer une fois l'offre cadeau validée)
+  useEffect(() => {
+    if (!giftOfferId || !loaded) return;
+    console.log("[cadeau] offres annuelles :", JSON.stringify(yearlyOptions.map((o) => ({ id: o?.id, tags: o?.tags }))));
+  }, [giftOfferId, loaded]);
+
+  // Fermer en mode cadeau = renoncer définitivement à l'offre : on le dit clairement
+  // En mode cadeau, fermer ne fait pas perdre l'offre : elle reste accessible depuis l'icône cadeau de l'accueil
+  const handleClose = () => {
+    logPaywallDismissed(isGift ? "gift" : undefined);
+    onClose();
   };
 
   const buy = async () => {
@@ -130,7 +244,9 @@ export default function PaywallScreen({
     setBusy(true);
     logPurchaseStart(selected);
     try {
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      const { customerInfo } = isGift
+        ? await Purchases.purchaseSubscriptionOption(giftOption)
+        : await Purchases.purchasePackage(pkg);
       if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
         logPurchaseComplete(selected);
         onPurchased();
@@ -156,126 +272,232 @@ export default function PaywallScreen({
     }
   };
 
-  const PLANS: { id: PlanId; title: string; badge?: string }[] = [
-    { id: "yearly", title: "Annuel", badge: "LE PLUS POPULAIRE" },
-    { id: "monthly", title: "Mensuel" },
-  ];
+  const timeline = yearTrial
+    ? [
+        { icon: ICONS.today, bg: T.abricot, title: "Aujourd'hui", text: "Accès complet, 0 €" },
+        { icon: ICONS.reminder, bg: T.miel, title: `Jour ${Math.max(1, yearTrial - 2)}`, text: "On te prévient par notification" },
+        { icon: ICONS.billing, bg: T.chipAbricot, title: `Jour ${yearTrial}`, text: "Début de l'abonnement, sauf si tu annules" },
+      ]
+    : null;
+
+  const yearSel = isGift || selected === "yearly";
+  const showTrial = isGift ? null : selTrial;
+  const monthSel = selected === "monthly";
 
   return (
     <View style={styles.container}>
       {dismissable && (
-        <Pressable onPress={() => { logPaywallDismissed(); onClose(); }} hitSlop={12} style={styles.close}>
-          <Feather name="x" size={22} color={T.night} />
-        </Pressable>
+        <Animated.View style={[styles.closeWrap, { top: insets.top + 14, opacity: closeOpacity }]} pointerEvents={canClose ? "auto" : "none"}>
+          <Pressable onPress={handleClose} hitSlop={12} style={styles.close}>
+            <Image source={ICONS.close} style={styles.closeIcon} />
+          </Pressable>
+        </Animated.View>
       )}
 
-      <ScrollView contentContainerStyle={{ padding: 26, paddingTop: 70, paddingBottom: 150 }}>
-        <Text style={styles.k}>PASSE EN ILLIMITÉ</Text>
-        <Text style={styles.h1}>Ton anglais mérite{"\n"}un vrai coach.</Text>
+      {!loaded ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={T.abricot} size="large" />
+        </View>
+      ) : (
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 22, paddingBottom: insets.bottom + 20 }}>
+        {isGift ? (
+          <View style={[styles.planReady, styles.giftBadge]}>
+            <MaterialCommunityIcons name="gift-outline" size={15} color={T.abricotDeep} />
+            <Text style={[styles.planReadyText, { color: T.abricotDeep }]}>Ton cadeau · expire dans {giftClock}</Text>
+          </View>
+        ) : planLabel ? (
+          <View style={styles.planReady}>
+            <Image source={ICONS.planReady} style={styles.planReadyIcon} />
+            <Text style={styles.planReadyText}>Ton plan {planLabel} est prêt</Text>
+          </View>
+        ) : null}
 
-        <View style={{ marginTop: 18, marginBottom: 22 }}>
+        <Text style={styles.h1}>{isGift ? "Ton cadeau :" : yearTrial ? "Essaie Déclic" : "Passe à Déclic"}</Text>
+        <Text style={[styles.h1, { color: T.abricotDeep }]}>
+          {isGift ? `-${giftDiscount} % sur ta 1re année.` : yearTrial ? `${yearTrial} jours gratuits.` : "en illimité."}
+        </Text>
+
+        <View style={{ marginTop: 18 }}>
           {BENEFITS.map((b) => (
-            <View key={b} style={styles.benefitRow}>
-              <Feather name="check" size={16} color={T.menthe} />
-              <Text style={styles.benefitText}>{b}</Text>
+            <View key={b.title} style={styles.benefitRow}>
+              <View style={styles.benefitIconBox}>
+                <Image source={b.icon} style={styles.benefitIcon} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.benefitTitle}>{b.title}</Text>
+                <Text style={styles.benefitDesc}>{b.desc}</Text>
+              </View>
             </View>
           ))}
         </View>
 
-        {PLANS.map((p) => {
-          const isSel = selected === p.id;
-          const td = trialDays(p.id);
-          const trialNote = td ? `${td} jours offerts · ` : "";
-
-          // Annuel : on met en avant l'équivalent mensuel (gros chiffre), avec le vrai prix
-          // facturé juste en dessous, toujours lisible — jamais caché.
-          if (p.id === "yearly") {
-            return (
-              <Pressable key={p.id} onPress={() => setSelected(p.id)} style={[styles.plan, styles.planYearly, isSel && styles.planSel]}>
-                {p.badge && <View style={styles.badge}><Text style={styles.badgeText}>{p.badge}</Text></View>}
-                <View style={styles.planRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.planTitle}>{p.title}</Text>
-                    <View style={styles.yearlyPriceRow}>
-                      <Text style={styles.yearlyBigPrice}>{yearlyMonthlyEquiv()}</Text>
-                      <Text style={styles.yearlyBigPer}>/mois</Text>
-                    </View>
-                    <Text style={styles.yearlySubNote}>{trialNote}soit {price("yearly")}/an, facturé en une fois</Text>
+        {timeline && !isGift && (
+          <View style={styles.howCard}>
+            <Text style={styles.howK}>COMMENT ÇA MARCHE</Text>
+            {timeline.map((t, i) => {
+              const v = steps[i];
+              const last = i === timeline.length - 1;
+              return (
+                <View key={t.title} style={styles.tlRow}>
+                  <View style={styles.tlLeft}>
+                    <Animated.View style={[styles.tlDotWrap, { transform: [{ scale: v.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.18, 1] }) }] }]}>
+                      <View style={[styles.tlDot, styles.tlDotOff]}>
+                        <Image source={t.icon} style={[styles.tlIcon, { tintColor: "#B9B0A6" }]} />
+                      </View>
+                      <Animated.View style={[styles.tlDot, styles.tlDotOn, { backgroundColor: t.bg, opacity: v }]}>
+                        <Image source={t.icon} style={styles.tlIcon} />
+                      </Animated.View>
+                    </Animated.View>
+                    {!last && (
+                      <View style={styles.tlLine}>
+                        <Animated.View style={[styles.tlLineFill, { opacity: steps[i + 1] }]} />
+                      </View>
+                    )}
                   </View>
-                  <View style={[styles.radio, isSel && styles.radioSel]}>
-                    {isSel && <Feather name="check" size={13} color={T.night} />}
-                  </View>
+                  <Text style={[styles.tlText, !last && { paddingBottom: 22 }]}>
+                    <Text style={styles.tlTitle}>{t.title}</Text> · {t.text}
+                  </Text>
                 </View>
-              </Pressable>
-            );
-          }
+              );
+            })}
+          </View>
+        )}
 
-          const note = trialNote.replace(" · ", "");
-          return (
-            <Pressable key={p.id} onPress={() => setSelected(p.id)} style={[styles.plan, isSel && styles.planSel]}>
-              <View style={styles.planRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.planTitle}>{p.title}</Text>
-                  {note ? <Text style={styles.planNote}>{note}</Text> : null}
-                </View>
-                <Text style={styles.planPrice}>{price(p.id)}<Text style={styles.planPer}>{perLabel(p.id)}</Text></Text>
-                <View style={[styles.radio, isSel && styles.radioSel]}>
-                  {isSel && <Feather name="check" size={13} color={T.night} />}
-                </View>
-              </View>
-            </Pressable>
-          );
-        })}
+        {/* Annuel */}
+        <Pressable onPress={() => setSelected("yearly")} style={[styles.plan, styles.planYearly, yearSel && styles.planSel]}>
+          <Animated.View style={[styles.trialPill, { transform: [{ scale: breathScale }] }]}>
+            <Text style={styles.trialPillText}>{isGift ? "OFFRE CADEAU" : yearTrial ? `${yearTrial} JOURS GRATUITS` : "LE PLUS POPULAIRE"}</Text>
+          </Animated.View>
+          {(isGift ? giftDiscount : discount) > 0 && (
+            <View style={styles.discountPill}>
+              <Text style={styles.discountText}>-{isGift ? giftDiscount : discount} %</Text>
+            </View>
+          )}
+          <View style={styles.planRow}>
+            <Text style={styles.planTitle}>Annuel</Text>
+            {yearSel ? <Image source={ICONS.selected} style={styles.checkIcon} /> : <View style={styles.radio} />}
+          </View>
+          <View style={styles.yearlyPriceRow}>
+            <Text style={styles.yearlyBigPrice}>{money((isGift ? giftValue : yearlyValue) / 12)}</Text>
+            <Text style={styles.yearlyBigPer}>/mois</Text>
+          </View>
+          {isGift ? (
+            <Text style={styles.planNote}>
+              {giftPrice} la 1re année au lieu de <Text style={styles.strike}>{price("yearly")}</Text>, puis {price("yearly")} par an
+            </Text>
+          ) : (
+            <Text style={styles.planNote}>
+              {yearTrial ? `0 € pendant ${yearTrial} jours, puis ${price("yearly")} par an` : `Soit ${price("yearly")} par an, facturé en une fois`}
+            </Text>
+          )}
+        </Pressable>
+
+        {/* Mensuel (masqué en mode cadeau) */}
+        {!isGift && (
+        <Pressable onPress={() => setSelected("monthly")} style={[styles.plan, monthSel && styles.planSel]}>
+          <View style={styles.planRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.planTitle}>Mensuel</Text>
+              <Text style={styles.planNote}>{monthTrial ? `${monthTrial} jours offerts` : "Sans essai gratuit"}</Text>
+            </View>
+            <Text style={styles.planPrice}>{price("monthly")}<Text style={styles.planPer}>/mois</Text></Text>
+            {monthSel ? <Image source={ICONS.selected} style={styles.checkIcon} /> : <View style={styles.radio} />}
+          </View>
+        </Pressable>
+        )}
 
         <Text style={styles.legal}>
-          {selTrial
+          {isGift
+            ? `${giftPrice} pour la 1re année, puis ${price("yearly")}/an, renouvellement automatique. Annulable à tout moment dans le Play Store. Offre valable uniquement sur cet écran.`
+            : showTrial
             ? `${selTrial} jours gratuits, puis ${price(selected)}${perLabel(selected)}, renouvellement automatique. Annule à tout moment dans le Play Store : si tu annules pendant l'essai, tu ne paieras rien.`
-            : selected === "yearly"
+            : yearSel
             ? "Abonnement renouvelé automatiquement chaque année. Annulable à tout moment dans le Play Store, en un clic."
             : "Abonnement renouvelé automatiquement chaque mois. Annulable à tout moment dans le Play Store, en un clic."}
         </Text>
-      </ScrollView>
 
-      <View style={styles.bottomBar}>
+        <View style={styles.bottomBar}>
         <Pressable onPress={buy} disabled={busy} style={[styles.cta, busy && { opacity: 0.6 }]}>
           {busy ? <ActivityIndicator color={T.night} /> : (
-            <Text style={styles.ctaText}>{selTrial ? `Commencer mes ${selTrial} jours gratuits` : selected === "yearly" ? "S'abonner" : "Continuer"}</Text>
+            <Text style={styles.ctaText}>{isGift ? `Profiter de -${giftDiscount} %` : showTrial ? `Commencer mes ${selTrial} jours gratuits` : "S'abonner"}</Text>
           )}
         </Pressable>
-        <Pressable onPress={restore} disabled={busy} hitSlop={8}>
+        <View style={styles.guarantee}>
+          <Image source={ICONS.shield} style={styles.guaranteeIcon} />
+          <Text style={styles.guaranteeText}>
+            {isGift ? "Offre unique · Annulable en 1 clic sur Google Play" : showTrial ? "0 € aujourd'hui · Annulable en 1 clic sur Google Play" : "Annulable en 1 clic sur Google Play"}
+          </Text>
+        </View>
+        <Pressable onPress={restore} disabled={busy} hitSlop={8} style={{ marginTop: 4 }}>
           <Text style={styles.restore}>Restaurer mes achats</Text>
         </Pressable>
-      </View>
+        </View>
+      </ScrollView>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.cream },
-  close: { position: "absolute", top: 52, right: 22, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: T.card, alignItems: "center", justifyContent: "center" },
-  k: { color: T.abricotDeep, fontSize: 12, fontWeight: "800", letterSpacing: 1 },
-  h1: { fontSize: 27, fontWeight: "800", color: T.night, letterSpacing: -0.5, lineHeight: 33, marginTop: 8 },
-  benefitRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 9 },
-  benefitText: { color: T.night, fontSize: 14.5, fontWeight: "600", lineHeight: 20, flex: 1 },
-  plan: { backgroundColor: T.card, borderRadius: 20, padding: 16, marginBottom: 12, borderWidth: 2, borderColor: "transparent" },
+  loading: { flex: 1, alignItems: "center", justifyContent: "center" },
+  closeWrap: { position: "absolute", right: 18, zIndex: 10 },
+  close: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#EFE6DC", alignItems: "center", justifyContent: "center" },
+  closeIcon: { width: 16, height: 16 },
+
+  planReady: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", backgroundColor: "#DDF3E7", borderRadius: 14, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 18 },
+  planReadyIcon: { width: 14, height: 14 },
+  giftBadge: { backgroundColor: T.chipAbricot },
+  strike: { textDecorationLine: "line-through" },
+  planReadyText: { color: GREEN, fontSize: 13, fontWeight: "800" },
+
+  h1: { fontSize: 29, fontWeight: "800", color: T.night, letterSpacing: -0.6, lineHeight: 34 },
+
+  benefitRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 },
+  benefitIconBox: { width: 38, height: 38, borderRadius: 11, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },
+  benefitIcon: { width: 20, height: 20 },
+  benefitTitle: { color: T.night, fontSize: 15, fontWeight: "800" },
+  benefitDesc: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600", marginTop: 1 },
+
+  howCard: { backgroundColor: T.card, borderRadius: 22, padding: 18, marginTop: 8, marginBottom: 18 },
+  howK: { color: T.abricotDeep, fontSize: 12, fontWeight: "800", letterSpacing: 1, marginBottom: 14 },
+  tlRow: { flexDirection: "row", gap: 12 },
+  tlLeft: { alignItems: "center", width: 30 },
+  tlDotWrap: { width: 30, height: 30 },
+  tlDot: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  tlDotOff: { backgroundColor: "#EFE9E3" },
+  tlDotOn: { position: "absolute", top: 0, left: 0 },
+  tlIcon: { width: 16, height: 16 },
+  tlLine: { flex: 1, width: 3, borderRadius: 2, backgroundColor: "#EFE9E3", marginVertical: 3, overflow: "hidden" },
+  tlLineFill: { flex: 1, backgroundColor: T.abricot, opacity: 0.5 },
+  tlText: { flex: 1, color: T.inkSoft, fontSize: 13.5, fontWeight: "600", lineHeight: 20, paddingTop: 5 },
+  tlTitle: { color: T.night, fontWeight: "800" },
+
+  plan: { backgroundColor: T.card, borderRadius: 20, padding: 16, marginBottom: 14, borderWidth: 2, borderColor: "transparent" },
+  planYearly: { paddingTop: 22, marginTop: 12 },
   planSel: { borderColor: T.abricot },
-  planYearly: { paddingTop: 14 },
-  yearlyPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 6 },
-  yearlyBigPrice: { color: T.night, fontSize: 32, fontWeight: "800", letterSpacing: -0.8 },
-  yearlyBigPer: { color: T.night, fontSize: 16, fontWeight: "700" },
-  yearlySubNote: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600", marginTop: 4 },
-  badge: { alignSelf: "flex-start", backgroundColor: T.abricot, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8, marginBottom: 8 },
-  badgeText: { color: T.night, fontSize: 10.5, fontWeight: "800", letterSpacing: 0.4 },
-  planRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  trialPill: { position: "absolute", top: -13, left: 14, backgroundColor: T.night, borderRadius: 10, paddingVertical: 4, paddingHorizontal: 10 },
+  trialPillText: { color: "#fff", fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+  discountPill: { position: "absolute", top: -11, right: 14, backgroundColor: "#7ED3A4", borderRadius: 10, paddingVertical: 3, paddingHorizontal: 9 },
+  discountText: { color: T.night, fontSize: 11.5, fontWeight: "800" },
+  planRow: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: "space-between" },
   planTitle: { color: T.night, fontSize: 17, fontWeight: "800" },
-  planNote: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600", marginTop: 2 },
-  planPrice: { color: T.night, fontSize: 19, fontWeight: "800" },
-  planPer: { color: T.inkSoft, fontSize: 13, fontWeight: "700" },
-  radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: T.creamLine, alignItems: "center", justifyContent: "center" },
-  radioSel: { backgroundColor: T.abricot, borderColor: T.abricot },
-  legal: { color: T.inkSoft, fontSize: 12, fontWeight: "600", lineHeight: 17, marginTop: 6 },
-  bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: T.cream, paddingHorizontal: 26, paddingBottom: 28, paddingTop: 10, alignItems: "center", gap: 12 },
-  cta: { backgroundColor: T.abricot, borderRadius: 16, padding: 17, alignItems: "center", alignSelf: "stretch", minHeight: 55, justifyContent: "center" },
-  ctaText: { color: T.night, fontSize: 16, fontWeight: "800" },
-  restore: { color: T.inkSoft, fontSize: 13, fontWeight: "700" },
+  yearlyPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 4 },
+  yearlyBigPrice: { color: T.night, fontSize: 30, fontWeight: "800", letterSpacing: -0.8 },
+  yearlyBigPer: { color: T.inkSoft, fontSize: 15, fontWeight: "700" },
+  planNote: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600", marginTop: 4 },
+  planPrice: { color: T.night, fontSize: 17, fontWeight: "800" },
+  planPer: { color: T.inkSoft, fontSize: 12.5, fontWeight: "700" },
+  checkIcon: { width: 24, height: 24 },
+  radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: T.creamLine },
+
+  legal: { color: T.inkSoft, fontSize: 11.5, fontWeight: "600", lineHeight: 16, marginTop: 2 },
+  restore: { color: T.inkSoft, fontSize: 13, fontWeight: "700", textDecorationLine: "underline" },
+
+  bottomBar: { marginTop: 20, alignItems: "center", gap: 12 },
+  cta: { backgroundColor: T.abricot, borderRadius: 18, padding: 18, alignItems: "center", alignSelf: "stretch", minHeight: 56, justifyContent: "center" },
+  ctaText: { color: T.night, fontSize: 16.5, fontWeight: "800" },
+  guarantee: { flexDirection: "row", alignItems: "center", gap: 6 },
+  guaranteeIcon: { width: 14, height: 14 },
+  guaranteeText: { color: GREEN, fontSize: 12.5, fontWeight: "800" },
 });

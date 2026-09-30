@@ -11,7 +11,8 @@ export type PaywallSource =
   | "daily_hub"
   | "labo_add_word"
   | "welcome_already_used"
-  | "daily_expression_favorite";
+  | "daily_expression_favorite"
+  | "gift";
 
 export type ExerciseType = "reading" | "translation" | "listening";
 export type PlanId = "monthly" | "yearly";
@@ -32,6 +33,13 @@ export function logWelcomeConversationAbandon() { log("welcome_conversation_aban
 export function logWelcomeConversationComplete() { log("welcome_conversation_complete"); }
 
 export function logTrialExerciseStart(type: ExerciseType) { log("trial_exercise_start", { type }); }
+
+export function logGiftRevealShown() { log("gift_reveal_shown"); }
+export function logGiftDeclined() { log("gift_declined"); }
+
+export function logRatingShown() { log("rating_shown"); }
+export function logRatingSubmitted(stars: number) { log("rating_submitted", { stars }); }
+export function logStoreReviewOpened() { log("store_review_opened"); }
 
 export function logPaywallShown(source: PaywallSource) { log("paywall_shown", { source }); }
 export function logPaywallDismissed(source?: PaywallSource) { log("paywall_dismissed", source ? { source } : undefined); }
