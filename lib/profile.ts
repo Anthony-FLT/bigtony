@@ -35,6 +35,7 @@ export type Profile = {
   giftExpiresAt?: number | null; // fin de l'offre cadeau (timestamp ms), null une fois utilisée
   ratingAsked?: boolean; // la note in-app a déjà été demandée (une seule fois)
   appRating?: number; // note in-app de 1 à 5
+  hubCelebrated?: boolean; // félicitations « 3 défis terminés » déjà affichées
 };
 
 export async function loadProfile(): Promise<Profile | null> {
@@ -70,6 +71,7 @@ export async function loadProfile(): Promise<Profile | null> {
       giftExpiresAt: data.giftExpiresAt ?? null,
       ratingAsked: data.ratingAsked ?? false,
       appRating: data.appRating,
+      hubCelebrated: data.hubCelebrated ?? false,
     };
   } catch (e) {
     console.warn("loadProfile échoué:", e);
@@ -191,6 +193,16 @@ export async function saveAppRating(appRating: number): Promise<void> {
     await setDoc(doc(db, "users", uid), { appRating, appRatingAt: serverTimestamp(), ratingAsked: true }, { merge: true });
   } catch (e) {
     console.warn("saveAppRating échoué:", e);
+  }
+}
+
+export async function markHubCelebrated(): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { hubCelebrated: true }, { merge: true });
+  } catch (e) {
+    console.warn("markHubCelebrated échoué:", e);
   }
 }
 

@@ -6,7 +6,8 @@ import { Feather } from "@expo/vector-icons";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import { T } from "./lib/theme";
-import { loadProfile, markTrialExerciseUsed, saveGiftExpiresAt, markRatingAsked } from "./lib/profile";
+import { loadProfile, markTrialExerciseUsed, saveGiftExpiresAt, markRatingAsked, markHubCelebrated } from "./lib/profile";
+import { getChallengesDone, HUB_CHALLENGES } from "./lib/dailyChallenges";
 import HomeScreen from "./screens/HomeScreen";
 import ScenariosScreen from "./screens/ScenariosScreen";
 import PlaceholderScreen from "./screens/PlaceholderScreen";
@@ -18,10 +19,11 @@ import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
-import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown, logTrialExerciseStart, logGiftRevealShown, logGiftDeclined, logRatingShown } from "./lib/analytics";
+import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown, logTrialExerciseStart, logGiftRevealShown, logGiftDeclined, logRatingShown, logHubCompleteShown } from "./lib/analytics";
 import GiftRevealModal from "./components/GiftRevealModal";
 import FloatingGiftButton from "./components/FloatingGiftButton";
 import RatingModal from "./components/RatingModal";
+import HubCompleteModal from "./components/HubCompleteModal";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
@@ -75,6 +77,8 @@ function AppInner() {
   const [showGiftReveal, setShowGiftReveal] = useState(false);
   const [ratingAsked, setRatingAsked] = useState(true); // true tant que le profil n'est pas chargé : on ne demande rien
   const [showRating, setShowRating] = useState(false);
+  const [hubCelebrated, setHubCelebrated] = useState(true); // true tant que le profil n'est pas chargé
+  const [showHubDone, setShowHubDone] = useState(false);
   const isPremium = access?.premium === true;
   const insets = useSafeAreaInsets();
   // Réserve l'espace de la barre de navigation système en bas (boutons ou gestes),
@@ -115,6 +119,7 @@ function AppInner() {
       setFirstSessionDone(!!p?.firstSessionDone);
       setTrialExercisesDone(p?.trialExercisesDone ?? {});
       setRatingAsked(!!p?.ratingAsked);
+      setHubCelebrated(!!p?.hubCelebrated);
       // Offre cadeau encore valable (ex. app fermée puis rouverte) : l'icône cadeau revient
       if (p?.giftExpiresAt && p.giftExpiresAt > Date.now()) setGiftExpiresAt(p.giftExpiresAt);
     })();
@@ -125,6 +130,24 @@ function AppInner() {
   }, [showPaywall]);
 
  
+  // Après chaque jeu : si un abonné vient de finir les 3 défis du jour pour la 1re fois, on le félicite
+  const checkHubComplete = async () => {
+    if (!isPremium || hubCelebrated) return;
+    try {
+      const done = await getChallengesDone();
+      if (!HUB_CHALLENGES.every((c) => done[c])) return;
+      setHubCelebrated(true);
+      markHubCelebrated();
+      logHubCompleteShown();
+      setShowHubDone(true);
+    } catch (e) {
+      console.warn("checkHubComplete échoué:", e);
+    }
+  };
+  const hubDoneModal = (
+    <HubCompleteModal visible={showHubDone} count={HUB_CHALLENGES.length} onClose={() => setShowHubDone(false)} />
+  );
+
   if (appState === "loading") {
     return <View style={bgCream} />;
   }
@@ -250,7 +273,7 @@ if (welcomeActive) {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
-        <TranslationScreen onBack={() => { setShowTranslation(false); setHomeKey((k) => k + 1); }} />
+        <TranslationScreen onBack={() => { setShowTranslation(false); setHomeKey((k) => k + 1); checkHubComplete(); }} />
       </View>
     );
   }
@@ -258,7 +281,7 @@ if (welcomeActive) {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
-        <ReadingScreen onBack={() => { setShowReading(false); setHomeKey((k) => k + 1); }} />
+        <ReadingScreen onBack={() => { setShowReading(false); setHomeKey((k) => k + 1); checkHubComplete(); }} />
       </View>
     );
   }
@@ -266,7 +289,7 @@ if (welcomeActive) {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
-        <ListeningScreen onBack={() => { setShowListening(false); setHomeKey((k) => k + 1); }} />
+        <ListeningScreen onBack={() => { setShowListening(false); setHomeKey((k) => k + 1); checkHubComplete(); }} />
       </View>
     );
   }
@@ -283,6 +306,7 @@ if (welcomeActive) {
           trialExercisesDone={trialExercisesDone}
           onLocked={() => { logPaywallShown("daily_hub"); setShowPaywall(true); }}
         />
+        {hubDoneModal}
       </View>
     );
   }
@@ -368,6 +392,7 @@ if (welcomeActive) {
       </View>
 
       <RatingModal visible={showRating} onClose={() => setShowRating(false)} />
+      {hubDoneModal}
 
       {giftExpiresAt !== null && (
         <GiftRevealModal

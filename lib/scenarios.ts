@@ -12,7 +12,6 @@ export type Scenario = {
 };
 
 export const SCENARIOS: Scenario[] = [
-  // Pro — 8 scènes
   {
     id: "entretien-embauche",
     title: "Entretien d'embauche",
@@ -71,6 +70,27 @@ export const SCENARIOS: Scenario[] = [
   },
 
   // Voyage — 10 scènes
+   {
+    id: "reserver-activite",
+    title: "Réserver une excursion",
+    emoji: "",
+    category: "voyage",
+    description: "Renseigne-toi sur les horaires, le prix et le programme",
+  },
+  {
+    id: "trajet-taxi",
+    title: "Prendre un taxi",
+    emoji: "",
+    category: "voyage",
+    description: "Donne l'adresse, précise le trajet et le paiement",
+  },
+  {
+    id: "restaurant-commande",
+    title: "Commander au restaurant",
+    emoji: "",
+    category: "voyage",
+    description: "Boissons, plats, recommandations",
+  },
   {
     id: "arrivee-hotel",
     title: "Arrivée à l'hôtel",
@@ -85,13 +105,7 @@ export const SCENARIOS: Scenario[] = [
     category: "voyage",
     description: "Passeport, motif du voyage, séjour",
   },
-  {
-    id: "restaurant-commande",
-    title: "Commander au restaurant",
-    emoji: "",
-    category: "voyage",
-    description: "Boissons, plats, recommandations",
-  },
+
   {
     id: "bagage-perdu",
     title: "Ta valise a disparu",
@@ -127,20 +141,7 @@ export const SCENARIOS: Scenario[] = [
     category: "voyage",
     description: "Explique ton allergie, vérifie les ingrédients",
   },
-  {
-    id: "reserver-activite",
-    title: "Réserver une excursion",
-    emoji: "",
-    category: "voyage",
-    description: "Renseigne-toi sur les horaires, le prix et le programme",
-  },
-  {
-    id: "trajet-taxi",
-    title: "Prendre un taxi",
-    emoji: "",
-    category: "voyage",
-    description: "Donne l'adresse, précise le trajet et le paiement",
-  },
+ 
 
   // Quotidien — 12 scènes
   {

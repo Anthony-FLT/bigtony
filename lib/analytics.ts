@@ -37,6 +37,7 @@ export function logTrialExerciseStart(type: ExerciseType) { log("trial_exercise_
 export function logGiftRevealShown() { log("gift_reveal_shown"); }
 export function logGiftDeclined() { log("gift_declined"); }
 
+export function logHubCompleteShown() { log("hub_complete_shown"); }
 export function logRatingShown() { log("rating_shown"); }
 export function logRatingSubmitted(stars: number) { log("rating_submitted", { stars }); }
 export function logStoreReviewOpened() { log("store_review_opened"); }
