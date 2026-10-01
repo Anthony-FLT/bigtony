@@ -17,6 +17,7 @@
     "firebase": "^12.16.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
+    "react-native-keyboard-controller": "1.21.9",
     "react-native-purchases": "^10.7.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4"

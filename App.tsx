@@ -34,6 +34,7 @@ import DailyHubScreen from "./screens/DailyHubScreen";
 import TranslationScreen from "./screens/TranslationScreen";
 import ReadingScreen from "./screens/ReadingScreen";
 import ListeningScreen from "./screens/ListeningScreen";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 
 type Tab = "home" | "labo" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
@@ -438,7 +439,9 @@ if (welcomeActive) {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppInner />
+      <KeyboardProvider>
+        <AppInner />
+      </KeyboardProvider>
     </SafeAreaProvider>
   );
 }

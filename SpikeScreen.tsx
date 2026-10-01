@@ -1,6 +1,7 @@
 // SpikeScreen.tsx — conversation voix OU texte : choix du canal, correction rouge/vert, favoris, plafond 1re séance.
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Animated, Image } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, Platform, Animated, Image } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SkeletonCard, SkeletonLine, SkeletonBox } from "./components/Skeleton";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
@@ -671,7 +672,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   );
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+  <KeyboardAvoidingView behavior="padding" style={styles.assistOverlay}>
     <View style={styles.container}>
     <StatusBar style="dark" />
       <View style={styles.header}>
@@ -929,7 +930,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
 
       {/* Assistant — Traduire (FR→EN) */}
       <Modal visible={showTranslate} transparent animationType="fade" onRequestClose={() => setShowTranslate(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.assistOverlay}>
+           <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" enabled={Platform.OS === "ios"}>
           <View style={styles.assistCard}>
             <View style={styles.assistHead}>
               <Text style={styles.assistTitle}>Comment le dire en anglais</Text>

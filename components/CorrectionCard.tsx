@@ -92,7 +92,7 @@ export default function CorrectionCard({
             </View>
             {hasErrors && (
               <Pressable onPress={() => setShowDetail(true)} hitSlop={8} style={styles.whyBtn}>
-                <Text style={styles.whyText}>Pourquoi ?</Text>
+                <Text style={styles.whyText}>Voir la correction</Text>
                 <Feather name="chevron-right" size={13} color={T.abricotDeep} />
               </Pressable>
             )}
@@ -100,7 +100,7 @@ export default function CorrectionCard({
         )}
         {!pronunciation && hasErrors && (
           <Pressable onPress={() => setShowDetail(true)} hitSlop={8} style={[styles.whyBtn, { alignSelf: "flex-end", marginTop: 6 }]}>
-            <Text style={styles.whyText}>Pourquoi ?</Text>
+            <Text style={styles.whyText}>Voir la correction</Text>
             <Feather name="chevron-right" size={13} color={T.abricotDeep} />
           </Pressable>
         )}

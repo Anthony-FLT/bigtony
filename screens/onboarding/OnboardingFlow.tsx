@@ -224,7 +224,6 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
     };
     return (
       <PaywallScreen
-        closeDelayMs={7000}
         planLabel={`${finalLevel} → ${goalTarget}`}
         onClose={toWelcome}
         onPurchased={toWelcome}
@@ -564,7 +563,7 @@ function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: 
         <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={T.abricotDeep} style={{ marginTop: 1 }} />
         <Text style={styles.prepTipText}>
           <Text style={{ fontWeight: "800", color: T.night }}>Le savais-tu ? </Text>
-          Mieux vaut 10 minutes chaque jour qu'une heure le dimanche : c'est la régularité qui crée le déclic.
+          Mieux vaut 10 minutes chaque jour qu'une heure le dimanche : c'est la régularité qui crée l'apprentissage.
         </Text>
       </View>
 
