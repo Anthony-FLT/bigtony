@@ -12,7 +12,7 @@ import { logPurchaseStart, logPurchaseComplete, logPurchaseFailed, logPurchaseRe
 type PlanId = "monthly" | "yearly";
 
 // Prix de secours si le store est injoignable (affichage seulement, l'achat exige le vrai package)
-const FALLBACK = { monthly: "19,99 €", yearly: "49,99 €" };
+const FALLBACK = { monthly: "9,99 €", yearly: "49,99 €" };
 
 const ICONS = {
   conversations: require("../assets/paywall/ic_paywall_conversations_illimitees.png"),
@@ -59,6 +59,27 @@ function iso8601ToDays(iso: any): number | null {
   const d = parseInt(m[4] || "0", 10);
   const days = y * 365 + mo * 30 + w * 7 + d;
   return days > 0 ? days : null;
+}
+
+// Prix d'appel du mensuel (ex. 4,99 € le 1er mois) : phase payante située avant le prix de base, sur 1 mois.
+// Les options marquées rc-ignore-offer (offre cadeau) sont ignorées, comme le fait RevenueCat à l'achat.
+function introPriceFor(pkg: PurchasesPackage | null): { priceString: string; micros: number } | null {
+  const opts = (pkg?.product as any)?.subscriptionOptions;
+  if (!Array.isArray(opts)) return null;
+  for (const o of opts) {
+    if (Array.isArray(o?.tags) && o.tags.includes("rc-ignore-offer")) continue;
+    const phases: any[] = o?.pricingPhases ?? [];
+    if (phases.length < 2) continue; // pas d'offre : seule la phase de prix de base
+    const intro = phases.slice(0, -1).find((ph) => Number(ph?.price?.amountMicros ?? 0) > 0);
+    if (!intro) continue;
+    // On n'affiche « le 1er mois » que si la phase dure bien 1 mois, sur 1 cycle
+    const bp = intro.billingPeriod;
+    const days = iso8601ToDays(typeof bp === "string" ? bp : bp?.iso8601) ?? periodUnitToDays(bp?.value, bp?.unit);
+    if (days !== 30 || Number(intro.billingCycleCount ?? 1) > 1) continue;
+    const micros = Number(intro.price.amountMicros);
+    return { priceString: intro.price.formatted ?? `${(micros / 1_000_000).toFixed(2).replace(".", ",")} €`, micros };
+  }
+  return null;
 }
 
 // Nombre de jours d'essai gratuit disponible pour ce package (ou null si aucun).
@@ -184,10 +205,9 @@ export default function PaywallScreen({
 
   const price = (id: PlanId) => pkgs[id]?.product.priceString ?? FALLBACK[id];
   const trialDays = (id: PlanId) => trialDaysFor(pkgs[id]);
-  const perLabel = (id: PlanId) => (id === "yearly" ? "/an" : "/mois");
-  const selTrial = trialDays(selected);
   const yearTrial = trialDays("yearly");
   const monthTrial = trialDays("monthly");
+  const monthIntro = introPriceFor(pkgs.monthly);
 
   // Prix numériques (repli sur les prix de secours si le store est injoignable)
   const numeric = (id: PlanId, fallback: number) => {
@@ -203,7 +223,7 @@ export default function PaywallScreen({
     }
   };
   const yearlyValue = numeric("yearly", 49.99);
-  const monthlyValue = numeric("monthly", 19.99);
+  const monthlyValue = numeric("monthly", 9.99);
   const discount = Math.round((1 - yearlyValue / (monthlyValue * 12)) * 100);
 
   // — Mode cadeau : offre réduite sur l'annuel, trouvée par son identifiant d'offre Play ou son tag —
@@ -290,8 +310,27 @@ export default function PaywallScreen({
     : null;
 
   const yearSel = isGift || selected === "yearly";
-  const showTrial = isGift ? null : selTrial;
   const monthSel = selected === "monthly";
+
+  // Libellés selon l'offre choisie : le gros chiffre est ce qui est prélevé au premier paiement
+  const ctaLabel = isGift
+    ? `Profiter de -${giftDiscount} %`
+    : selected === "yearly"
+    ? yearTrial
+      ? `Commencer mes ${yearTrial} jours gratuits`
+      : `S'abonner pour ${price("yearly")}/an`
+    : monthIntro
+    ? `Commencer à ${monthIntro.priceString}`
+    : `S'abonner pour ${price("monthly")}/mois`;
+
+  const legalText =
+    selected === "yearly"
+      ? yearTrial
+        ? `0 € aujourd'hui. ${yearTrial} jours gratuits, puis ${price("yearly")}/an, renouvelé automatiquement chaque année. Annulable à tout moment dans le Play Store.`
+        : `${price("yearly")} facturés aujourd'hui, renouvelé automatiquement chaque année. Annulable à tout moment dans le Play Store.`
+      : monthIntro
+      ? `${monthIntro.priceString} le premier mois, puis ${price("monthly")}/mois, renouvelé automatiquement. Annulable à tout moment dans le Play Store.`
+      : `${price("monthly")} facturés aujourd'hui, renouvelé automatiquement chaque mois. Annulable à tout moment dans le Play Store.`;
 
   return (
     <View style={styles.container}>
@@ -387,17 +426,15 @@ export default function PaywallScreen({
             {yearSel ? <Image source={ICONS.selected} style={styles.checkIcon} /> : <View style={styles.radio} />}
           </View>
           <View style={styles.yearlyPriceRow}>
-            <Text style={styles.yearlyBigPrice}>{money((isGift ? giftValue : yearlyValue) / 12)}</Text>
-            <Text style={styles.yearlyBigPer}>/mois</Text>
+            <Text style={styles.yearlyBigPrice}>{isGift ? money(giftValue / 12) : price("yearly")}</Text>
+            <Text style={styles.yearlyBigPer}>{isGift ? "/mois" : "/an"}</Text>
           </View>
           {isGift ? (
             <Text style={styles.planNote}>
               {giftPrice} la 1re année au lieu de <Text style={styles.strike}>{price("yearly")}</Text>, puis {price("yearly")} par an
             </Text>
           ) : (
-            <Text style={styles.planNote}>
-              {yearTrial ? `0 € pendant ${yearTrial} jours, puis ${price("yearly")} par an` : `Soit ${price("yearly")} par an, facturé en une fois`}
-            </Text>
+            <Text style={styles.planNote}>Soit {money(yearlyValue / 12)}/mois au lieu de {price("monthly")}</Text>
           )}
         </Pressable>
 
@@ -405,36 +442,35 @@ export default function PaywallScreen({
         {!isGift && (
         <Pressable onPress={() => setSelected("monthly")} style={[styles.plan, monthSel && styles.planSel]}>
           <View style={styles.planRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.planTitle}>Mensuel</Text>
-              <Text style={styles.planNote}>{monthTrial ? `${monthTrial} jours offerts` : "Sans essai gratuit"}</Text>
-            </View>
-            <Text style={styles.planPrice}>{price("monthly")}<Text style={styles.planPer}>/mois</Text></Text>
+            <Text style={styles.planTitle}>Mensuel</Text>
             {monthSel ? <Image source={ICONS.selected} style={styles.checkIcon} /> : <View style={styles.radio} />}
           </View>
+          <View style={styles.yearlyPriceRow}>
+            <Text style={styles.yearlyBigPrice}>{monthIntro ? monthIntro.priceString : price("monthly")}</Text>
+            <Text style={styles.yearlyBigPer}>{monthIntro ? "le 1er mois" : "/mois"}</Text>
+          </View>
+          <Text style={styles.planNote}>
+            {monthIntro ? `puis ${price("monthly")}/mois` : monthTrial ? `${monthTrial} jours offerts` : "Sans engagement"}
+          </Text>
         </Pressable>
         )}
 
         <Text style={styles.legal}>
           {isGift
             ? `${giftPrice} pour la 1re année, puis ${price("yearly")}/an, renouvellement automatique. Annulable à tout moment dans le Play Store. Offre valable uniquement sur cet écran.`
-            : showTrial
-            ? `${selTrial} jours gratuits, puis ${price(selected)}${perLabel(selected)}, renouvellement automatique. Annule à tout moment dans le Play Store : si tu annules pendant l'essai, tu ne paieras rien.`
-            : yearSel
-            ? "Abonnement renouvelé automatiquement chaque année. Annulable à tout moment dans le Play Store, en un clic."
-            : "Abonnement renouvelé automatiquement chaque mois. Annulable à tout moment dans le Play Store, en un clic."}
+            : legalText}
         </Text>
 
         <View style={styles.bottomBar}>
         <Pressable onPress={buy} disabled={busy} style={[styles.cta, busy && { opacity: 0.6 }]}>
           {busy ? <ActivityIndicator color={T.night} /> : (
-            <Text style={styles.ctaText}>{isGift ? `Profiter de -${giftDiscount} %` : showTrial ? `Commencer mes ${selTrial} jours gratuits` : "S'abonner"}</Text>
+            <Text style={styles.ctaText}>{ctaLabel}</Text>
           )}
         </Pressable>
         <View style={styles.guarantee}>
           <Image source={ICONS.shield} style={styles.guaranteeIcon} />
           <Text style={styles.guaranteeText}>
-            {isGift ? "Offre unique · Annulable en 1 clic sur Google Play" : showTrial ? "0 € aujourd'hui · Annulable en 1 clic sur Google Play" : "Annulable en 1 clic sur Google Play"}
+            {isGift ? "Offre unique · Annulable en 1 clic sur Google Play" : "Annulable en 1 clic sur Google Play"}
           </Text>
         </View>
         <Pressable onPress={restore} disabled={busy} hitSlop={8} style={{ marginTop: 4 }}>
