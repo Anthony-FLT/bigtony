@@ -45,7 +45,29 @@ export function logStoreReviewOpened() { log("store_review_opened"); }
 export function logPaywallShown(source: PaywallSource) { log("paywall_shown", { source }); }
 export function logPaywallDismissed(source?: PaywallSource) { log("paywall_dismissed", source ? { source } : undefined); }
 
-export function logPurchaseStart(plan: PlanId) { log("purchase_start", { plan }); }
-export function logPurchaseComplete(plan: PlanId) { log("purchase_complete", { plan }); }
-export function logPurchaseFailed(plan: PlanId, reason?: string) { log("purchase_failed", { plan, reason: reason ?? "unknown" }); }
+// Paramètres communs aux events d'achat (Firebase limite les valeurs texte à 100 caractères)
+export type PurchaseExtra = {
+  gift?: boolean; // achat fait via l'offre cadeau
+  offerId?: string; // option d'abonnement achetée (ex. "yearly:cadeau-50")
+  sandbox?: boolean; // achat de test (compte testeur de licence), lu depuis RevenueCat
+  errorCode?: string; // code d'erreur RevenueCat (ex. PURCHASE_INVALID_ERROR)
+  errorDetail?: string; // message détaillé renvoyé par Google Play
+};
+
+const cut = (s: string) => String(s).slice(0, 100);
+
+function purchaseParams(plan: PlanId, extra?: PurchaseExtra) {
+  const p: Record<string, any> = { plan, gift: extra?.gift ? 1 : 0 };
+  if (extra?.offerId) p.offer_id = cut(extra.offerId);
+  if (extra?.sandbox !== undefined) p.sandbox = extra.sandbox ? 1 : 0;
+  if (extra?.errorCode) p.error_code = cut(extra.errorCode);
+  if (extra?.errorDetail) p.error_detail = cut(extra.errorDetail);
+  return p;
+}
+
+export function logPurchaseStart(plan: PlanId, extra?: PurchaseExtra) { log("purchase_start", purchaseParams(plan, extra)); }
+export function logPurchaseComplete(plan: PlanId, extra?: PurchaseExtra) { log("purchase_complete", purchaseParams(plan, extra)); }
+export function logPurchaseFailed(plan: PlanId, reason?: string, extra?: PurchaseExtra) {
+  log("purchase_failed", { ...purchaseParams(plan, extra), reason: cut(reason ?? "unknown") });
+}
 export function logPurchaseRestored() { log("purchase_restored"); }

@@ -6,6 +6,7 @@ import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { T } from "../lib/theme";
 import { configurePurchases } from "../lib/purchases";
 import { ENTITLEMENT_ID } from "../lib/entitlement";
+import { findGiftOption } from "../lib/giftOffer";
 import { logPurchaseStart, logPurchaseComplete, logPurchaseFailed, logPurchaseRestored, logPaywallDismissed } from "../lib/analytics";
 
 type PlanId = "monthly" | "yearly";
@@ -207,10 +208,7 @@ export default function PaywallScreen({
 
   // — Mode cadeau : offre réduite sur l'annuel, trouvée par son identifiant d'offre Play ou son tag —
   const yearlyOptions: any[] = (pkgs.yearly?.product as any)?.subscriptionOptions ?? [];
-  const giftOption: any =
-    giftOfferId
-      ? yearlyOptions.find((o) => (typeof o?.id === "string" && o.id.endsWith(`:${giftOfferId}`)) || (Array.isArray(o?.tags) && o.tags.includes(giftOfferId))) ?? null
-      : null;
+  const giftOption: any = giftOfferId ? findGiftOption(pkgs.yearly?.product, giftOfferId) : null;
   const giftPhase: any = giftOption ? giftOption.introPhase ?? giftOption.pricingPhases?.[0] ?? null : null;
   const giftMicros = Number(giftPhase?.price?.amountMicros ?? 0);
   const giftRemaining = giftExpiresAt ? giftExpiresAt - now : Infinity;
@@ -242,17 +240,28 @@ export default function PaywallScreen({
       return;
     }
     setBusy(true);
-    logPurchaseStart(selected);
+    // Identifiant de l'option achetée : l'offre cadeau, ou l'option par défaut du produit
+    const offerId: string | undefined = isGift ? giftOption?.id : (pkg.product as any)?.defaultOption?.id;
+    const base = { gift: isGift, offerId };
+    logPurchaseStart(selected, base);
     try {
       const { customerInfo } = isGift
         ? await Purchases.purchaseSubscriptionOption(giftOption)
         : await Purchases.purchasePackage(pkg);
-      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
-        logPurchaseComplete(selected);
+      const ent = customerInfo.entitlements.active[ENTITLEMENT_ID];
+      if (ent) {
+        logPurchaseComplete(selected, { ...base, sandbox: !!(ent as any).isSandbox });
         onPurchased();
+      } else {
+        // Achat terminé côté store mais abonnement non activé : sans ce log, rien n'était enregistré
+        logPurchaseFailed(selected, "entitlement_inactive", base);
       }
     } catch (e: any) {
-      logPurchaseFailed(selected, e.userCancelled ? "user_cancelled" : (e.message ?? String(e)));
+      logPurchaseFailed(selected, e.userCancelled ? "user_cancelled" : (e.message ?? String(e)), {
+        ...base,
+        errorCode: e.readableErrorCode ?? (e.code !== undefined ? String(e.code) : undefined),
+        errorDetail: e.underlyingErrorMessage,
+      });
       if (!e.userCancelled) Alert.alert("Achat impossible", e.message ?? String(e));
     } finally {
       setBusy(false);

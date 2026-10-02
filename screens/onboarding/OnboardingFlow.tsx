@@ -641,7 +641,9 @@ function BenefitsCarousel({ onDone }: { onDone: () => void }) {
   const { width, height } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
-  const phoneH = Math.min(440, height * 0.5);
+  // Hauteur réellement disponible pour le visuel (mesurée) : le téléphone n'est jamais coupé
+  const [visualH, setVisualH] = useState(0);
+  const phoneH = Math.min(440, height * 0.5, visualH > 0 ? visualH - 24 : Infinity);
 
   const goTo = (i: number) => {
     scrollRef.current?.scrollTo({ x: i * width, animated: true });
@@ -675,8 +677,8 @@ function BenefitsCarousel({ onDone }: { onDone: () => void }) {
       >
         {BENEFITS.map((b) => (
           <View key={b.key} style={{ width, flex: 1 }}>
-            <View style={styles.benefitVisual}>
-              {b.key === "scenes" ? <SceneGrid width={width} /> : <PhoneShot source={BENEFIT_SHOTS[b.key]} height={phoneH} />}
+            <View style={styles.benefitVisual} onLayout={(e) => setVisualH(e.nativeEvent.layout.height)}>
+              {b.key === "scenes" ? <SceneGrid width={width} maxHeight={visualH} /> : <PhoneShot source={BENEFIT_SHOTS[b.key]} height={phoneH} />}
 
               {b.key === "conversation" && (
                 <FloatBubble delay={0} style={[styles.bubbleRow, { top: "58%", left: 22 }]}>
@@ -736,14 +738,16 @@ function PhoneShot({ source, height }: { source: any; height: number }) {
 }
 
 // Grille 2 x 3 de scènes
-function SceneGrid({ width }: { width: number }) {
+function SceneGrid({ width, maxHeight }: { width: number; maxHeight: number }) {
   const cardW = Math.min(150, (width - 52 - 12) / 2);
+  // 3 rangées (image + libellé + marges) : on réduit les images si la place manque
+  const imgH = maxHeight > 0 ? Math.max(50, Math.min(88, (maxHeight - 24 - 138) / 3)) : 88;
   return (
     <View style={[styles.sceneGrid, { width: cardW * 2 + 12 }]}>
       {BENEFIT_SCENES.map((sc) => (
         <View key={sc.label} style={[styles.sceneCard, { width: cardW }]}>
           <View>
-            <Image source={sc.img} style={styles.sceneImg} />
+            <Image source={sc.img} style={[styles.sceneImg, { height: imgH }]} />
             <Text style={styles.sceneTag}>{sc.tag}</Text>
           </View>
           <Text style={styles.sceneLabel} numberOfLines={1}>{sc.label}</Text>
@@ -866,7 +870,7 @@ const styles = StyleSheet.create({
   skipBtn: { alignSelf: "flex-end", paddingHorizontal: 26, paddingVertical: 6 },
   skipText: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
   benefitVisual: { flex: 1, alignItems: "center", justifyContent: "center" },
-  benefitText: { paddingHorizontal: 30, paddingTop: 18, paddingBottom: 8, alignItems: "center" },
+  benefitText: { paddingHorizontal: 30, paddingTop: 28, paddingBottom: 8, alignItems: "center" },
   benefitTitle: { fontSize: 28, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.6, lineHeight: 33 },
   benefitLead: { fontSize: 15, color: T.inkSoft, textAlign: "center", lineHeight: 22, marginTop: 10 },
   phone: { backgroundColor: T.night, borderRadius: 34, padding: 7, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },

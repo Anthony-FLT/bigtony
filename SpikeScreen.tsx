@@ -672,7 +672,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   );
 
   return (
-  <KeyboardAvoidingView behavior="padding" style={styles.assistOverlay}>
+  <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
     <View style={styles.container}>
     <StatusBar style="dark" />
       <View style={styles.header}>
@@ -930,7 +930,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
 
       {/* Assistant — Traduire (FR→EN) */}
       <Modal visible={showTranslate} transparent animationType="fade" onRequestClose={() => setShowTranslate(false)}>
-           <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" enabled={Platform.OS === "ios"}>
+        <KeyboardAvoidingView behavior="padding" style={styles.assistOverlay}>
           <View style={styles.assistCard}>
             <View style={styles.assistHead}>
               <Text style={styles.assistTitle}>Comment le dire en anglais</Text>

@@ -439,7 +439,7 @@ if (welcomeActive) {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <KeyboardProvider>
+      <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
         <AppInner />
       </KeyboardProvider>
     </SafeAreaProvider>
