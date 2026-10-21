@@ -1,9 +1,25 @@
-// Streak : nombre de jours consécutifs avec au moins une séance terminée.
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+// Streak : nombre de jours consécutifs avec au moins une séance terminée (scène, conversation libre ou leçon du parcours).
+import { collection, getDocs, query, orderBy, where } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10); // AAAA-MM-JJ
+}
+
+// Dates de fin des leçons du parcours évaluées (tentatives clôturées par le serveur : result.at en ms)
+async function lessonDays(uid: string): Promise<Date[]> {
+  try {
+    const snap = await getDocs(query(collection(db, "users", uid, "attempts"), where("active", "==", false)));
+    const out: Date[] = [];
+    snap.forEach((doc) => {
+      const at = (doc.data() as any)?.result?.at;
+      if (typeof at === "number") out.push(new Date(at));
+    });
+    return out;
+  } catch (e) {
+    console.warn("lessonDays échoué:", e);
+    return [];
+  }
 }
 
 export async function computeStreak(): Promise<number> {
@@ -11,13 +27,14 @@ export async function computeStreak(): Promise<number> {
   if (!uid) return 0;
   try {
     const q = query(collection(db, "users", uid, "sessions"), orderBy("startedAt", "desc"));
-    const snap = await getDocs(q);
+    const [snap, lessons] = await Promise.all([getDocs(q), lessonDays(uid)]);
     const days = new Set<string>();
     for (const doc of snap.docs) {
       const s = doc.data();
       if (s.status !== "done" || !s.startedAt?.toDate) continue;
       days.add(dayKey(s.startedAt.toDate()));
     }
+    for (const d of lessons) days.add(dayKey(d));
     if (days.size === 0) return 0;
 
     // Le streak compte à rebours depuis aujourd'hui (ou hier si pas encore pratiqué aujourd'hui)
@@ -57,7 +74,7 @@ export async function getWeekActivity(): Promise<boolean[]> {
   const uid = auth.currentUser?.uid;
   if (!uid) return week;
   try {
-    const snap = await getDocs(collection(db, "users", uid, "sessions"));
+    const [snap, lessons] = await Promise.all([getDocs(collection(db, "users", uid, "sessions")), lessonDays(uid)]);
     const days = new Set<string>();
     snap.forEach((doc) => {
       const data: any = doc.data();
@@ -65,6 +82,7 @@ export async function getWeekActivity(): Promise<boolean[]> {
       const dt: Date | null = t?.toDate ? t.toDate() : null;
       if (dt) days.add(dt.toDateString());
     });
+    for (const d of lessons) days.add(d.toDateString());
     const now = new Date();
     const monday = new Date(now);
     monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));

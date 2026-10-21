@@ -235,7 +235,35 @@ function levelBlock(level) {
 
 
  
-function buildSystemPrompt(scenario, level, sceneContext, customContext, isLastTurn) {
+// Parcours d'apprentissage : observations légères par tour (jamais une validation — l'évaluation finale est groupée côté serveur, J4).
+// Hors mode leçon, lessonCriteria vaut null : prompt et schéma restent strictement identiques.
+function lessonCriteriaBlock(lessonCriteria) {
+  if (!Array.isArray(lessonCriteria) || lessonCriteria.length === 0) return "";
+  const list = lessonCriteria
+    .slice(0, 6)
+    .map((c) => `  - ${String(c.id).slice(0, 40)}: ${String(c.descriptionFr).slice(0, 200)} (e.g. "${String(c.exampleEn).slice(0, 120)}")`)
+    .join("\n");
+  return `
+
+LESSON OBJECTIVES — the learner is practising these. Weave them into the conversation naturally, ONE at a time, never list them:
+${list}
+- "observed_criteria": for EACH objective above, one item {criterion_id, status, confidence}, judged ONLY on the person's latest answer. status: "achieved" if the answer clearly does it, "emerging" if attempted but incomplete or faulty, "not_observed" otherwise. confidence: "low" | "medium" | "high". Never mark "achieved" on a guess. If an objective has not been done yet, your next question should gently create an opportunity for it.`;
+}
+
+const OBSERVED_CRITERIA_SCHEMA = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      criterion_id: { type: Type.STRING },
+      status: { type: Type.STRING },
+      confidence: { type: Type.STRING },
+    },
+    required: ["criterion_id", "status", "confidence"],
+  },
+};
+
+function buildSystemPrompt(scenario, level, sceneContext, customContext, isLastTurn, lessonCriteria = null) {
   const base = customContext
     ? `You are the person's English conversation partner in a scene they described: "${customContext}". Play the most fitting character.`
     : scenario.role
@@ -264,14 +292,14 @@ Respond ONLY with JSON matching the schema. Fields:
   Only correct real errors — do NOT rephrase for style if the sentence is already correct. Base "original" strictly on what was actually said (the transcript), never invent words.
   Attach punctuation to the adjacent word within its token (e.g. "countries." as one token).
 - "reply_fr": a natural French translation of your "reply_en" line, for a learner who needs help understanding.
-- "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.
+- "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.${lessonCriteriaBlock(lessonCriteria)}
 ${isLastTurn ? `
 THIS IS THE FINAL TURN of the session. In "reply_en", warmly acknowledge what the person just said and give a short, natural CLOSING line. DO NOT ask a new question. Wrap up the conversation.` : ""}
 If "transcript" is "": stay in character in "reply_en" with a short line like "Sorry, I didn't catch that — could you say that again?", and in "feedback_fr" dis simplement que tu n'as rien entendu et encourage à réessayer, sans rien inventer.`;
 }
 
 
-function buildChatSystemPrompt(scenario, level, sceneContext, customContext, isLastTurn) {
+function buildChatSystemPrompt(scenario, level, sceneContext, customContext, isLastTurn, lessonCriteria = null) {
   const base = customContext
     ? `You are the person's English conversation partner in a scene they described: "${customContext}". Play the most fitting character.`
     : scenario.role
@@ -297,7 +325,7 @@ Respond ONLY with JSON matching the schema. Fields:
   - "corrected": the fully correct, natural English version of their sentence, split into word tokens. Each token: {text, changed} where "changed" is true for words that were added or modified compared to the original. If has_errors is false, "corrected" is identical to "original" with all changed=false.
   Only correct real errors — do NOT rephrase for style if the sentence is already correct. Base "original" strictly on what they actually wrote, never invent words. Attach punctuation to the adjacent word within its token (e.g. "countries." as one token).
 - "reply_fr": a natural French translation of your "reply_en" line, for a learner who needs help understanding.
-- "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.
+- "hard_words": array of words or short expressions FROM your "reply_en" that a French learner at this level might not know. For each: {word, fr} where fr is its French translation in context. Include only genuinely difficult items for this level (0 to 4 items). At high levels this is often empty.${lessonCriteriaBlock(lessonCriteria)}
 ${isLastTurn ? `
 THIS IS THE FINAL TURN of the session. In "reply_en", warmly acknowledge what the person just said and give a short, natural CLOSING line. DO NOT ask a new question. Wrap up the conversation.` : ""}`;
 }
@@ -479,7 +507,7 @@ exports.spikeTurn = onCall(
     maxInstances: 2,
   },
     async (request) => {
-    const { audioBase64, mimeType = "audio/mp4", history = [], scenarioId = "entretien-embauche", level = "B1", sceneContext = null, customContext = null, isLastTurn = false } =
+    const { audioBase64, mimeType = "audio/mp4", history = [], scenarioId = "entretien-embauche", level = "B1", sceneContext = null, customContext = null, isLastTurn = false, lessonCriteria = null } =
       request.data || {};
  
     const scenario = scenarioId ? SCENARIOS[scenarioId] : null;
@@ -525,11 +553,12 @@ exports.spikeTurn = onCall(
           },
         ],
         config: {
-          systemInstruction: buildSystemPrompt(scenario ?? {}, level, sceneContext, customContext, isLastTurn),
+          systemInstruction: buildSystemPrompt(scenario ?? {}, level, sceneContext, customContext, isLastTurn, lessonCriteria),
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              ...(lessonCriteria ? { observed_criteria: OBSERVED_CRITERIA_SCHEMA } : {}),
               transcript: { type: Type.STRING },
               reply_en: { type: Type.STRING },
               reply_fr: { type: Type.STRING },
@@ -649,6 +678,7 @@ exports.spikeTurn = onCall(
       feedback_fr: parsed.feedback_fr,
       correction: parsed.correction ?? null,
       hard_words: parsed.hard_words ?? [],
+      observed_criteria: lessonCriteria ? (parsed.observed_criteria ?? []) : undefined,
       misheard,
       pronunciation,
       replyAudioBase64: Buffer.from(ttsResponse.audioContent).toString("base64"),
@@ -668,7 +698,7 @@ exports.chatTurn = onCall(
     maxInstances: 2,
   },
   async (request) => {
-    const { text, history = [], scenarioId = "entretien-embauche", level = "B1", sceneContext = null, customContext = null, isLastTurn = false } =
+    const { text, history = [], scenarioId = "entretien-embauche", level = "B1", sceneContext = null, customContext = null, isLastTurn = false, lessonCriteria = null } =
       request.data || {};
  
     const scenario = scenarioId ? SCENARIOS[scenarioId] : null;
@@ -702,11 +732,12 @@ exports.chatTurn = onCall(
           },
         ],
         config: {
-          systemInstruction: buildChatSystemPrompt(scenario ?? {}, level, sceneContext, customContext, isLastTurn),
+          systemInstruction: buildChatSystemPrompt(scenario ?? {}, level, sceneContext, customContext, isLastTurn, lessonCriteria),
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              ...(lessonCriteria ? { observed_criteria: OBSERVED_CRITERIA_SCHEMA } : {}),
               reply_en: { type: Type.STRING },
               reply_fr: { type: Type.STRING },
               feedback_fr: { type: Type.STRING },
@@ -768,6 +799,7 @@ exports.chatTurn = onCall(
       feedback_fr: parsed.feedback_fr,
       correction: parsed.correction ?? null,
       hard_words: parsed.hard_words ?? [],
+      observed_criteria: lessonCriteria ? (parsed.observed_criteria ?? []) : undefined,
       timings: { gemini_ms: geminiMs },
     };
   }
@@ -1943,3 +1975,6 @@ Respond ONLY with JSON:
     };
   }
 );
+
+
+Object.assign(exports, require("./learningPath"));

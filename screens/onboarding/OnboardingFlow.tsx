@@ -92,7 +92,8 @@ function targetLevel(current: Level): Level {
   return CECRL[Math.min(CECRL.length - 1, i + 2)];
 }
 
-export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals: Goal[]) => void; onLogin?: () => void }) {
+// skipPaywall : cohorte « parcours » (learning_path_v1) — un seul paywall, après la première leçon, donc aucun ici.
+export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false }: { onLaunch: (goals: Goal[]) => void; onLogin?: () => void; skipPaywall?: boolean }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [step, setStep] = useState<Step>(0);
   const [launching, setLaunching] = useState(false);
@@ -176,9 +177,7 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
     next();
   };
 
-  // Le paywall s'affiche tout de suite, la sauvegarde du profil se fait derrière
-  const finishToLaunch = async () => {
-    setShowPaywall(true);
+  const persistProfile = async () => {
     setSaving(true);
     try {
       await saveProfile({
@@ -197,6 +196,18 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
     } finally {
       setSaving(false);
     }
+  };
+
+  // Filet de sécurité : le profil est enregistré dès l'arrivée sur l'écran de préparation.
+  // Si l'app est fermée à ce moment-là, l'utilisateur ne refait pas tout l'onboarding.
+  useEffect(() => {
+    if (step === 11) persistProfile();
+  }, [step]);
+
+  // Le paywall s'affiche tout de suite (le profil est déjà sauvegardé) — sauf pour la cohorte « parcours »
+  const finishToLaunch = () => {
+    if (skipPaywall) setLaunching(true);
+    else setShowPaywall(true);
   };
 
   const canContinue =
@@ -234,6 +245,7 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
   if (launching) {
     return (
       <View style={styles.container}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
         <View style={styles.launchWrap}>
           <View style={styles.blobWrap}>
             <View style={styles.blob1} />
@@ -243,11 +255,14 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
             {name.trim() ? `Bienvenue, ${name.trim()}.` : "Bienvenue."}
           </Text>
           <Text style={styles.launchLead}>
-            Ta conversation de présentation t'attend dans l'app. Pas de stress : tu parles, on t'écoute, et on te guide pas à pas.
+            {skipPaywall
+              ? "Ta première leçon t'attend : une courte rencontre en anglais, et Sam te guide à chaque étape."
+              : "Ta conversation de présentation t'attend dans l'app. Pas de stress : tu parles, on t'écoute, et on te guide pas à pas."}
           </Text>
         </View>
+        </ScrollView>
         <Pressable onPress={() => onLaunch(goals)} style={styles.cta}>
-          <Text style={styles.ctaText}>Découvrir l'app</Text>
+          <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>{skipPaywall ? "Commencer ma première leçon" : "Découvrir l'app"}</Text>
         </Pressable>
       </View>
     );
@@ -266,7 +281,7 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
   // 11 — Préparation du coach (plein écran)
   if (step === 11) {
     const picked = interests.slice(0, 2).map((i) => i.toLowerCase()).join(", ");
-    return <PrepScreen sceneHint={picked} saving={saving} onDone={finishToLaunch} />;
+    return <PrepScreen sceneHint={picked} saving={saving} onDone={finishToLaunch} lessonMode={skipPaywall} />;
   }
 
   const isValidation = step === 5;
@@ -495,7 +510,7 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
       </ScrollView>
 
       <Pressable onPress={step === 4 && testStatus !== "done" ? skipTest : step === 10 ? confirmReminder : next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
-        <Text style={styles.ctaText}>
+        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>
             {step === 4 && testStatus !== "done" ? "Passer ce test"
             : isValidation ? "Continuer"
             : "Continuer"}
@@ -506,7 +521,7 @@ export default function OnboardingFlow({ onLaunch, onLogin }: { onLaunch: (goals
 }
 
 // Préparation du coach : anneau 0 → 100 %, les étapes passent au vert une à une
-function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: boolean; onDone: () => void }) {
+function PrepScreen({ sceneHint, saving, onDone, lessonMode }: { sceneHint: string; saving: boolean; onDone: () => void; lessonMode: boolean }) {
   const insets = useSafeAreaInsets();
   const progress = useRef(new Animated.Value(0)).current;
   const [pct, setPct] = useState(0);
@@ -521,7 +536,7 @@ function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: 
     { label: "Analyse de ton niveau", at: 22 },
     { label: sceneHint ? `Sélection de tes scènes : ${sceneHint}` : "Sélection de tes scènes", at: 48 },
     { label: "Réglage de la voix de ton coach", at: 74 },
-    { label: "Préparation de ta 1re conversation", at: 100 },
+    { label: lessonMode ? "Préparation de ta 1re leçon" : "Préparation de ta 1re conversation", at: 100 },
   ];
   const ready = pct >= 100;
 
@@ -530,7 +545,8 @@ function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: 
   const leftRot = progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: ["-135deg", "-135deg", "45deg"] });
 
   return (
-    <View style={[styles.heroScreen, { paddingTop: insets.top + 36, paddingBottom: insets.bottom + 16 }]}>
+    <View style={[styles.heroScreen, { paddingBottom: insets.bottom + 16 }]}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: insets.top + 36, paddingBottom: 16 }}>
       <View style={styles.prepRing}>
         <View style={styles.prepHalfRight}>
           <Animated.View style={[styles.prepArc, styles.prepArcRight, { transform: [{ rotate: rightRot }] }]} />
@@ -567,10 +583,10 @@ function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: 
         </Text>
       </View>
 
-      <View style={{ flex: 1 }} />
+      </ScrollView>
 
-      <Pressable onPress={onDone} disabled={!ready || saving} style={[styles.cta, (!ready || saving) && styles.ctaOff]}>
-        <Text style={styles.ctaText}>{saving ? "…" : "Voir mon offre"}</Text>
+      <Pressable onPress={onDone} disabled={!ready || saving} style={[styles.cta, { marginTop: 12 }, (!ready || saving) && styles.ctaOff]}>
+        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>{saving ? "…" : lessonMode ? "C'est parti" : "Voir mon offre"}</Text>
       </Pressable>
     </View>
   );
@@ -579,6 +595,8 @@ function PrepScreen({ sceneHint, saving, onDone }: { sceneHint: string; saving: 
 // Écran d'accueil : logo, deux bandes de scènes en défilement lent, bulles flottantes
 function WelcomeHero({ onStart, onLogin }: { onStart: () => void; onLogin?: () => void }) {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const marqueeH = Math.min(330, Math.max(220, height * 0.38));
   return (
     <View style={[styles.heroScreen, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }]}>
       <View style={styles.brandRow}>
@@ -591,7 +609,7 @@ function WelcomeHero({ onStart, onLogin }: { onStart: () => void; onLogin?: () =
         </View>
       </View>
 
-      <View style={styles.marquee}>
+      <View style={[styles.marquee, { height: marqueeH }]}>
         <View style={styles.marqueeBand}>
           <MarqueeRow items={HERO_TOP} direction="left" duration={70000} />
           <MarqueeRow items={HERO_BOTTOM} direction="right" duration={80000} />
@@ -613,24 +631,24 @@ function WelcomeHero({ onStart, onLogin }: { onStart: () => void; onLogin?: () =
         </FloatBubble>
       </View>
 
-      <View style={{ flex: 1 }} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} showsVerticalScrollIndicator={false}>
+        <View style={styles.heroText}>
+          <Text style={styles.big}>Parle anglais</Text>
+          <Text style={styles.bigAccent}>sans bloquer.</Text>
+          <Text style={styles.lead}>
+            Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent.
+          </Text>
+        </View>
 
-      <View style={styles.heroText}>
-        <Text style={styles.big}>Parle anglais</Text>
-        <Text style={styles.bigAccent}>sans bloquer.</Text>
-        <Text style={styles.lead}>
-          Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent.
-        </Text>
-      </View>
-
-      <Pressable onPress={onStart} style={[styles.cta, { marginBottom: onLogin ? 16 : 0 }]}>
-        <Text style={styles.ctaText}>Commencer</Text>
-      </Pressable>
-      {onLogin ? (
-        <Pressable onPress={onLogin} hitSlop={10} style={{ alignSelf: "center", paddingVertical: 4 }}>
-          <Text style={styles.heroLogin}>J'ai déjà un compte</Text>
+        <Pressable onPress={onStart} style={[styles.cta, { marginBottom: onLogin ? 16 : 0 }]}>
+          <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Commencer</Text>
         </Pressable>
-      ) : null}
+        {onLogin ? (
+          <Pressable onPress={onLogin} hitSlop={10} style={{ alignSelf: "center", paddingVertical: 4 }}>
+            <Text style={styles.heroLogin}>J'ai déjà un compte</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
     </View>
   );
 }
@@ -643,7 +661,7 @@ function BenefitsCarousel({ onDone }: { onDone: () => void }) {
   const [index, setIndex] = useState(0);
   // Hauteur réellement disponible pour le visuel (mesurée) : le téléphone n'est jamais coupé
   const [visualH, setVisualH] = useState(0);
-  const phoneH = Math.min(440, height * 0.5, visualH > 0 ? visualH - 24 : Infinity);
+  const phoneH = Math.max(220, Math.min(440, height * 0.5, visualH > 0 ? visualH - 24 : Infinity));
 
   const goTo = (i: number) => {
     scrollRef.current?.scrollTo({ x: i * width, animated: true });
@@ -676,7 +694,7 @@ function BenefitsCarousel({ onDone }: { onDone: () => void }) {
         onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
       >
         {BENEFITS.map((b) => (
-          <View key={b.key} style={{ width, flex: 1 }}>
+          <ScrollView key={b.key} style={{ width }} contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
             <View style={styles.benefitVisual} onLayout={(e) => setVisualH(e.nativeEvent.layout.height)}>
               {b.key === "scenes" ? <SceneGrid width={width} maxHeight={visualH} /> : <PhoneShot source={BENEFIT_SHOTS[b.key]} height={phoneH} />}
 
@@ -711,7 +729,7 @@ function BenefitsCarousel({ onDone }: { onDone: () => void }) {
               <Text style={[styles.benefitTitle, { color: T.abricotDeep }]}>{b.accent}</Text>
               <Text style={styles.benefitLead}>{b.text}</Text>
             </View>
-          </View>
+          </ScrollView>
         ))}
       </ScrollView>
 
@@ -722,7 +740,7 @@ function BenefitsCarousel({ onDone }: { onDone: () => void }) {
       </View>
 
       <Pressable onPress={onContinue} style={styles.cta}>
-        <Text style={styles.ctaText}>Continuer</Text>
+        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Continuer</Text>
       </Pressable>
     </View>
   );

@@ -36,6 +36,7 @@ export type Profile = {
   ratingAsked?: boolean; // la note in-app a déjà été demandée (une seule fois)
   appRating?: number; // note in-app de 1 à 5
   hubCelebrated?: boolean; // félicitations « 3 défis terminés » déjà affichées
+  flowVersion?: "legacy" | "learning_path_v1";
 };
 
 export async function loadProfile(): Promise<Profile | null> {
@@ -72,6 +73,7 @@ export async function loadProfile(): Promise<Profile | null> {
       ratingAsked: data.ratingAsked ?? false,
       appRating: data.appRating,
       hubCelebrated: data.hubCelebrated ?? false,
+      flowVersion: data.flowVersion === "learning_path_v1" ? "learning_path_v1" : "legacy",
     };
   } catch (e) {
     console.warn("loadProfile échoué:", e);

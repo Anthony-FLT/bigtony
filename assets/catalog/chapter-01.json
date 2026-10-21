@@ -1,0 +1,1433 @@
+{
+  "schemaVersion": "1.1",
+  "chapterId": "C01",
+  "contentVersion": 1,
+  "publicationStatus": "draft_pending_human_review",
+  "variants": [
+    {
+      "id": "C01-L01-A1",
+      "lessonId": "C01-L01",
+      "contentVersion": 1,
+      "practiceLevel": "A1",
+      "titleFr": "Dis qui tu es",
+      "objectiveFr": "Donne un prénom compréhensible. Communique un âge réel ou fictif en anglais. Communique une ville où tu habites, réelle ou fictive.",
+      "coachRole": "Une nouvelle connaissance bienveillante",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hi! What's your name?",
+      "followUpsEn": [
+        "How old are you?",
+        "Can you tell me your name and your city together?"
+      ],
+      "difficultyFollowUpEn": "Can you tell me your name and your city together?",
+      "easierVariantHintFr": "On peut reprendre une information à la fois, avec un exemple et une réponse écrite si tu préfères.",
+      "requiredCriteria": [
+        {
+          "id": "identity_name",
+          "descriptionFr": "Donne un prénom compréhensible.",
+          "exampleEn": "My name is Alex."
+        },
+        {
+          "id": "identity_age",
+          "descriptionFr": "Communique un âge réel ou fictif en anglais.",
+          "exampleEn": "I am thirty years old."
+        },
+        {
+          "id": "identity_city",
+          "descriptionFr": "Communique une ville où tu habites, réelle ou fictive.",
+          "exampleEn": "I live in Lyon."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour donner ton âge, utilise I am, pas I have. Tu peux utiliser une identité inventée. Une information à la fois suffit.",
+        "examplesEn": [
+          "I'm thirty years old.",
+          "I live in Lyon."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Présente-toi à Sam avec ton prénom et ta ville, sans recopier une phrase complète. Garde tes vraies informations ou invente-les.",
+        "expectedSemanticCriteria": [
+          "Le prénom et la ville sont compréhensibles.",
+          "Les informations sont choisies par l’utilisateur ; une structure simple identique au modèle est acceptable."
+        ],
+        "sampleAnswerEn": "I'm Alex. I live in Paris.",
+        "alternativePromptFr": "Présente-toi à un nouveau voisin avec ton prénom et ta ville. Tu peux utiliser une identité fictive."
+      },
+      "targetMinutes": 3,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L01-A2",
+      "lessonId": "C01-L01",
+      "contentVersion": 1,
+      "practiceLevel": "A2",
+      "titleFr": "Présente-toi et fais connaissance",
+      "objectiveFr": "Présente ton prénom et ton activité. Ajoute un intérêt personnel compréhensible. Pose une question simple à ton interlocuteur.",
+      "coachRole": "Une nouvelle connaissance bienveillante",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hi, I'm Sam. What do you do?",
+      "followUpsEn": [
+        "What do you enjoy doing in your free time?",
+        "What would you like to know about me?"
+      ],
+      "difficultyFollowUpEn": "What would you like to know about me?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "intro_activity",
+          "descriptionFr": "Présente ton prénom et ton activité.",
+          "exampleEn": "I am Alex. I am a student."
+        },
+        {
+          "id": "intro_interest",
+          "descriptionFr": "Ajoute un intérêt personnel compréhensible.",
+          "exampleEn": "I enjoy cooking."
+        },
+        {
+          "id": "intro_return_question",
+          "descriptionFr": "Pose une question simple à ton interlocuteur.",
+          "exampleEn": "What do you like doing?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Ajoute une activité et un intérêt à ta présentation. Pour continuer l’échange, pose une question simple à l’autre.",
+        "examplesEn": [
+          "I'm a student and I enjoy cooking.",
+          "What do you like doing?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Tu rencontres une autre personne. Présente ton activité et un intérêt, puis pose-lui une question.",
+        "expectedSemanticCriteria": [
+          "Activité et intérêt sont exprimés clairement.",
+          "Une question pertinente invite l’autre à répondre."
+        ],
+        "sampleAnswerEn": "I'm a student and I like music. What do you do?",
+        "alternativePromptFr": "Tu rejoins un club. Dis ce que tu aimes faire et demande à quelqu’un ce qu’il aime."
+      },
+      "targetMinutes": 3,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L01-B1",
+      "lessonId": "C01-L01",
+      "contentVersion": 1,
+      "practiceLevel": "B1",
+      "titleFr": "Présente ton activité et ta motivation",
+      "objectiveFr": "Présente ton activité avec un détail pertinent. Explique une motivation en reliant tes idées. Réponds de manière pertinente à une relance non récitée.",
+      "coachRole": "Une nouvelle connaissance bienveillante",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hi! Tell me a little about what you do.",
+      "followUpsEn": [
+        "Why would you like to practise English?",
+        "In which situation would better English help you most?"
+      ],
+      "difficultyFollowUpEn": "In which situation would better English help you most?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "intro_background",
+          "descriptionFr": "Présente ton activité avec un détail pertinent.",
+          "exampleEn": "I work in IT and help small businesses."
+        },
+        {
+          "id": "intro_motivation",
+          "descriptionFr": "Explique une motivation en reliant tes idées.",
+          "exampleEn": "I want to improve my English because I work with international clients."
+        },
+        {
+          "id": "intro_followup",
+          "descriptionFr": "Réponds de manière pertinente à une relance non récitée.",
+          "exampleEn": "Mostly during online meetings."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Organise ta présentation autour de ton activité, d’un détail et de ta motivation. Because permet de relier une intention à sa raison.",
+        "examplesEn": [
+          "I work in IT and help small businesses.",
+          "I want to speak more confidently because I meet international clients."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Présente-toi à un nouveau partenaire d’apprentissage. Explique en deux ou trois phrases ton activité et une situation où tu veux progresser.",
+        "expectedSemanticCriteria": [
+          "La présentation contient une activité et une motivation reliées.",
+          "Un contexte concret illustre le besoin, sans exiger un nombre exact de phrases."
+        ],
+        "sampleAnswerEn": "I work in IT. I want to feel more confident when I explain a problem to a client.",
+        "alternativePromptFr": "Explique à un ami ton activité et pourquoi tu pratiques l’anglais, avec un exemple de situation utile."
+      },
+      "targetMinutes": 3,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L01-B2",
+      "lessonId": "C01-L01",
+      "contentVersion": 1,
+      "practiceLevel": "B2",
+      "titleFr": "Présente-toi à un nouveau collègue",
+      "objectiveFr": "Sélectionne deux informations pertinentes pour une rencontre professionnelle. Développe l’une de ces informations avec un exemple concret. Réponds à une relance imprévue sans perdre le fil.",
+      "coachRole": "Une nouvelle connaissance bienveillante",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "We've just joined the same project. Could you tell me a little about your background?",
+      "followUpsEn": [
+        "Could you give me an example of a project you enjoyed?",
+        "What would you bring to a team with a different way of working?"
+      ],
+      "difficultyFollowUpEn": "What would you bring to a team with a different way of working?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "intro_context_selection",
+          "descriptionFr": "Sélectionne deux informations pertinentes pour une rencontre professionnelle.",
+          "exampleEn": "I design mobile apps and work with small teams."
+        },
+        {
+          "id": "intro_development",
+          "descriptionFr": "Développe l’une de ces informations avec un exemple concret.",
+          "exampleEn": "For example, I recently helped a team simplify its sign-up flow."
+        },
+        {
+          "id": "intro_spontaneous_reply",
+          "descriptionFr": "Réponds à une relance imprévue sans perdre le fil.",
+          "exampleEn": "The hardest part was deciding what to leave out."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Choisis les informations utiles à la personne en face de toi. Présente ton activité, illustre ta contribution, puis laisse de la place à l’échange.",
+        "examplesEn": [
+          "I work on mobile products, mainly for small teams.",
+          "One project involved simplifying a complicated sign-up process."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Reformule ta présentation pour une rencontre informelle : garde l’essentiel de ton activité et un détail intéressant, avec un ton plus détendu.",
+        "expectedSemanticCriteria": [
+          "Les informations restent cohérentes avec la présentation précédente.",
+          "Le ton ou la sélection des détails s’adapte au contexte informel."
+        ],
+        "sampleAnswerEn": "I build mobile apps. I especially enjoy making complicated things feel simple.",
+        "alternativePromptFr": "Lors d’une rencontre informelle, présente brièvement ton activité à quelqu’un qui a peu de temps, avec un ton détendu."
+      },
+      "targetMinutes": 3,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L01-C1",
+      "lessonId": "C01-L01",
+      "contentVersion": 1,
+      "practiceLevel": "C1",
+      "titleFr": "Présente ton parcours avec précision",
+      "objectiveFr": "Sélectionne les éléments du parcours utiles au rôle de l’interlocuteur. Structure le lien entre expérience et contribution actuelle. Précise une limite ou une nuance en réponse à une relance.",
+      "coachRole": "Une nouvelle connaissance bienveillante",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Imagine I'm coordinating a cross-functional project. Which parts of your background would be most useful to me?",
+      "followUpsEn": [
+        "How do those experiences shape the way you work?",
+        "Where would you need support from someone with a different background?"
+      ],
+      "difficultyFollowUpEn": "Where would you need support from someone with a different background?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "intro_relevance",
+          "descriptionFr": "Sélectionne les éléments du parcours utiles au rôle de l’interlocuteur.",
+          "exampleEn": "My background combines software delivery and product research."
+        },
+        {
+          "id": "intro_structure",
+          "descriptionFr": "Structure le lien entre expérience et contribution actuelle.",
+          "exampleEn": "That combination helps me translate user feedback into technical priorities."
+        },
+        {
+          "id": "intro_nuance",
+          "descriptionFr": "Précise une limite ou une nuance en réponse à une relance.",
+          "exampleEn": "My focus is implementation rather than formal market research."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Une présentation précise sélectionne au lieu d’énumérer. Relie deux expériences, explique leur utilité et distingue ce que tu apportes de ce que tu ne prétends pas maîtriser.",
+        "examplesEn": [
+          "My background combines technical delivery with user research.",
+          "My focus is practical implementation rather than academic research."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Présente le même parcours à un partenaire sans connaissances techniques. Préserve ta contribution et une nuance importante.",
+        "expectedSemanticCriteria": [
+          "La contribution et sa limite restent fidèles à la première présentation.",
+          "Les références opaques sont expliquées ou remplacées pour le nouveau public."
+        ],
+        "sampleAnswerEn": "I help teams turn user problems into workable software. I can guide the implementation, but I rely on specialists for market-wide research.",
+        "alternativePromptFr": "Explique ton parcours à une personne extérieure à ton domaine, en précisant ta contribution et une limite importante."
+      },
+      "targetMinutes": 3,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L01-C2",
+      "lessonId": "C01-L01",
+      "contentVersion": 1,
+      "practiceLevel": "C2",
+      "titleFr": "Ajuste finement ta présentation",
+      "objectiveFr": "Adapte registre et degré de détail à une relation précise. Exprime une contribution sans implication trompeuse sur ton expertise. Reformule pour un autre public en préservant l’intention et les nuances essentielles.",
+      "coachRole": "Une nouvelle connaissance bienveillante",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "We're meeting informally before a discussion with senior stakeholders. How would you introduce your role without overstating it?",
+      "followUpsEn": [
+        "What might someone misunderstand about that introduction?",
+        "How would you introduce yourself to a non-specialist while preserving that distinction?"
+      ],
+      "difficultyFollowUpEn": "How would you introduce yourself to a non-specialist while preserving that distinction?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "intro_register_control",
+          "descriptionFr": "Adapte registre et degré de détail à une relation précise.",
+          "exampleEn": "I advise teams on decisions where technical constraints and product priorities overlap."
+        },
+        {
+          "id": "intro_intent_precision",
+          "descriptionFr": "Exprime une contribution sans implication trompeuse sur ton expertise.",
+          "exampleEn": "I contribute to the strategic discussion, though I do not own the final decision."
+        },
+        {
+          "id": "intro_audience_shift",
+          "descriptionFr": "Reformule pour un autre public en préservant l’intention et les nuances essentielles.",
+          "exampleEn": "I help people work out what is practical before they commit to a product direction."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Le défi est de conserver exactement ton intention en changeant de registre. Précise les limites d’une contribution sans effacer son intérêt ni te survaloriser.",
+        "examplesEn": [
+          "I contribute to strategic decisions without claiming ownership of them.",
+          "I help teams understand what is practical before they commit."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Prépare deux versions très courtes : une pour un décideur et une pour un nouveau collègue. Préserve la même contribution et sa limite.",
+        "expectedSemanticCriteria": [
+          "Les deux versions sont sémantiquement cohérentes.",
+          "Le registre et le détail changent de manière pertinente sans exagérer l’expertise."
+        ],
+        "sampleAnswerEn": "For a decision-maker: I clarify technical trade-offs to inform product choices. For a colleague: I help us see what each option would involve, but we make the decision together.",
+        "alternativePromptFr": "Reformule ton rôle pour un décideur puis pour un nouveau collègue, en corrigeant une interprétation qui surestime ta contribution."
+      },
+      "targetMinutes": 3,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L02-A1",
+      "lessonId": "C01-L02",
+      "contentVersion": 1,
+      "practiceLevel": "A1",
+      "titleFr": "Pose deux questions simples",
+      "objectiveFr": "Demande le prénom de l’autre. Demande sa ville ou son lieu de vie.",
+      "coachRole": "Une personne qui partage progressivement des informations et répond aux relances",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hello! Let's get to know each other. Ask me my name.",
+      "followUpsEn": [
+        "What would you ask to find out where I live?",
+        "I live in London. What could you ask about my city?"
+      ],
+      "difficultyFollowUpEn": "I live in London. What could you ask about my city?",
+      "easierVariantHintFr": "On peut reprendre une information à la fois, avec un exemple et une réponse écrite si tu préfères.",
+      "requiredCriteria": [
+        {
+          "id": "question_name",
+          "descriptionFr": "Demande le prénom de l’autre.",
+          "exampleEn": "What is your name?"
+        },
+        {
+          "id": "question_city",
+          "descriptionFr": "Demande sa ville ou son lieu de vie.",
+          "exampleEn": "Where do you live?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour demander un prénom, utilise What is your name? Pour un lieu de vie, utilise Where do you live? Lis le modèle si nécessaire, puis pose ta question.",
+        "examplesEn": [
+          "What is your name?",
+          "Where do you live?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Le coach vient de dire : I live in London. Demande-lui s’il aime cette ville.",
+        "expectedSemanticCriteria": [
+          "La réponse est une question adressée à l’interlocuteur.",
+          "La question porte sur la ville ou le fait d’y vivre ; une formulation simple avec aide est acceptée."
+        ],
+        "sampleAnswerEn": "Do you like London?",
+        "alternativePromptFr": "Le coach habite à London. Demande-lui s’il aime y vivre, en utilisant une amorce si nécessaire."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L02-A2",
+      "lessonId": "C01-L02",
+      "contentVersion": 1,
+      "practiceLevel": "A2",
+      "titleFr": "Pose une question et rebondis",
+      "objectiveFr": "Pose une question simple sur une activité. Pose une relance liée à la réponse reçue.",
+      "coachRole": "Une personne qui partage progressivement des informations et répond aux relances",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "I enjoy playing tennis. What would you like to know?",
+      "followUpsEn": [
+        "I usually play on Saturdays. What else would you like to ask?",
+        "I play with my sister. Can you ask a question about that?"
+      ],
+      "difficultyFollowUpEn": "I play with my sister. Can you ask a question about that?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "question_activity",
+          "descriptionFr": "Pose une question simple sur une activité.",
+          "exampleEn": "What do you do in your free time?"
+        },
+        {
+          "id": "question_linked_followup",
+          "descriptionFr": "Pose une relance liée à la réponse reçue.",
+          "exampleEn": "How often do you play tennis?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Une relance reprend une information donnée par l’autre. Après I play tennis, tu peux demander quand, où ou à quelle fréquence.",
+        "examplesEn": [
+          "What do you do in your free time?",
+          "How often do you play tennis?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Le coach dit : I cook with my friends on Sundays. Pose une question qui reprend cette information.",
+        "expectedSemanticCriteria": [
+          "La réponse forme une question compréhensible.",
+          "Elle porte sur la cuisine, les amis ou cette habitude dominicale."
+        ],
+        "sampleAnswerEn": "What do you usually cook?",
+        "alternativePromptFr": "À partir de I cook with my friends on Sundays, demande où ou avec qui cette activité a lieu."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L02-B1",
+      "lessonId": "C01-L02",
+      "contentVersion": 1,
+      "practiceLevel": "B1",
+      "titleFr": "Fais avancer une conversation",
+      "objectiveFr": "Pose une relance liée à une première réponse. Pose une seconde relance qui tient compte d’une information nouvelle. Garde un fil cohérent sans réciter une liste indépendante.",
+      "coachRole": "Une personne qui partage progressivement des informations et répond aux relances",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "I've recently started hiking on my own. What would you like to know?",
+      "followUpsEn": [
+        "I started because I wanted a break from busy weekends. What would you ask next?",
+        "Sometimes I miss having company. How could you follow up on that?"
+      ],
+      "difficultyFollowUpEn": "Sometimes I miss having company. How could you follow up on that?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "question_first_link",
+          "descriptionFr": "Pose une relance liée à une première réponse.",
+          "exampleEn": "What made you start hiking?"
+        },
+        {
+          "id": "question_second_link",
+          "descriptionFr": "Pose une seconde relance qui tient compte d’une information nouvelle.",
+          "exampleEn": "What do you enjoy about going alone?"
+        },
+        {
+          "id": "question_coherence",
+          "descriptionFr": "Garde un fil cohérent sans réciter une liste indépendante.",
+          "exampleEn": "That sounds peaceful. Do you prefer short walks or longer trips?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Utilise la réponse précédente pour choisir ta question suivante. Une réaction courte montre que tu as écouté avant de relancer.",
+        "examplesEn": [
+          "That sounds interesting. How did you get started?",
+          "You mentioned going alone. What do you enjoy about that?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Le coach révèle : I enjoy hiking, but choosing a safe route is difficult. Réagis et pose une question liée à cette difficulté.",
+        "expectedSemanticCriteria": [
+          "La réaction respecte le sens de la déclaration.",
+          "La question approfondit la difficulté ou les moyens de la résoudre."
+        ],
+        "sampleAnswerEn": "That makes sense. How do you decide which routes are suitable?",
+        "alternativePromptFr": "Le coach hésite sur le choix d’un itinéraire sûr. Réagis à cette difficulté et pose une question pour comprendre ce qui pourrait l’aider."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L02-B2",
+      "lessonId": "C01-L02",
+      "contentVersion": 1,
+      "practiceLevel": "B2",
+      "titleFr": "Échange sans donner l’impression d’un interrogatoire",
+      "objectiveFr": "Réagis au contenu de la réponse de façon pertinente. Apporte une contribution personnelle courte liée au sujet. Pose une relance ouverte qui poursuit l’échange.",
+      "coachRole": "Une personne qui partage progressivement des informations et répond aux relances",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "I joined a photography group, but it took me a while to feel comfortable. What would you say?",
+      "followUpsEn": [
+        "The group was friendly, but everyone seemed experienced. How would you respond?",
+        "I almost stopped going. How could you explore that without making assumptions?"
+      ],
+      "difficultyFollowUpEn": "I almost stopped going. How could you explore that without making assumptions?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "question_reaction",
+          "descriptionFr": "Réagis au contenu de la réponse de façon pertinente.",
+          "exampleEn": "I can see why that appealed to you."
+        },
+        {
+          "id": "question_personal_link",
+          "descriptionFr": "Apporte une contribution personnelle courte liée au sujet.",
+          "exampleEn": "I have found smaller groups easier to join too."
+        },
+        {
+          "id": "question_open_followup",
+          "descriptionFr": "Pose une relance ouverte qui poursuit l’échange.",
+          "exampleEn": "What made you feel comfortable in that group?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Alterner réaction, contribution brève et question ouverte donne de la réciprocité à l’échange. Évite de recentrer toute la conversation sur toi.",
+        "examplesEn": [
+          "That sounds familiar; I had a similar experience.",
+          "What made the biggest difference for you?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Le coach raconte une difficulté pour rejoindre un club. Réponds avec une réaction, un lien bref et une question ouverte.",
+        "expectedSemanticCriteria": [
+          "La contribution personnelle reste liée et courte.",
+          "La relance donne de l’espace à l’autre sans supposer la cause de son malaise."
+        ],
+        "sampleAnswerEn": "I can relate to that; joining an established group can feel awkward. What helped you stay?",
+        "alternativePromptFr": "Le coach décrit une réussite inattendue. Réagis et relance sans transformer l’échange en entretien."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L02-C1",
+      "lessonId": "C01-L02",
+      "contentVersion": 1,
+      "practiceLevel": "C1",
+      "titleFr": "Relance avec tact",
+      "objectiveFr": "Repère une réponse réservée sans prétendre en connaître la cause. Ajuste la portée de la relance pour laisser une marge de réponse. Maintiens un échange cohérent avec la réponse obtenue.",
+      "coachRole": "Une personne qui partage progressivement des informations et répond aux relances",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "I changed jobs recently. It was... a complicated decision. How would you continue?",
+      "followUpsEn": [
+        "I would rather not go into the details. What could you ask instead?",
+        "There were good reasons on both sides. How could you invite me to elaborate without pressing?"
+      ],
+      "difficultyFollowUpEn": "There were good reasons on both sides. How could you invite me to elaborate without pressing?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "question_read_reserve",
+          "descriptionFr": "Repère une réponse réservée sans prétendre en connaître la cause.",
+          "exampleEn": "We do not have to go into that if you would rather not."
+        },
+        {
+          "id": "question_adjust_scope",
+          "descriptionFr": "Ajuste la portée de la relance pour laisser une marge de réponse.",
+          "exampleEn": "Would you prefer to talk about what you are doing now?"
+        },
+        {
+          "id": "question_maintain_flow",
+          "descriptionFr": "Maintiens un échange cohérent avec la réponse obtenue.",
+          "exampleEn": "You mentioned a new direction. What interests you about it?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Une réponse vague n’est pas une invitation à insister. Propose une question moins personnelle ou une autre direction, sans attribuer d’émotion à l’autre.",
+        "examplesEn": [
+          "Only if you feel like talking about it.",
+          "Would you rather focus on what comes next?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Le coach donne une réponse réservée sur un déménagement. Propose une relance respectueuse qui permet de parler du présent.",
+        "expectedSemanticCriteria": [
+          "La formulation ne présume pas d’une cause personnelle.",
+          "Elle ouvre une possibilité de réponse et respecte le refus éventuel."
+        ],
+        "sampleAnswerEn": "We can leave the reasons aside. How are you finding life there now?",
+        "alternativePromptFr": "L’interlocuteur élude une question. Change l’angle de discussion en gardant un lien naturel avec son propos."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L02-C2",
+      "lessonId": "C01-L02",
+      "contentVersion": 1,
+      "practiceLevel": "C2",
+      "titleFr": "Explore un sous-entendu sans le surinterpréter",
+      "objectiveFr": "Formule une interprétation éventuelle comme une hypothèse. Pose une question non orientée qui permet de corriger cette interprétation. Réajuste ta relance après une précision contraire à ton hypothèse.",
+      "coachRole": "Une personne qui partage progressivement des informations et répond aux relances",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "The team was certainly enthusiastic about the change. How would you find out what I mean without assuming irony?",
+      "followUpsEn": [
+        "I meant that sincerely, although the timing was difficult. How would you adjust your question?",
+        "The timing mattered, but not in the way you might expect. How would you explore that?"
+      ],
+      "difficultyFollowUpEn": "The timing mattered, but not in the way you might expect. How would you explore that?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "question_tentative_reading",
+          "descriptionFr": "Formule une interprétation éventuelle comme une hypothèse.",
+          "exampleEn": "It sounds as though there may have been a trade-off, though I may be reading too much into it."
+        },
+        {
+          "id": "question_nonleading",
+          "descriptionFr": "Pose une question non orientée qui permet de corriger cette interprétation.",
+          "exampleEn": "How would you describe the decision yourself?"
+        },
+        {
+          "id": "question_recalibration",
+          "descriptionFr": "Réajuste ta relance après une précision contraire à ton hypothèse.",
+          "exampleEn": "So it was more about timing than disagreement. What changed then?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Une relance fine distingue ce que l’autre a dit de ce que tu en déduis. Laisse-lui explicitement la possibilité de corriger ton interprétation.",
+        "examplesEn": [
+          "I may be reading too much into that.",
+          "Would you describe it differently?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Quelqu’un dit : It was an interesting meeting. Propose une relance neutre, puis une réponse si la personne précise que son commentaire était positif.",
+        "expectedSemanticCriteria": [
+          "La première question n’impose ni ironie ni critique.",
+          "La suite tient compte de la précision positive sans persister dans une interprétation négative."
+        ],
+        "sampleAnswerEn": "What stood out to you? If it was positive: What made it particularly useful?",
+        "alternativePromptFr": "Un interlocuteur corrige ton interprétation d’une phrase ambiguë. Reformule ce que tu comprends et relance sans insister sur ta première hypothèse."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L03-A1",
+      "lessonId": "C01-L03",
+      "contentVersion": 1,
+      "practiceLevel": "A1",
+      "titleFr": "Décris ton matin",
+      "objectiveFr": "Nomme deux actions habituelles. Associe une action à un moment de la journée.",
+      "coachRole": "Une connaissance qui échange sur ses habitudes",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "What do you do in the morning?",
+      "followUpsEn": [
+        "What do you do after that?",
+        "What is different on Sunday?"
+      ],
+      "difficultyFollowUpEn": "What is different on Sunday?",
+      "easierVariantHintFr": "On peut reprendre une information à la fois, avec un exemple et une réponse écrite si tu préfères.",
+      "requiredCriteria": [
+        {
+          "id": "routine_two_actions",
+          "descriptionFr": "Nomme deux actions habituelles.",
+          "exampleEn": "I get up. I have breakfast."
+        },
+        {
+          "id": "routine_time",
+          "descriptionFr": "Associe une action à un moment de la journée.",
+          "exampleEn": "I have breakfast in the morning."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Utilise des phrases courtes au présent pour tes habitudes. In the morning situe une action le matin.",
+        "examplesEn": [
+          "I get up at seven.",
+          "I have breakfast in the morning."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Décris une action de ton dimanche matin différente de la semaine, réelle ou inventée.",
+        "expectedSemanticCriteria": [
+          "Une action simple est compréhensible.",
+          "Le dimanche ou le changement est identifiable, même avec aide."
+        ],
+        "sampleAnswerEn": "On Sunday, I get up at nine.",
+        "alternativePromptFr": "Compare ton matin habituel et ton dimanche : donne une action qui change, avec aide si nécessaire."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L03-A2",
+      "lessonId": "C01-L03",
+      "contentVersion": 1,
+      "practiceLevel": "A2",
+      "titleFr": "Parle de tes habitudes",
+      "objectiveFr": "Décris trois actions habituelles dans un ordre clair. Associe une fréquence à une habitude. Exprime une variation simple de la routine.",
+      "coachRole": "Une connaissance qui échange sur ses habitudes",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "What is a typical morning like for you?",
+      "followUpsEn": [
+        "How often do you do that?",
+        "What changes at the weekend?"
+      ],
+      "difficultyFollowUpEn": "What changes at the weekend?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "routine_sequence",
+          "descriptionFr": "Décris trois actions habituelles dans un ordre clair.",
+          "exampleEn": "First I have breakfast, then I go to work, and later I exercise."
+        },
+        {
+          "id": "routine_frequency",
+          "descriptionFr": "Associe une fréquence à une habitude.",
+          "exampleEn": "I usually walk to work."
+        },
+        {
+          "id": "routine_variation",
+          "descriptionFr": "Exprime une variation simple de la routine.",
+          "exampleEn": "On Sundays, I stay at home."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "First et then organisent ta journée. Usually, often et sometimes indiquent la fréquence. Une exception peut être introduite par On Sundays.",
+        "examplesEn": [
+          "I usually walk to work.",
+          "First I have breakfast, then I leave home."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Explique deux choses qui changent dans ta routine le week-end.",
+        "expectedSemanticCriteria": [
+          "Deux actions ou horaires de week-end sont compréhensibles.",
+          "Le contraste avec l’habitude de semaine est explicite ou récupérable du contexte."
+        ],
+        "sampleAnswerEn": "At the weekend, I get up later and I have breakfast with my family.",
+        "alternativePromptFr": "Décris deux changements par rapport à ta routine habituelle lors d’une journée où tu commences plus tôt."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L03-B1",
+      "lessonId": "C01-L03",
+      "contentVersion": 1,
+      "practiceLevel": "B1",
+      "titleFr": "Explique une routine et ses exceptions",
+      "objectiveFr": "Décris un enchaînement cohérent d’habitudes. Présente une exception identifiable. Explique la raison de l’exception.",
+      "coachRole": "Une connaissance qui échange sur ses habitudes",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "How do you usually organise your day?",
+      "followUpsEn": [
+        "Is there a day when your routine changes?",
+        "Why do you organise that day differently?"
+      ],
+      "difficultyFollowUpEn": "Why do you organise that day differently?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "routine_overview",
+          "descriptionFr": "Décris un enchaînement cohérent d’habitudes.",
+          "exampleEn": "I usually start with email before focusing on a project."
+        },
+        {
+          "id": "routine_exception",
+          "descriptionFr": "Présente une exception identifiable.",
+          "exampleEn": "On Tuesdays, I start with a team meeting instead."
+        },
+        {
+          "id": "routine_reason",
+          "descriptionFr": "Explique la raison de l’exception.",
+          "exampleEn": "That is when everyone is available."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Présente d’abord ton fonctionnement habituel, puis l’exception et sa raison. Usually ne signifie pas toujours : tu peux préciser les jours où cela change.",
+        "examplesEn": [
+          "I usually start early, but on Tuesdays I begin later.",
+          "That is because we have an evening meeting."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Imagine qu’un rendez-vous s’ajoute demain. Explique ce que tu changes dans ta routine et pourquoi.",
+        "expectedSemanticCriteria": [
+          "La modification se distingue de la routine initiale.",
+          "Une raison relie le rendez-vous au changement."
+        ],
+        "sampleAnswerEn": "I will exercise in the evening instead because I have an appointment before work.",
+        "alternativePromptFr": "Explique une exception liée à une obligation familiale, réelle ou fictive."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L03-B2",
+      "lessonId": "C01-L03",
+      "contentVersion": 1,
+      "practiceLevel": "B2",
+      "titleFr": "Compare deux rythmes de vie",
+      "objectiveFr": "Compare deux organisations avec des critères pertinents. Explique au moins un effet concret de chaque organisation. Justifie une préférence sans ignorer une limite.",
+      "coachRole": "Une connaissance qui échange sur ses habitudes",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "How does your routine differ on working days and days off?",
+      "followUpsEn": [
+        "What effect does each routine have on you?",
+        "Which routine would you change if your commitments increased?"
+      ],
+      "difficultyFollowUpEn": "Which routine would you change if your commitments increased?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "routine_compare",
+          "descriptionFr": "Compare deux organisations avec des critères pertinents.",
+          "exampleEn": "Working early gives me quiet time, whereas starting later helps with family commitments."
+        },
+        {
+          "id": "routine_effects",
+          "descriptionFr": "Explique au moins un effet concret de chaque organisation.",
+          "exampleEn": "I focus better early, but I miss some afternoon discussions."
+        },
+        {
+          "id": "routine_tradeoff",
+          "descriptionFr": "Justifie une préférence sans ignorer une limite.",
+          "exampleEn": "I prefer the early start, provided I can adjust it on meeting days."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Compare les effets des deux rythmes, pas seulement leurs horaires. Whereas marque un contraste ; provided that permet d’exprimer une condition utile.",
+        "examplesEn": [
+          "An early start helps me focus, whereas a later one fits the team better.",
+          "I prefer it as long as I can stay flexible."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Compare un rythme régulier et un rythme flexible pour une personne ayant une contrainte précise de ton choix.",
+        "expectedSemanticCriteria": [
+          "Les avantages et limites répondent à la contrainte choisie.",
+          "La conclusion est justifiée et ne présente pas une option comme universellement meilleure."
+        ],
+        "sampleAnswerEn": "A fixed routine makes childcare easier to organise, while flexibility helps with unexpected appointments. I would keep fixed mornings and flexible afternoons.",
+        "alternativePromptFr": "Explique comment ta préférence changerait si tu devais travailler avec un autre fuseau horaire."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L03-C1",
+      "lessonId": "C01-L03",
+      "contentVersion": 1,
+      "practiceLevel": "C1",
+      "titleFr": "Explique tes arbitrages au quotidien",
+      "objectiveFr": "Expose deux besoins concurrents dans ton organisation. Justifie un compromis avec une nuance. Illustre l’arbitrage avec un exemple pertinent.",
+      "coachRole": "Une connaissance qui échange sur ses habitudes",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "What competing demands shape the way you organise your day?",
+      "followUpsEn": [
+        "Can you give an example of a compromise you make?",
+        "When would that compromise stop working?"
+      ],
+      "difficultyFollowUpEn": "When would that compromise stop working?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "routine_competing_needs",
+          "descriptionFr": "Expose deux besoins concurrents dans ton organisation.",
+          "exampleEn": "I need uninterrupted time, but colleagues also need quick answers."
+        },
+        {
+          "id": "routine_qualified_choice",
+          "descriptionFr": "Justifie un compromis avec une nuance.",
+          "exampleEn": "I reserve mornings for focused work unless an urgent issue affects the team."
+        },
+        {
+          "id": "routine_example",
+          "descriptionFr": "Illustre l’arbitrage avec un exemple pertinent.",
+          "exampleEn": "When a release is delayed, I shorten the focus block rather than cancel it entirely."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Présente le besoin, la tension et le compromis retenu. Une exception précise rend ton organisation crédible sans transformer chaque règle en longue liste de cas.",
+        "examplesEn": [
+          "I protect focused time without making myself unavailable.",
+          "The exception is when a delay affects the whole team."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Explique à un collègue pourquoi tu protèges un créneau de concentration, tout en précisant quand tu restes joignable.",
+        "expectedSemanticCriteria": [
+          "Le besoin et son effet sur les autres sont reconnus.",
+          "Une exception exploitable est formulée sans annuler la règle."
+        ],
+        "sampleAnswerEn": "I keep the morning free for focused work, but please call if a decision is blocking the team. Routine questions can wait until lunch.",
+        "alternativePromptFr": "Un collègue juge ton organisation trop rigide. Reformule le compromis et sa limite."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L03-C2",
+      "lessonId": "C01-L03",
+      "contentVersion": 1,
+      "practiceLevel": "C2",
+      "titleFr": "Rends une organisation complexe intelligible",
+      "objectiveFr": "Hiérarchise une organisation complexe sans énumération confuse. Adapte la quantité d’information aux besoins de l’interlocuteur. Précise une dépendance ou une exception sans contradiction.",
+      "coachRole": "Une connaissance qui échange sur ses habitudes",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Explain a complex weekly routine to someone who only needs to coordinate one part of it.",
+      "followUpsEn": [
+        "Which details can you leave out without misleading me?",
+        "What exception would materially change what I need to do?"
+      ],
+      "difficultyFollowUpEn": "What exception would materially change what I need to do?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "routine_structure",
+          "descriptionFr": "Hiérarchise une organisation complexe sans énumération confuse.",
+          "exampleEn": "There are two fixed commitments; everything else is scheduled around them."
+        },
+        {
+          "id": "routine_density",
+          "descriptionFr": "Adapte la quantité d’information aux besoins de l’interlocuteur.",
+          "exampleEn": "For your planning, only the afternoon handover matters."
+        },
+        {
+          "id": "routine_precision",
+          "descriptionFr": "Précise une dépendance ou une exception sans contradiction.",
+          "exampleEn": "That handover moves only if both teams agree before noon."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "La précision ne demande pas de tout expliquer. Distingue règles structurantes, dépendances et détails utiles au destinataire ; rends explicites les exceptions qui changent ses actions.",
+        "examplesEn": [
+          "For your purposes, the key constraint is the handover time.",
+          "Other changes do not affect you unless that deadline moves."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Présente la même organisation en version courte pour un partenaire, puis précise l’unique exception qui pourrait modifier son action.",
+        "expectedSemanticCriteria": [
+          "La version courte conserve les dépendances utiles au partenaire.",
+          "L’exception est précise et compatible avec la règle annoncée."
+        ],
+        "sampleAnswerEn": "You can expect my update every Thursday afternoon. If the review is postponed, I will let you know by noon so you can reschedule your briefing.",
+        "alternativePromptFr": "Quelqu’un comprend ta règle comme une garantie absolue. Rectifie cette interprétation sans rendre ton message vague."
+      },
+      "targetMinutes": 4,
+      "maxUsefulTurns": 6,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L04-A1",
+      "lessonId": "C01-L04",
+      "contentVersion": 1,
+      "practiceLevel": "A1",
+      "titleFr": "Fais une première rencontre",
+      "objectiveFr": "Donne ton prénom à une nouvelle connaissance. Communique ta ville ou un lieu familier. Pose une question simple en retour.",
+      "coachRole": "Une nouvelle connaissance dans une situation de transfert",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hello! I'm Sam. I'm new here. What's your name?",
+      "followUpsEn": [
+        "Where do you live?",
+        "What would you like to ask me?"
+      ],
+      "difficultyFollowUpEn": "What would you like to ask me?",
+      "easierVariantHintFr": "On peut reprendre une information à la fois, avec un exemple et une réponse écrite si tu préfères.",
+      "requiredCriteria": [
+        {
+          "id": "meeting_intro",
+          "descriptionFr": "Donne ton prénom à une nouvelle connaissance.",
+          "exampleEn": "My name is Alex."
+        },
+        {
+          "id": "meeting_location",
+          "descriptionFr": "Communique ta ville ou un lieu familier.",
+          "exampleEn": "I live in Lyon."
+        },
+        {
+          "id": "meeting_question",
+          "descriptionFr": "Pose une question simple en retour.",
+          "exampleEn": "Where do you live?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Réutilise une présentation et une question simple. Tu peux terminer avec Nice to meet you. Les aides restent disponibles pendant ce petit défi.",
+        "examplesEn": [
+          "My name is Alex. I live in Lyon.",
+          "Where do you live?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Termine cette rencontre avec une formule simple et une courte question ou ouverture.",
+        "expectedSemanticCriteria": [
+          "Une formule de clôture compréhensible est présente.",
+          "Une ouverture simple est ajoutée, avec modèle si nécessaire."
+        ],
+        "sampleAnswerEn": "Nice to meet you. See you tomorrow?",
+        "alternativePromptFr": "Tu quittes le club : salue la personne et propose de la revoir."
+      },
+      "targetMinutes": 5,
+      "maxUsefulTurns": 8,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L04-A2",
+      "lessonId": "C01-L04",
+      "contentVersion": 1,
+      "practiceLevel": "A2",
+      "titleFr": "Fais connaissance avec un nouveau voisin",
+      "objectiveFr": "Présente-toi et donne une information personnelle simple. Parle d’une habitude ou d’un intérêt. Réagis de façon pertinente à une information du coach.",
+      "coachRole": "Une nouvelle connaissance dans une situation de transfert",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hi, I'm Sam, your new neighbour. Nice to meet you!",
+      "followUpsEn": [
+        "What do you usually do around here?",
+        "I like walking too, but I do not know the area. What would you suggest?"
+      ],
+      "difficultyFollowUpEn": "I like walking too, but I do not know the area. What would you suggest?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "meeting_presentation",
+          "descriptionFr": "Présente-toi et donne une information personnelle simple.",
+          "exampleEn": "I am Alex. I live next door."
+        },
+        {
+          "id": "meeting_habit",
+          "descriptionFr": "Parle d’une habitude ou d’un intérêt.",
+          "exampleEn": "I often go walking in the park."
+        },
+        {
+          "id": "meeting_reaction",
+          "descriptionFr": "Réagis de façon pertinente à une information du coach.",
+          "exampleEn": "You like walking too? Do you go there on Sundays?"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Présente-toi, partage une habitude, puis reprends ce que l’autre vient de dire. Une réaction et une question suffisent pour faire vivre l’échange.",
+        "examplesEn": [
+          "I often walk in the park nearby.",
+          "You enjoy walking too? When do you usually go?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Termine la conversation en proposant une occasion simple de se revoir, puis confirme un détail.",
+        "expectedSemanticCriteria": [
+          "La proposition est liée à une activité commune ou plausible.",
+          "Un détail de lieu ou de moment est compréhensible."
+        ],
+        "sampleAnswerEn": "Would you like to walk in the park on Sunday? We can meet at ten.",
+        "alternativePromptFr": "Tu dois partir : remercie ton voisin et propose de poursuivre l’échange demain."
+      },
+      "targetMinutes": 5,
+      "maxUsefulTurns": 8,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L04-B1",
+      "lessonId": "C01-L04",
+      "contentVersion": 1,
+      "practiceLevel": "B1",
+      "titleFr": "Trouve un intérêt commun",
+      "objectiveFr": "Présente-toi dans le contexte de la rencontre. Identifie et développe un intérêt commun à partir de l’échange. Réponds à une relance en maintenant le fil.",
+      "coachRole": "Une nouvelle connaissance dans une situation de transfert",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hi! Is this your first time at the photography club?",
+      "followUpsEn": [
+        "What do you enjoy taking pictures of?",
+        "I enjoy photographing everyday places. What interests you about them?"
+      ],
+      "difficultyFollowUpEn": "I enjoy photographing everyday places. What interests you about them?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "meeting_self_intro",
+          "descriptionFr": "Présente-toi dans le contexte de la rencontre.",
+          "exampleEn": "I am Alex. I joined this group to practise photography."
+        },
+        {
+          "id": "meeting_shared_interest",
+          "descriptionFr": "Identifie et développe un intérêt commun à partir de l’échange.",
+          "exampleEn": "You like street photography too. I enjoy noticing small details."
+        },
+        {
+          "id": "meeting_followup",
+          "descriptionFr": "Réponds à une relance en maintenant le fil.",
+          "exampleEn": "I usually take photos at weekends because I have more time."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Le défi combine présentation, écoute et habitude. Appuie-toi sur une information réellement donnée par l’autre pour trouver un sujet commun.",
+        "examplesEn": [
+          "You mentioned photography. I enjoy it too.",
+          "I usually practise at weekends because I have more time."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Clôture l’échange en rappelant l’intérêt commun et en proposant une suite naturelle.",
+        "expectedSemanticCriteria": [
+          "La conclusion reprend un élément réellement échangé.",
+          "Elle propose une suite ou une clôture appropriée sans changer brusquement de sujet."
+        ],
+        "sampleAnswerEn": "It was nice talking about street photography. Maybe we could compare our photos at the next meeting.",
+        "alternativePromptFr": "Tu dois quitter l’événement plus tôt : rappelle un intérêt commun et propose de poursuivre l’échange une prochaine fois."
+      },
+      "targetMinutes": 5,
+      "maxUsefulTurns": 8,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L04-B2",
+      "lessonId": "C01-L04",
+      "contentVersion": 1,
+      "practiceLevel": "B2",
+      "titleFr": "Adapte-toi à une rencontre imprévue",
+      "objectiveFr": "Adapte ta présentation au contexte et à l’interlocuteur. Pose une relance liée à une réponse nouvelle. Gère un changement de sujet sans perdre la cohérence de l’échange.",
+      "coachRole": "Une nouvelle connaissance dans une situation de transfert",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Hi, I'm Sam. What brought you to this workshop?",
+      "followUpsEn": [
+        "I work with people in several countries. Have you had a similar experience?",
+        "Actually, what I miss most is having time for my hobbies. How would you continue?"
+      ],
+      "difficultyFollowUpEn": "Actually, what I miss most is having time for my hobbies. How would you continue?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "meeting_context_intro",
+          "descriptionFr": "Adapte ta présentation au contexte et à l’interlocuteur.",
+          "exampleEn": "I work on mobile products, so this workshop caught my attention."
+        },
+        {
+          "id": "meeting_spontaneous_followup",
+          "descriptionFr": "Pose une relance liée à une réponse nouvelle.",
+          "exampleEn": "What prompted you to move into that area?"
+        },
+        {
+          "id": "meeting_topic_shift",
+          "descriptionFr": "Gère un changement de sujet sans perdre la cohérence de l’échange.",
+          "exampleEn": "That connects with what you said about working across time zones."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Une conversation réelle ne suit pas une liste de questions. Utilise un lien avec ce qui vient d’être dit pour accueillir un nouveau sujet.",
+        "examplesEn": [
+          "That reminds me of something you mentioned earlier.",
+          "How does that affect the way you work?"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Résume un point partagé puis termine avec une proposition de suite adaptée au contexte.",
+        "expectedSemanticCriteria": [
+          "Le résumé est fidèle aux échanges.",
+          "La suite est pertinente, avec un registre adapté à une nouvelle connaissance."
+        ],
+        "sampleAnswerEn": "It sounds as though we face similar challenges with remote teams. I would be glad to compare approaches after the next session.",
+        "alternativePromptFr": "La personne doit partir : rappelle un point partagé et propose une suite sans imposer une nouvelle discussion."
+      },
+      "targetMinutes": 5,
+      "maxUsefulTurns": 8,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L04-C1",
+      "lessonId": "C01-L04",
+      "contentVersion": 1,
+      "practiceLevel": "C1",
+      "titleFr": "Crée un échange malgré une ambiguïté",
+      "objectiveFr": "Présente ton rôle et ton intérêt de manière adaptée à la rencontre. Clarifie une réponse ambiguë sans lui attribuer une intention non confirmée. Maintiens un échange cohérent en ajustant le registre après la clarification.",
+      "coachRole": "Une nouvelle connaissance dans une situation de transfert",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "Welcome. I work with fairly independent teams. What is your role?",
+      "followUpsEn": [
+        "Our independence is sometimes more apparent than real. What would you ask?",
+        "I mean decisions are local, but priorities are shared. How does that change your response?"
+      ],
+      "difficultyFollowUpEn": "I mean decisions are local, but priorities are shared. How does that change your response?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "meeting_relevant_intro",
+          "descriptionFr": "Présente ton rôle et ton intérêt de manière adaptée à la rencontre.",
+          "exampleEn": "I coordinate product teams and am interested in how you handle collaboration."
+        },
+        {
+          "id": "meeting_clarification",
+          "descriptionFr": "Clarifie une réponse ambiguë sans lui attribuer une intention non confirmée.",
+          "exampleEn": "When you say independent, do you mean separate teams or independent decisions?"
+        },
+        {
+          "id": "meeting_register_flow",
+          "descriptionFr": "Maintiens un échange cohérent en ajustant le registre après la clarification.",
+          "exampleEn": "That distinction helps; it changes how I understand the handover."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Quand un mot peut avoir plusieurs sens, clarifie avant de développer ta réponse. Ajuste ensuite ton vocabulaire et ton degré de détail à l’interlocuteur.",
+        "examplesEn": [
+          "When you say independent, what does that mean in practice?",
+          "That helps me understand the distinction."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Clôture l’échange avec une synthèse courte tenant compte de la clarification et une suite pertinente.",
+        "expectedSemanticCriteria": [
+          "La synthèse intègre le sens clarifié et non la première interprétation.",
+          "La proposition de suite est précise et adaptée au contexte."
+        ],
+        "sampleAnswerEn": "Your distinction between local decisions and shared priorities is useful. I would be interested in discussing how you coordinate those priorities another time.",
+        "alternativePromptFr": "Résume à ton interlocuteur ce que la clarification t’a appris sur son activité et propose une suite pertinente."
+      },
+      "targetMinutes": 5,
+      "maxUsefulTurns": 8,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    },
+    {
+      "id": "C01-L04-C2",
+      "lessonId": "C01-L04",
+      "contentVersion": 1,
+      "practiceLevel": "C2",
+      "titleFr": "Conduis une rencontre avec finesse",
+      "objectiveFr": "Présente ta contribution avec précision et registre approprié. Explore une information peu explicite en laissant l’autre corriger ton interprétation. Reformule fidèlement après correction et adapte la suite.",
+      "coachRole": "Une nouvelle connaissance dans une situation de transfert",
+      "userRole": "Une personne qui peut utiliser sa propre situation ou un personnage fictif ; le contexte est adapté à son objectif.",
+      "openingEn": "It's good to meet you. Our way of working is deliberately difficult to put in a box. How would you introduce yourself and explore that?",
+      "followUpsEn": [
+        "The responsibilities are clear; it is the process that remains flexible. How would you respond?",
+        "I would not want flexibility to sound like a lack of structure. How could you restate my point?"
+      ],
+      "difficultyFollowUpEn": "I would not want flexibility to sound like a lack of structure. How could you restate my point?",
+      "easierVariantHintFr": "On peut refaire cette leçon avec des questions plus courtes et davantage d’aide. Tu peux aussi choisir une version plus accessible pour une nouvelle tentative.",
+      "requiredCriteria": [
+        {
+          "id": "meeting_precise_intro",
+          "descriptionFr": "Présente ta contribution avec précision et registre approprié.",
+          "exampleEn": "I help teams clarify decisions when responsibilities overlap."
+        },
+        {
+          "id": "meeting_implicit_handling",
+          "descriptionFr": "Explore une information peu explicite en laissant l’autre corriger ton interprétation.",
+          "exampleEn": "Would it be fair to say the responsibilities are still being negotiated?"
+        },
+        {
+          "id": "meeting_reformulation",
+          "descriptionFr": "Reformule fidèlement après correction et adapte la suite.",
+          "exampleEn": "So the roles are clear, but the process is deliberately flexible."
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "La finesse consiste à laisser place à la précision de l’autre. Ne transforme pas un sous-entendu possible en fait. Une clôture réussie garde la nuance utile et respecte le degré d’engagement exprimé.",
+        "examplesEn": [
+          "Would that be a fair interpretation, or am I missing something?",
+          "I understand: the roles are clear, even if the process remains flexible."
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "sentence_starter",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Termine l’échange en reformulant la distinction importante et en proposant une suite sans surestimer l’engagement de l’autre.",
+        "expectedSemanticCriteria": [
+          "La reformulation préserve la distinction entre souplesse et absence de structure.",
+          "La proposition respecte une disponibilité incertaine et ne prétend pas qu’un accord existe déjà."
+        ],
+        "sampleAnswerEn": "I see the distinction: clear responsibilities with room to adapt the process. If you are open to it, I would enjoy comparing approaches on another occasion.",
+        "alternativePromptFr": "Une personne confond souplesse et absence de structure. Rectifie cette interprétation, puis propose une suite en respectant sa disponibilité incertaine."
+      },
+      "targetMinutes": 5,
+      "maxUsefulTurns": 8,
+      "fallbackFeedbackFr": "Je n’ai pas assez d’éléments fiables pour confirmer tous les objectifs. Ta progression est conservée ; reprenons seulement le point restant."
+    }
+  ]
+}

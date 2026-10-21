@@ -29,6 +29,7 @@ import { addSpeakingSeconds } from "./lib/speakingTime";
 import DebriefView from "./components/DebriefView";
 import CorrectionCard, { Correction, PronStatus } from "./components/CorrectionCard";
 import { StatusBar } from "expo-status-bar";
+import type { LessonVariant, AttemptTurn, ObservedCriterion, SupportKind } from "./lib/learningPath/types";
 
 // Illustrations : scènes préenregistrées (mêmes visuels que l'écran de sélection) + une image générique pour la discussion du jour.
 // Illustrations des scènes (.png, nommées directement d'après l'id du scénario — Metro exige des
@@ -103,7 +104,34 @@ type Turn = {
   feedback: string | null;
   pronunciation: Pronunciation;
   correction: Correction | null;
+  observedCriteria?: ObservedCriterion[]; // mode leçon uniquement (observations provisoires du coach)
 };
+
+// Mode leçon (parcours d'apprentissage) : la conversation est pilotée par une variante du catalogue,
+// les tours sont persistés dans la tentative (serveur) et la fin est reprise par LessonScreen.
+export type LessonConversation = {
+  attemptId: string;
+  variant: LessonVariant;
+  resumeTurns: AttemptTurn[]; // tours déjà enregistrés (reprise après pause / réessai)
+  turnLimit: number; // nb total de tours autorisés dans cette passe (maxUsefulTurns, ou + en réessai)
+  onTurn: (turn: AttemptTurn) => void; // persistance serveur, sans bloquer l'écran
+  onEnd: () => void; // l'utilisateur a atteint la limite et demande la suite
+};
+
+// Contexte passé au coach à la place d'un scénario : rôle, consigne, ouverture et relances de la variante.
+function buildLessonContext(v: LessonVariant): string {
+  const followUps = v.followUpsEn.map((q) => `"${q}"`).join(", ");
+  return `${v.coachRole}. The learner plays: ${v.userRole}. This is a short guided lesson of at most ${v.maxUsefulTurns} exchanges; stay warm and simple. You already opened with: "${v.openingEn}". Natural follow-up questions to use when they fit: ${followUps}. Only if the learner is clearly comfortable, you may ask: "${v.difficultyFollowUpEn}".`;
+}
+
+function attemptTurnToTurn(t: AttemptTurn): Turn {
+  return {
+    user: t.user, coach: t.coach, coachFr: "", hardWords: [], misheard: [],
+    feedback: t.feedbackFr || null, pronunciation: null,
+    correction: (t.correction as unknown as Correction) ?? null,
+    observedCriteria: t.observedCriteria,
+  };
+}
 
 type Opening = { context_fr: string; reply_en: string; reply_fr: string; hardWords: HardWord[] } | null;
 type Debrief = { points_forts: string[]; axe: string; message_fr: string } | null;
@@ -122,6 +150,15 @@ function cleanWeakWords(weak: { word: string; score: number }[], said: string): 
     if (out.length >= 3) break;
   }
   return out;
+}
+
+// Observations du coach renvoyées par spikeTurn/chatTurn en mode leçon (champ absent hors leçon → undefined).
+function parseObserved(raw: any): ObservedCriterion[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ok = new Set(["not_observed", "emerging", "achieved"]);
+  return raw
+    .filter((o) => o && typeof o.criterion_id === "string" && ok.has(o.status))
+    .map((o) => ({ criterionId: o.criterion_id, statusCandidate: o.status, support: "none" as SupportKind, confidence: (["low", "medium", "high"].includes(o.confidence) ? o.confidence : "low") }));
 }
 
 // Trois points qui pulsent (bulle de frappe du coach).
@@ -168,7 +205,7 @@ function friendlyError(e: any): string {
 // Nombre d'échanges minimum dans la conversation de présentation pour recevoir le cadeau en la quittant
 const GIFT_MIN_TURNS = 1;
 
-export default function SpikeScreen({ scenario, onExit, daily, welcome, premium }: { scenario: Scenario; onExit: (offerGift?: boolean) => void; daily?: boolean; welcome?: boolean; premium?: boolean }) {
+export default function SpikeScreen({ scenario, onExit, daily, welcome, premium, lesson }: { scenario: Scenario; onExit: (offerGift?: boolean) => void; daily?: boolean; welcome?: boolean; premium?: boolean; lesson?: LessonConversation }) {
   const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
   // metering: niveau sonore en direct pendant l'enregistrement, si le SDK le fournit (voir startRecording).
   // Repli propre si non disponible : recorderState.metering reste undefined, les barres restent au repos.
@@ -179,7 +216,9 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   const isDailyIllustration = daily || welcome;
   const scenePngSource = isDailyIllustration ? null : SCENE_ILLUSTRATIONS[scenario.id];
   const hasIllustration = isDailyIllustration || !!scenePngSource;
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>(() => (lesson ? lesson.resumeTurns.map(attemptTurnToTurn) : []));
+  // Mode leçon : aide utilisée depuis le dernier tour ("hint" = traduction, "model" = exemple) — remise à "none" à chaque tour
+  const supportRef = useRef<SupportKind>("none");
   const [opening, setOpening] = useState<Opening>(null);
   const [debrief, setDebrief] = useState<Debrief>(null);
   const [status, setStatus] = useState<"opening" | "idle" | "recording" | "processing" | "debriefing">("opening");
@@ -217,7 +256,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   const debriefingRef = useRef(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
-  const sessionLimit = welcome ? WELCOME_LIMIT : (isFirstSession ? FIRST_SESSION_LIMIT : SCENARIO_LIMIT);
+  const sessionLimit = lesson ? lesson.turnLimit : welcome ? WELCOME_LIMIT : (isFirstSession ? FIRST_SESSION_LIMIT : SCENARIO_LIMIT);
   const capped = true;
   const reachedLimit = capped && turns.length >= sessionLimit;
   const chatGoal = capped ? sessionLimit : 8;
@@ -309,6 +348,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
     try {
       const res: any = await translateToEnglish({ text, level });
       setTranslateResult(res.data?.english ?? "");
+      if (supportRef.current === "none") supportRef.current = "hint";
     } catch (e) {
       console.warn("Traduction échouée:", e);
       setTranslateResult("");
@@ -318,7 +358,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   };
 
   // Assistant — Réponse d'exemple (selon le contexte)
-  const openExample = () => { setExampleData(null); setShowExample(true); runExample(); };
+  const openExample = () => { supportRef.current = "model"; setExampleData(null); setShowExample(true); runExample(); };
   const runExample = async () => {
     setExampleLoading(true); setExampleData(null);
     try {
@@ -327,10 +367,10 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
           ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
           ...turns.map((t) => ({ user: t.user, coach: t.coach })),
         ],
-        scenarioId: (daily || welcome) ? null : scenario.id,
+        scenarioId: (daily || welcome || lesson) ? null : scenario.id,
         level,
-        sceneContext: welcome ? null : (opening?.context_fr ?? null),
-        customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
+        sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
+        customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
       });
       setExampleData({ en: res.data?.example_en ?? "", fr: res.data?.example_fr ?? "" });
     } catch (e) {
@@ -349,6 +389,14 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
   };
 
   const loadOpening = async (ch: Channel) => {
+    // Mode leçon : l'ouverture vient du catalogue, pas du serveur (lue à voix haute en mode voix, sauf en reprise)
+    if (lesson) {
+      const v = lesson.variant;
+      setOpening({ context_fr: v.objectiveFr, reply_en: v.openingEn, reply_fr: "", hardWords: [] });
+      if (ch === "voice" && turns.length === 0) playText("op", v.openingEn);
+      setStatus("idle");
+      return;
+    }
     try {
       let res: any;
       if (welcome) {
@@ -388,7 +436,27 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
     }
   };
 
-  const persistTurn = async (turn: Turn) => {
+  const persistTurn = async (turn: Turn, index: number) => {
+    if (lesson) {
+      // Tentative de leçon : le tour part vers la Function recordLessonTurn (id stable par index → ré-envoi idempotent)
+      lesson.onTurn({
+        id: `t${String(index).padStart(2, "0")}`,
+        index,
+        user: turn.user,
+        coach: turn.coach,
+        modality: channel,
+        supportUsed: supportRef.current,
+        at: Date.now(),
+        feedbackFr: turn.feedback ?? "",
+        correction: (turn.correction as unknown as Record<string, unknown>) ?? null,
+        pronunciation: turn.pronunciation
+          ? { pronScore: turn.pronunciation.pronScore, accuracyScore: turn.pronunciation.accuracyScore, fluencyScore: turn.pronunciation.fluencyScore }
+          : null,
+        observedCriteria: (turn.observedCriteria ?? []).map((o) => ({ ...o, support: supportRef.current })),
+      });
+      supportRef.current = "none";
+      return;
+    }
     try {
       let sid = sessionId;
       if (!sid) { sid = await startSession(daily ? "daily" : scenario.id, daily ? "daily" : "scenario"); setSessionId(sid); }
@@ -405,10 +473,11 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
     const nextCount = turns.length + 1;
     setTurns((prev) => [...prev, newTurn]);
     for (const m of newTurn.misheard) recordStumble(m.said, m.heard);
-    persistTurn(newTurn);
+    persistTurn(newTurn, nextCount - 1);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     if (nextCount >= sessionLimit) {
       setStatus("idle");
+      if (lesson) return; // la suite (observations, micro-exercice) est affichée par LessonScreen via le bouton « Continuer »
       if (isFirstSession || welcome) {
         setTimeout(() => setFirstSessionCongrats(true), 800);
       } else {
@@ -470,12 +539,13 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
           ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
           ...turns.map((t) => ({ user: t.user, coach: t.coach })),
         ],
-        scenarioId: (daily || welcome) ? null : scenario.id,
+        scenarioId: (daily || welcome || lesson) ? null : scenario.id,
         level,
-        sceneContext: welcome ? null : (opening?.context_fr ?? null),
-        customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
+        sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
+        customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
         voice: voiceKey, speakingRate: speechRate,
+        ...(lesson ? { lessonCriteria: lesson.variant.requiredCriteria } : {}),
       });
       console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
@@ -492,6 +562,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
         feedback: d.feedback_fr ?? null,
         pronunciation: d.pronunciation ?? null,
         correction: d.correction ?? null,
+        observedCriteria: parseObserved(d.observed_criteria),
       });
     } catch (e: any) { setError(friendlyError(e)); }
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
@@ -512,11 +583,12 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
           ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
           ...turns.map((t) => ({ user: t.user, coach: t.coach })),
         ],
-        scenarioId: (daily || welcome) ? null : scenario.id,
+        scenarioId: (daily || welcome || lesson) ? null : scenario.id,
         level,
-        sceneContext: welcome ? null : (opening?.context_fr ?? null),
-        customContext: welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
+        sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
+        customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
         isLastTurn: willBeLast,
+        ...(lesson ? { lessonCriteria: lesson.variant.requiredCriteria } : {}),
       });
       console.log("CHAT TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
@@ -530,6 +602,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
         feedback: d.feedback_fr ?? null,
         pronunciation: null, // pas de prononciation en mode texte
         correction: d.correction ?? null,
+        observedCriteria: parseObserved(d.observed_criteria),
       });
     } catch (e: any) { setError(friendlyError(e)); setPendingUserText(""); }
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
@@ -678,7 +751,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
       <View style={styles.header}>
         <Pressable onPress={handleBack} hitSlop={12}><Feather name="chevron-left" size={26} color={T.inkSoft} /></Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>{daily ? "Discussion du jour" : scenario.title}</Text>
+          <Text style={styles.headerTitle}>{lesson ? lesson.variant.titleFr : daily ? "Discussion du jour" : scenario.title}</Text>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${chatProgress}%` }]} />
           </View>
@@ -689,7 +762,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
             <Text style={styles.speedPillText}>{labelForRate(speechRate)}</Text>
           </Pressable>
         )}
-        {turns.length > 0 && !debrief && (
+        {turns.length > 0 && !debrief && !lesson && (
           <Pressable onPress={runDebrief} disabled={status !== "idle"} hitSlop={10} style={styles.closeBtn}>
             <Feather name="x" size={20} color={T.inkSoft} />
           </Pressable>
@@ -739,7 +812,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
                   </View>
                 )}
                 <View style={styles.sceneTextInner}>
-                  <Text style={styles.sceneK}>LA SCÈNE</Text>
+                  <Text style={styles.sceneK}>{lesson ? "TON OBJECTIF" : "LA SCÈNE"}</Text>
                   <Text style={styles.sceneText}>{opening.context_fr}</Text>
                 </View>
               </View>
@@ -809,8 +882,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium 
       {!debrief ? (
         reachedLimit ? (
           <View style={styles.controls}>
-            <Pressable onPress={() => setFirstSessionCongrats(true)} style={styles.limitButton}>
-              <Text style={styles.limitButtonText}>Voir mon bilan</Text>
+            <Pressable onPress={() => (lesson ? lesson.onEnd() : setFirstSessionCongrats(true))} style={styles.limitButton}>
+              <Text style={styles.limitButtonText}>{lesson ? "Continuer la leçon" : "Voir mon bilan"}</Text>
             </Pressable>
           </View>
         ) : channel === "voice" ? (

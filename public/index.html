@@ -1,89 +1,233 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Déclic Anglais — Parle anglais sans bloquer</title>
+  <meta name="description" content="Déclic Anglais : ton coach vocal pour oser parler anglais. Il t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent." />
+  <meta property="og:title" content="Déclic Anglais — Parle anglais sans bloquer" />
+  <meta property="og:description" content="Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#FDEFE1" />
+  <link rel="icon" href="icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --cream: #FDEFE1;
+      --cream-deep: #F7E2CD;
+      --card: #FFFFFF;
+      --night: #1F2A48;
+      --ink-soft: #8A7A6C;
+      --abricot: #FF9B5C;
+      --abricot-deep: #E8732E;
+      --chip: #FFE3CF;
+      --green: #2E9E6B;
+      --green-soft: #DDF3E7;
+    }
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/12.17.1/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/12.17.1/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/12.17.1/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
+    html, body { height: 100%; }
+
+    body {
+      font-family: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--cream);
+      color: var(--night);
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Halos doux en arrière-plan */
+    .bg {
+      position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden;
+    }
+    .bg span {
+      position: absolute; border-radius: 50%; filter: blur(70px); opacity: .55;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+    .bg .a { width: 420px; height: 420px; background: #FFD0B0; top: -140px; left: -120px; }
+    .bg .b { width: 360px; height: 360px; background: #FFE8D2; bottom: -120px; right: -100px; animation-delay: -9s; }
+    @keyframes drift { from { transform: translate(0, 0); } to { transform: translate(30px, 40px); } }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px 32px;
+      text-align: center;
+    }
+
+    /* Monogramme */
+    .logo {
+      display: flex; align-items: center; gap: 14px; margin-bottom: 44px;
+      animation: rise .7s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .logo svg { width: 64px; height: 64px; border-radius: 18px; box-shadow: 0 10px 30px rgba(31, 42, 72, .18); }
+    .logo .name { text-align: left; line-height: 1; }
+    .logo .name b { display: block; font-size: 30px; font-weight: 900; letter-spacing: -.8px; }
+    .logo .name b i { font-style: normal; color: var(--abricot-deep); }
+    .logo .name small { display: block; font-size: 11px; font-weight: 800; letter-spacing: 4px; color: var(--ink-soft); margin-top: 5px; }
+
+    h1 {
+      font-size: clamp(34px, 7vw, 52px);
+      font-weight: 900;
+      letter-spacing: -1.2px;
+      line-height: 1.05;
+      animation: rise .7s .08s cubic-bezier(.2,.8,.2,1) both;
+    }
+    h1 em { font-style: normal; color: var(--abricot-deep); }
+
+    .lead {
+      max-width: 440px;
+      margin: 18px auto 0;
+      font-size: 17px;
+      font-weight: 600;
+      line-height: 1.5;
+      color: var(--ink-soft);
+      animation: rise .7s .16s cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    /* Bulles « preuves » */
+    .proofs {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+      margin: 26px 0 36px;
+      animation: rise .7s .24s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .proof {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--card); border-radius: 14px; padding: 9px 14px;
+      font-size: 14px; font-weight: 800;
+      box-shadow: 0 6px 18px rgba(31, 42, 72, .08);
+      animation: float 4s ease-in-out infinite;
+    }
+    .proof:nth-child(2) { animation-delay: -1.3s; }
+    .proof:nth-child(3) { animation-delay: -2.6s; }
+    .proof.dark { background: var(--night); color: #fff; }
+    .proof .wrong { color: #D64545; text-decoration: line-through; }
+    .proof .right { color: var(--green); }
+    .proof .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); }
+    .proof.ok { color: #1F7A52; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+    /* Boutons stores */
+    .stores {
+      display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 360px;
+      animation: rise .7s .32s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .store {
+      display: flex; align-items: center; gap: 14px;
+      padding: 15px 20px; border-radius: 18px; text-decoration: none; text-align: left;
+      border: 2px solid transparent;
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .store .ic { width: 34px; height: 34px; flex: none; }
+    .store .txt small { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .3px; opacity: .8; }
+    .store .txt strong { display: block; font-size: 19px; font-weight: 900; letter-spacing: -.3px; margin-top: 1px; }
+    .store.play {
+      background: var(--abricot); color: var(--night);
+      box-shadow: 0 12px 28px rgba(232, 115, 46, .32);
+    }
+    .store.play:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(232, 115, 46, .38); }
+    .store.play:active { transform: translateY(0); }
+    .store.apple {
+      background: var(--card); color: var(--night);
+      border-color: var(--cream-deep);
+      opacity: .72; cursor: not-allowed; position: relative;
+    }
+    .store.apple .badge {
+      margin-left: auto; flex: none;
+      background: var(--chip); color: var(--abricot-deep);
+      font-size: 11px; font-weight: 900; letter-spacing: .6px; text-transform: uppercase;
+      padding: 6px 10px; border-radius: 10px;
+    }
+    .guarantee {
+      display: inline-flex; align-items: center; gap: 7px;
+      margin-top: 18px; font-size: 13.5px; font-weight: 800; color: var(--green);
+      animation: rise .7s .4s cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    footer {
+      padding: 20px 24px 28px; text-align: center;
+      font-size: 13px; font-weight: 700; color: var(--ink-soft);
+    }
+    footer a { color: var(--ink-soft); text-decoration: none; border-bottom: 1.5px solid var(--cream-deep); }
+    footer a:hover { color: var(--abricot-deep); border-color: var(--abricot); }
+    footer .sep { margin: 0 10px; opacity: .5; }
+
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="bg" aria-hidden="true"><span class="a"></span><span class="b"></span></div>
+
+  <main>
+    <div class="logo" aria-label="Déclic Anglais">
+      <svg viewBox="0 0 64 64" role="img" aria-hidden="true">
+        <rect width="64" height="64" rx="18" fill="#1F2A48"/>
+        <path d="M18 14h13c10 0 17 7 17 18s-7 18-17 18h-4l-9 7V14z" fill="#FF9B5C"/>
+        <g stroke="#1F2A48" stroke-width="3" stroke-linecap="round">
+          <line x1="26" y1="28" x2="26" y2="36"/>
+          <line x1="32" y1="24" x2="32" y2="40"/>
+          <line x1="38" y1="28" x2="38" y2="36"/>
+        </g>
+      </svg>
+      <div class="name"><b>d<i>é</i>clic</b><small>ANGLAIS</small></div>
     </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
 
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+    <h1>Parle anglais<br /><em>sans bloquer.</em></h1>
+    <p class="lead">Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent.</p>
 
-        try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
-        }
-      });
-    </script>
-  </body>
+    <div class="proofs" aria-hidden="true">
+      <span class="proof dark">Hi! Nice to meet you</span>
+      <span class="proof">I would like <span class="wrong">an</span>&nbsp;<span class="right">a</span>&nbsp;coffee</span>
+      <span class="proof ok"><span class="dot"></span>Prononciation claire</span>
+    </div>
+
+    <div class="stores">
+      <a class="store play" id="play"
+         href="https://play.google.com/store/apps/details?id=fr.elanapp.english&referrer=utm_source%3Dsite%26utm_medium%3Dorganic%26utm_campaign%3Dlanding">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3.6 2.4 13 12l-9.4 9.6c-.4-.2-.6-.7-.6-1.3V3.7c0-.6.2-1.1.6-1.3z" fill="#1F2A48"/>
+          <path d="M16.5 8.5 5.2 2.1c-.3-.2-.6-.2-.9-.2L13 12l3.5-3.5z" fill="#1F2A48" opacity=".75"/>
+          <path d="M16.5 15.5 13 12l-8.7 10.1c.3 0 .6-.1.9-.2l11.3-6.4z" fill="#1F2A48" opacity=".75"/>
+          <path d="M20.4 10.7l-3.9-2.2L13 12l3.5 3.5 3.9-2.2c1-.6 1-1.9 0-2.6z" fill="#1F2A48" opacity=".9"/>
+        </svg>
+        <span class="txt"><small>DISPONIBLE SUR</small><strong>Google Play</strong></span>
+      </a>
+
+      <span class="store apple" role="link" aria-disabled="true" title="Bientôt disponible sur l'App Store">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.1 5.8c.6-.8 1.1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.8-1.3z" fill="#1F2A48"/>
+        </svg>
+        <span class="txt"><small>APP STORE</small><strong>iPhone</strong></span>
+        <span class="badge">Bientôt disponible</span>
+      </span>
+    </div>
+
+    <p class="guarantee">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      Essai gratuit · Annulable en 1 clic
+    </p>
+  </main>
+
+  <footer>
+    <a href="/cgu.html">Conditions d'utilisation</a>
+    <span class="sep">·</span>
+    <a href="/confidentialite.html">Confidentialité</a>
+    <span class="sep">·</span>
+    © <span id="year"></span> Déclic Anglais
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
 </html>

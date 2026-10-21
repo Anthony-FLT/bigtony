@@ -1,27 +1,23 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, Modal } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import { T } from "./lib/theme";
-import { loadProfile, markTrialExerciseUsed, saveGiftExpiresAt, markRatingAsked, markHubCelebrated } from "./lib/profile";
+import { loadProfile, markRatingAsked, markHubCelebrated } from "./lib/profile";
 import { getChallengesDone, HUB_CHALLENGES } from "./lib/dailyChallenges";
-import HomeScreen from "./screens/HomeScreen";
 import ScenariosScreen from "./screens/ScenariosScreen";
-import PlaceholderScreen from "./screens/PlaceholderScreen";
 import LaboScreen from "./screens/LaboScreen";
 import OnboardingFlow from "./screens/onboarding/OnboardingFlow";
 import SpikeScreen from "./SpikeScreen";
-import { SCENARIOS, Scenario, pickFirstScenario } from "./lib/scenarios";
+import { Scenario } from "./lib/scenarios";
 import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
-import { logOnboardingComplete, logWelcomeConversationStart, logPaywallShown, logTrialExerciseStart, logGiftRevealShown, logGiftDeclined, logRatingShown, logHubCompleteShown } from "./lib/analytics";
-import GiftRevealModal from "./components/GiftRevealModal";
-import FloatingGiftButton from "./components/FloatingGiftButton";
+import { logOnboardingComplete, logPaywallShown, logRatingShown, logHubCompleteShown } from "./lib/analytics";
 import RatingModal from "./components/RatingModal";
 import HubCompleteModal from "./components/HubCompleteModal";
 import PaywallScreen from "./screens/PaywallScreen";
@@ -35,21 +31,26 @@ import TranslationScreen from "./screens/TranslationScreen";
 import ReadingScreen from "./screens/ReadingScreen";
 import ListeningScreen from "./screens/ListeningScreen";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import LessonScreen from "./screens/lesson/LessonScreen";
+import LearningHomeScreen from "./screens/learning/LearningHomeScreen";
+import PracticeHubScreen from "./screens/learning/PracticeHubScreen";
+import { syncLearningEntitlement } from "./lib/learningPath/attempts";
+import { LESSONS } from "./lib/learningPath/catalog";
+import { listPracticeWords } from "./lib/practiceWords";
+import { Icon as LessonIcon, IconName as LessonIconName } from "./components/lessonUi";
 
-type Tab = "home" | "labo" | "progres" | "settings";
+type Tab = "home" | "pratiquer" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
 
-const TABS: { key: Tab; icon: keyof typeof Feather.glyphMap }[] = [
-  { key: "home", icon: "home" },
-  { key: "labo", icon: "target" },
-  { key: "progres", icon: "trending-up" },
-  { key: "settings", icon: "settings" },
+const TABS: { key: Tab; png: LessonIconName; label: string }[] = [
+  { key: "home", png: "parcours", label: "Parcours" },
+  { key: "pratiquer", png: "bulle", label: "Pratiquer" },
+  { key: "progres", png: "progres", label: "Progrès" },
+  { key: "settings", png: "profil", label: "Profil" },
 ];
 
-// Offre Google Play « developer determined » proposée à la fin de la conversation de présentation
-const GIFT_OFFER_ID = "cadeau-50";
-const GIFT_DISCOUNT = 50; // affiché dans la popup (le paywall recalcule depuis le vrai prix)
-const GIFT_DURATION_MS = 10 * 60 * 1000;
+// Plus d'essai gratuit à l'unité : la leçon 1 est offerte, tout le reste est dans l'abonnement.
+const NO_TRIAL = { reading: true, translation: true, listening: true };
 
 function AppInner() {
   const [appState, setAppState] = useState<AppState>("loading");
@@ -61,31 +62,26 @@ function AppInner() {
   const [homeKey, setHomeKey] = useState(0);
   const [showScenarios, setShowScenarios] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
-  const [welcomeActive, setWelcomeActive] = useState(false);
   const [laboKey, setLaboKey] = useState(0);
+  const [showLabo, setShowLabo] = useState(false);
+  const [laboCount, setLaboCount] = useState(0);
   const [showPaywall, setShowPaywall] = useState(false);
   const [access, setAccess] = useState<Access | null>(null);
-  const [paywallHard, setPaywallHard] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showDailyHub, setShowDailyHub] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [showReading, setShowReading] = useState(false);
   const [showListening, setShowListening] = useState(false);
-  const [firstSessionDone, setFirstSessionDone] = useState(false);
-  const [trialExercisesDone, setTrialExercisesDone] = useState<{ reading?: boolean; translation?: boolean; listening?: boolean }>({});
-  const [giftPaywall, setGiftPaywall] = useState(false);
-  const [giftExpiresAt, setGiftExpiresAt] = useState<number | null>(null);
-  const [showGiftReveal, setShowGiftReveal] = useState(false);
   const [ratingAsked, setRatingAsked] = useState(true); // true tant que le profil n'est pas chargé : on ne demande rien
   const [showRating, setShowRating] = useState(false);
   const [hubCelebrated, setHubCelebrated] = useState(true); // true tant que le profil n'est pas chargé
   const [showHubDone, setShowHubDone] = useState(false);
+  const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
   const isPremium = access?.premium === true;
   const insets = useSafeAreaInsets();
-  // Réserve l'espace de la barre de navigation système en bas (boutons ou gestes),
-  // ce qui remonte automatiquement tout le contenu — y compris les barres fixes des écrans.
   const bgCream = [styles.rootCream, { paddingBottom: insets.bottom }];
   const bgNight = [styles.rootNight, { paddingBottom: insets.bottom }];
+  const bgPath = [styles.rootPath, { paddingBottom: insets.bottom }];
 
   useEffect(() => { configurePurchases(); }, []);
 
@@ -95,8 +91,7 @@ function AppInner() {
         signInAnonymously(auth).catch((e) => console.error("Anon auth:", e));
         return;
       }
-      // Relie le client RevenueCat à l'uid Firebase : dans RevenueCat, l'App User ID devient l'uid
-      // (les achats faits avant sous un ID anonyme RevenueCat sont rattachés automatiquement)
+      // Relie le client RevenueCat à l'uid Firebase (App User ID = uid)
       try {
         configurePurchases();
         await Purchases.logIn(u.uid);
@@ -109,7 +104,7 @@ function AppInner() {
     return unsub;
   }, []);
 
- // Au démarrage (et après chaque retour au Home) : charge l'accès et les jalons freemium — plus de paywall forcé.
+  // Au démarrage (et après chaque retour à l'accueil) : accès, jalons, compteur du Labo
   useEffect(() => {
     if (appState !== "ready") return;
     (async () => {
@@ -117,21 +112,17 @@ function AppInner() {
       const a = await getAccess();
       setAccess(a);
       const p = await loadProfile();
-      setFirstSessionDone(!!p?.firstSessionDone);
-      setTrialExercisesDone(p?.trialExercisesDone ?? {});
       setRatingAsked(!!p?.ratingAsked);
       setHubCelebrated(!!p?.hubCelebrated);
-      // Offre cadeau encore valable (ex. app fermée puis rouverte) : l'icône cadeau revient
-      if (p?.giftExpiresAt && p.giftExpiresAt > Date.now()) setGiftExpiresAt(p.giftExpiresAt);
+      listPracticeWords().then((ws: any[]) => setLaboCount(ws.filter((w) => !w.mastered).length)).catch(() => {});
     })();
   }, [appState, homeKey]);
 
-   useEffect(() => {
+  useEffect(() => {
     if (appState === "ready" && !showPaywall) getAccess().then(setAccess);
   }, [showPaywall]);
 
- 
-  // Après chaque jeu : si un abonné vient de finir les 3 défis du jour pour la 1re fois, on le félicite
+  // Après chaque exercice : si un abonné vient de finir les 3 défis du jour pour la 1re fois, on le félicite
   const checkHubComplete = async () => {
     if (!isPremium || hubCelebrated) return;
     try {
@@ -145,12 +136,11 @@ function AppInner() {
       console.warn("checkHubComplete échoué:", e);
     }
   };
-  const hubDoneModal = (
-    <HubCompleteModal visible={showHubDone} count={HUB_CHALLENGES.length} onClose={() => setShowHubDone(false)} />
-  );
+  const hubDoneModal = <HubCompleteModal visible={showHubDone} count={HUB_CHALLENGES.length} onClose={() => setShowHubDone(false)} />;
+  const openPaywall = (source: Parameters<typeof logPaywallShown>[0]) => { logPaywallShown(source); setShowPaywall(true); };
 
   if (appState === "loading") {
-    return <View style={bgCream} />;
+    return <View style={bgPath} />;
   }
 
   if (appState === "onboarding") {
@@ -158,11 +148,44 @@ function AppInner() {
       <View style={bgCream}>
         <StatusBar style="dark" />
         <OnboardingFlow
+          skipPaywall
           onLaunch={() => {
             logOnboardingComplete();
             setAppState("ready");
+            // La première leçon s'ouvre directement ; le paywall viendra après elle
+            const first = LESSONS.find((l) => l.isFreeDiscovery) ?? LESSONS[0];
+            if (first) setActiveLessonId(first.id);
           }}
         />
+      </View>
+    );
+  }
+
+  if (activeLessonId) {
+    return (
+      <View style={bgPath}>
+        <StatusBar style="dark" />
+        <LessonScreen
+          key={activeLessonId}
+          lessonId={activeLessonId}
+          premium={isPremium}
+          onExit={(exit) => {
+            if (exit.reason === "next_lesson") { setActiveLessonId(exit.nextLessonId); return; }
+            setActiveLessonId(null);
+            setHomeKey((k) => k + 1);
+          }}
+          onLocked={(reason) => {
+            if (reason === "subscription_required") openPaywall("learning_path_after_lesson_1");
+            else setActiveLessonId(null);
+          }}
+        />
+        {/* Paywall par-dessus la leçon : l'écran de réussite reste monté (résultat conservé) */}
+        <Modal visible={showPaywall} animationType="slide" onRequestClose={() => setShowPaywall(false)}>
+          <View style={bgCream}>
+            <StatusBar style="dark" />
+            <PaywallScreen dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -171,10 +194,7 @@ function AppInner() {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
-        <CustomSceneScreen
-          onBack={() => setCreatingScene(false)}
-          onLaunch={(s) => { setCreatingScene(false); setActiveScenario(s); }}
-        />
+        <CustomSceneScreen onBack={() => setCreatingScene(false)} onLaunch={(s) => { setCreatingScene(false); setActiveScenario(s); }} />
       </View>
     );
   }
@@ -187,41 +207,18 @@ function AppInner() {
       </View>
     );
   }
-if (welcomeActive) {
-    return (
-      <View style={bgNight}>
-        <StatusBar style="light" />
-        <SpikeScreen
-          welcome
-          premium={isPremium}
-          scenario={{ id: "welcome", title: "On fait connaissance", emoji: "", category: "quotidien", description: "" }}
-          onExit={(offerGift) => {
-            setWelcomeActive(false);
-            setHomeKey((k) => k + 1);
-            // Conversation de présentation terminée (ou quittée après au moins un échange) en freemium : cadeau
-            if (offerGift && !isPremium) {
-              logGiftRevealShown();
-              const expiresAt = Date.now() + GIFT_DURATION_MS;
-              setGiftExpiresAt(expiresAt);
-              saveGiftExpiresAt(expiresAt);
-              setShowGiftReveal(true);
-            }
-          }}
-        />
-      </View>
-    );
-  }
-    if (dailyActive) {
+
+  if (dailyActive) {
     return (
       <View style={bgNight}>
         <StatusBar style="light" />
         <SpikeScreen
           daily
-          scenario={{ id: "daily", title: "Discussion du jour", emoji: "", category: "quotidien", description: "" }}
+          scenario={{ id: "daily", title: "Conversation libre", emoji: "", category: "quotidien", description: "" }}
           onExit={(completed) => {
             setDailyActive(false);
             setHomeKey((k) => k + 1);
-            // Premier daily terminé par un abonné (ou en essai) : on demande une note, une seule fois
+            // Première conversation libre terminée par un abonné : on demande une note, une seule fois
             if (completed && isPremium && !ratingAsked) {
               setRatingAsked(true);
               markRatingAsked();
@@ -233,7 +230,8 @@ if (welcomeActive) {
       </View>
     );
   }
-    if (showScenarios) {
+
+  if (showScenarios) {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
@@ -243,33 +241,26 @@ if (welcomeActive) {
             onSelect={(s) => { setShowScenarios(false); setActiveScenario(s); }}
             onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }}
             onBack={() => setShowScenarios(false)}
-            onLocked={() => { logPaywallShown("scenarios"); setShowPaywall(true); }}
+            onLocked={() => openPaywall("scenarios")}
           />
         </View>
       </View>
     );
   }
+
   if (showFavorites) {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
         <DictionaryScreen
           onBack={() => setShowFavorites(false)}
-          onStartConversation={() => {
-            setShowFavorites(false);
-            if (isPremium) { setDailyActive(true); }
-            else { logPaywallShown("daily_conversation"); setShowPaywall(true); }
-          }}
-          onOpenReading={() => {
-            setShowFavorites(false);
-            if (isPremium) { setShowReading(true); }
-            else if (!trialExercisesDone.reading) { logTrialExerciseStart("reading"); markTrialExerciseUsed("reading").catch(() => {}); setShowReading(true); }
-            else { logPaywallShown("daily_hub"); setShowPaywall(true); }
-          }}
+          onStartConversation={() => { setShowFavorites(false); if (isPremium) setDailyActive(true); else openPaywall("daily_conversation"); }}
+          onOpenReading={() => { setShowFavorites(false); if (isPremium) setShowReading(true); else openPaywall("daily_hub"); }}
         />
       </View>
     );
   }
+
   if (showTranslation) {
     return (
       <View style={bgCream}>
@@ -294,6 +285,7 @@ if (welcomeActive) {
       </View>
     );
   }
+
   if (showDailyHub) {
     return (
       <View style={bgCream}>
@@ -304,27 +296,35 @@ if (welcomeActive) {
           onOpenReading={() => setShowReading(true)}
           onOpenListening={() => setShowListening(true)}
           premium={isPremium}
-          trialExercisesDone={trialExercisesDone}
-          onLocked={() => { logPaywallShown("daily_hub"); setShowPaywall(true); }}
+          trialExercisesDone={NO_TRIAL}
+          onLocked={() => openPaywall("daily_hub")}
         />
         {hubDoneModal}
       </View>
     );
   }
+
   if (showPaywall) {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
-          <PaywallScreen
-          dismissable={!paywallHard}
-          giftOfferId={giftPaywall ? GIFT_OFFER_ID : undefined}
-          giftExpiresAt={giftPaywall ? giftExpiresAt ?? undefined : undefined}
-          onClose={() => { setShowPaywall(false); setPaywallHard(false); setGiftPaywall(false); }}
-          onPurchased={() => { setShowPaywall(false); setPaywallHard(false); setGiftPaywall(false); setGiftExpiresAt(null); saveGiftExpiresAt(null); }}
-        />
+        <PaywallScreen dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
       </View>
     );
   }
+
+  if (showLabo) {
+    return (
+      <View style={bgCream}>
+        <StatusBar style="dark" />
+        <Pressable onPress={() => { setShowLabo(false); setHomeKey((k) => k + 1); }} hitSlop={12} style={styles.laboBack} accessibilityRole="button" accessibilityLabel="Retour">
+          <Feather name="chevron-left" size={26} color={T.night} />
+        </Pressable>
+        <LaboScreen refreshKey={laboKey} premium={isPremium} onLocked={() => openPaywall("labo_add_word")} />
+      </View>
+    );
+  }
+
   if (showEditProfile) {
     return (
       <View style={bgCream}>
@@ -333,61 +333,51 @@ if (welcomeActive) {
       </View>
     );
   }
-  const allTrialExercisesUsed = !!(trialExercisesDone.reading && trialExercisesDone.translation && trialExercisesDone.listening);
 
   return (
-    <View style={bgCream}>
-      <StatusBar style={tab === "home" ? "light" : "dark"} />
+    <View style={bgPath}>
+      <StatusBar style="dark" />
       <View style={{ flex: 1 }}>
-       {tab === "home" && (
-          <HomeScreen
+        {tab === "home" && (
+          <LearningHomeScreen
             refreshKey={homeKey}
             premium={isPremium}
-            firstSessionDone={firstSessionDone}
-            trialExercisesDone={trialExercisesDone}
-            onStartWelcome={() => { if (isPremium || !firstSessionDone) { logWelcomeConversationStart(); setWelcomeActive(true); } else { logPaywallShown("welcome_already_used"); setShowPaywall(true); } }}
-            onStartDaily={() => { if (isPremium) setDailyActive(true); else { logPaywallShown("daily_conversation"); setShowPaywall(true); } }}
-            onGoLabo={() => setTab("labo")}
-            onGoScenarios={() => setShowScenarios(true)}
-            onGoDailyHub={() => { if (isPremium || !allTrialExercisesUsed) setShowDailyHub(true); else { logPaywallShown("daily_hub"); setShowPaywall(true); } }}
-            onGoFavorites={() => setShowFavorites(true)}
-            onShowPaywall={(source) => { logPaywallShown(source); setShowPaywall(true); }}
+            onOpenLesson={(id) => setActiveLessonId(id)}
+            onLocked={() => openPaywall("learning_path_map")}
+            onStartFreeConversation={() => setDailyActive(true)}
+            onGoDailyHub={() => setShowDailyHub(true)}
+            onShowPaywall={openPaywall}
+            onGoProfile={() => setTab("settings")}
           />
         )}
-        {tab === "labo" && <LaboScreen refreshKey={laboKey} premium={isPremium} onLocked={() => { logPaywallShown("labo_add_word"); setShowPaywall(true); }} />}
+        {tab === "pratiquer" && (
+          <PracticeHubScreen
+            premium={isPremium}
+            laboCount={laboCount}
+            onGoScenarios={() => setShowScenarios(true)}
+            onGoLabo={() => { setLaboKey((k) => k + 1); setShowLabo(true); }}
+            onGoFavorites={() => setShowFavorites(true)}
+          />
+        )}
         {tab === "progres" && (
           <ProgressScreen
             refreshKey={progressKey}
-            onResume={(s) => { if (isPremium) setActiveScenario(s); else { logPaywallShown("scenarios"); setShowPaywall(true); } }}
-            onGoLabo={() => setTab("labo")}
+            onResume={(s) => { if (isPremium) setActiveScenario(s); else openPaywall("scenarios"); }}
+            onGoLabo={() => { setLaboKey((k) => k + 1); setShowLabo(true); }}
             onGoFavorites={() => setShowFavorites(true)}
           />
         )}
-         {tab === "settings" && (
+        {tab === "settings" && (
           <SettingsScreen
-             onEditProfile={() => setShowEditProfile(true)}
+            onEditProfile={() => setShowEditProfile(true)}
             onDeleted={() => {
               setShowEditProfile(false);
               setShowPaywall(false);
-              setPaywallHard(false);
               setShowFavorites(false);
               setShowScenarios(false);
+              setActiveLessonId(null);
               setTab("home");
             }}
-          />
-        )}
-
-        {/* Icône cadeau flottante : rouvre l'offre tant qu'elle n'a pas expiré */}
-        {tab === "home" && giftExpiresAt !== null && !isPremium && !showGiftReveal && (
-          <FloatingGiftButton
-            expiresAt={giftExpiresAt}
-            discount={GIFT_DISCOUNT}
-            onPress={() => {
-              logPaywallShown("gift");
-              setGiftPaywall(true);
-              setShowPaywall(true);
-            }}
-            onExpire={() => setGiftExpiresAt(null)}
           />
         )}
       </View>
@@ -395,43 +385,21 @@ if (welcomeActive) {
       <RatingModal visible={showRating} onClose={() => setShowRating(false)} />
       {hubDoneModal}
 
-      {giftExpiresAt !== null && (
-        <GiftRevealModal
-          visible={showGiftReveal}
-          discount={GIFT_DISCOUNT}
-          giftOfferId={GIFT_OFFER_ID}
-          expiresAt={giftExpiresAt}
-          onAccept={() => {
-            setShowGiftReveal(false);
-            logPaywallShown("gift");
-            setGiftPaywall(true);
-            setShowPaywall(true);
-          }}
-          onDecline={() => {
-            logGiftDeclined();
-            setShowGiftReveal(false); // l'offre reste accessible via l'icône cadeau jusqu'à expiration
-          }}
-        />
-      )}
-
       <View style={styles.tabBar}>
-        {TABS.map((t) => {
-          return (
-            <Pressable
-              key={t.key}
-              onPress={() => {
-                if (t.key === "progres") setProgressKey((k) => k + 1);
-                if (t.key === "labo") setLaboKey((k) => k + 1);
-                setTab(t.key);
-              }}
-              style={styles.tabItem}
-            >
-              <Feather name={t.icon} size={23} color={tab === t.key ? T.abricotDeep : "#D9B78E"} />
-            </Pressable>
-          );
-        })}
+        {TABS.map((t) => (
+          <Pressable
+            key={t.key}
+            onPress={() => { if (t.key === "progres") setProgressKey((k) => k + 1); setTab(t.key); }}
+            style={styles.tabItem}
+            accessibilityRole="tab"
+            accessibilityLabel={t.label}
+            accessibilityState={{ selected: tab === t.key }}
+          >
+            <LessonIcon name={t.png} size={26} tint={tab === t.key ? "#F2873A" : "#8A93A8"} />
+            <Text style={[styles.tabLabel, tab === t.key && styles.tabLabelOn]}>{t.label}</Text>
+          </Pressable>
+        ))}
       </View>
-
     </View>
   );
 }
@@ -449,6 +417,10 @@ export default function App() {
 const styles = StyleSheet.create({
   rootCream: { flex: 1, backgroundColor: T.cream },
   rootNight: { flex: 1, backgroundColor: T.night },
-  tabBar: { flexDirection: "row", backgroundColor: T.cream, paddingBottom: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.creamLine },
-  tabItem: { flex: 1, alignItems: "center" },
+  rootPath: { flex: 1, backgroundColor: "#FFFAF5" },
+  laboBack: { position: "absolute", top: 50, left: 14, zIndex: 5, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  tabBar: { flexDirection: "row", backgroundColor: "#FFFAF5", paddingBottom: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E8E1D9" },
+  tabItem: { flex: 1, alignItems: "center", gap: 3 },
+  tabLabel: { fontSize: 12, fontWeight: "700", color: "#8A93A8" },
+  tabLabelOn: { color: "#F2873A" },
 });

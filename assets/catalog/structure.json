@@ -1,0 +1,440 @@
+{
+  "schemaVersion": "1.1",
+  "structureVersion": 1,
+  "chapters": [
+    {
+      "id": "C01",
+      "order": 1,
+      "titleFr": "Faire connaissance",
+      "promiseFr": "entrer dans une conversation, se présenter et s’intéresser à l’autre.",
+      "badgeId": "badge_c01",
+      "published": true
+    },
+    {
+      "id": "C02",
+      "order": 2,
+      "titleFr": "Parler de son activité",
+      "promiseFr": "expliquer son travail, ses études ou son activité quotidienne.",
+      "badgeId": "badge_c02",
+      "published": false
+    },
+    {
+      "id": "C03",
+      "order": 3,
+      "titleFr": "Partager ses goûts et organiser une sortie",
+      "promiseFr": "parler de ses loisirs, expliquer ses préférences et proposer une activité.",
+      "badgeId": "badge_c03",
+      "published": false
+    },
+    {
+      "id": "C04",
+      "order": 4,
+      "titleFr": "Raconter ce qui s’est passé",
+      "promiseFr": "raconter un événement terminé et répondre à des questions.",
+      "badgeId": "badge_c04",
+      "published": false
+    },
+    {
+      "id": "C05",
+      "order": 5,
+      "titleFr": "Parler de son expérience et du changement",
+      "promiseFr": "distinguer une expérience de vie d’un événement daté et expliquer ce qui a changé.",
+      "badgeId": "badge_c05",
+      "published": false
+    },
+    {
+      "id": "C06",
+      "order": 6,
+      "titleFr": "Préparer la suite et faire des choix",
+      "promiseFr": "parler de ses projets, comparer des options et gérer un imprévu.",
+      "badgeId": "badge_c06",
+      "published": false
+    },
+    {
+      "id": "C07",
+      "order": 7,
+      "titleFr": "Se débrouiller dans la vie réelle",
+      "promiseFr": "obtenir quelque chose, clarifier une demande et résoudre un problème courant.",
+      "badgeId": "badge_c07",
+      "published": false
+    },
+    {
+      "id": "C08",
+      "order": 8,
+      "titleFr": "Donner son avis et échanger des idées",
+      "promiseFr": "exprimer une opinion, comprendre celle de l’autre et discuter avec nuance.",
+      "badgeId": "badge_c08",
+      "published": false
+    },
+    {
+      "id": "C09",
+      "order": 9,
+      "titleFr": "Gagner en autonomie",
+      "promiseFr": "mobiliser les acquis dans une situation nouvelle, reformuler et transmettre fidèlement une information.",
+      "badgeId": "badge_c09",
+      "published": false
+    }
+  ],
+  "lessons": [
+    {
+      "id": "C01-L01",
+      "chapterId": "C01",
+      "order": 1,
+      "titleFr": "Fais ta première présentation",
+      "isCheckpoint": false,
+      "isFreeDiscovery": true,
+      "prerequisiteLessonId": null,
+      "published": true
+    },
+    {
+      "id": "C01-L02",
+      "chapterId": "C01",
+      "order": 2,
+      "titleFr": "Pose des questions et rebondis",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C01-L01",
+      "published": true
+    },
+    {
+      "id": "C01-L03",
+      "chapterId": "C01",
+      "order": 3,
+      "titleFr": "Parle de ton quotidien",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C01-L02",
+      "published": true
+    },
+    {
+      "id": "C01-L04",
+      "chapterId": "C01",
+      "order": 4,
+      "titleFr": "Réussis une première rencontre",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C01-L03",
+      "published": true
+    },
+    {
+      "id": "C02-L01",
+      "chapterId": "C02",
+      "order": 1,
+      "titleFr": "Explique ce que tu fais",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C01-L04",
+      "published": false
+    },
+    {
+      "id": "C02-L02",
+      "chapterId": "C02",
+      "order": 2,
+      "titleFr": "Décris une journée et une priorité",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C02-L01",
+      "published": false
+    },
+    {
+      "id": "C02-L03",
+      "chapterId": "C02",
+      "order": 3,
+      "titleFr": "Demande une précision ou de l’aide",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C02-L02",
+      "published": false
+    },
+    {
+      "id": "C02-L04",
+      "chapterId": "C02",
+      "order": 4,
+      "titleFr": "Fais un point avec un collègue",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C02-L03",
+      "published": false
+    },
+    {
+      "id": "C03-L01",
+      "chapterId": "C03",
+      "order": 1,
+      "titleFr": "Parle de ce que tu aimes",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C02-L04",
+      "published": false
+    },
+    {
+      "id": "C03-L02",
+      "chapterId": "C03",
+      "order": 2,
+      "titleFr": "Explique une activité à quelqu’un",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C03-L01",
+      "published": false
+    },
+    {
+      "id": "C03-L03",
+      "chapterId": "C03",
+      "order": 3,
+      "titleFr": "Propose une sortie",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C03-L02",
+      "published": false
+    },
+    {
+      "id": "C03-L04",
+      "chapterId": "C03",
+      "order": 4,
+      "titleFr": "Trouvez une activité commune",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C03-L03",
+      "published": false
+    },
+    {
+      "id": "C04-L01",
+      "chapterId": "C04",
+      "order": 1,
+      "titleFr": "Raconte ta journée d’hier",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C03-L04",
+      "published": false
+    },
+    {
+      "id": "C04-L02",
+      "chapterId": "C04",
+      "order": 2,
+      "titleFr": "Décris un imprévu",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C04-L01",
+      "published": false
+    },
+    {
+      "id": "C04-L03",
+      "chapterId": "C04",
+      "order": 3,
+      "titleFr": "Raconte une expérience terminée",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C04-L02",
+      "published": false
+    },
+    {
+      "id": "C04-L04",
+      "chapterId": "C04",
+      "order": 4,
+      "titleFr": "Réponds aux questions sur ton histoire",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C04-L03",
+      "published": false
+    },
+    {
+      "id": "C05-L01",
+      "chapterId": "C05",
+      "order": 1,
+      "titleFr": "Parle de ce que tu as déjà essayé",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C04-L04",
+      "published": false
+    },
+    {
+      "id": "C05-L02",
+      "chapterId": "C05",
+      "order": 2,
+      "titleFr": "Explique depuis quand",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C05-L01",
+      "published": false
+    },
+    {
+      "id": "C05-L03",
+      "chapterId": "C05",
+      "order": 3,
+      "titleFr": "Compare avant et maintenant",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C05-L02",
+      "published": false
+    },
+    {
+      "id": "C05-L04",
+      "chapterId": "C05",
+      "order": 4,
+      "titleFr": "Fais le bilan d’une expérience",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C05-L03",
+      "published": false
+    },
+    {
+      "id": "C06-L01",
+      "chapterId": "C06",
+      "order": 1,
+      "titleFr": "Présente tes prochains projets",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C05-L04",
+      "published": false
+    },
+    {
+      "id": "C06-L02",
+      "chapterId": "C06",
+      "order": 2,
+      "titleFr": "Compare deux possibilités",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C06-L01",
+      "published": false
+    },
+    {
+      "id": "C06-L03",
+      "chapterId": "C06",
+      "order": 3,
+      "titleFr": "Prévois un plan B",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C06-L02",
+      "published": false
+    },
+    {
+      "id": "C06-L04",
+      "chapterId": "C06",
+      "order": 4,
+      "titleFr": "Organisez un projet ensemble",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C06-L03",
+      "published": false
+    },
+    {
+      "id": "C07-L01",
+      "chapterId": "C07",
+      "order": 1,
+      "titleFr": "Commande et précise ta demande",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C06-L04",
+      "published": false
+    },
+    {
+      "id": "C07-L02",
+      "chapterId": "C07",
+      "order": 2,
+      "titleFr": "Demande et vérifie une information",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C07-L01",
+      "published": false
+    },
+    {
+      "id": "C07-L03",
+      "chapterId": "C07",
+      "order": 3,
+      "titleFr": "Signale un problème et demande une solution",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C07-L02",
+      "published": false
+    },
+    {
+      "id": "C07-L04",
+      "chapterId": "C07",
+      "order": 4,
+      "titleFr": "Gère un imprévu sur place",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C07-L03",
+      "published": false
+    },
+    {
+      "id": "C08-L01",
+      "chapterId": "C08",
+      "order": 1,
+      "titleFr": "Donne ton avis avec une raison",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C07-L04",
+      "published": false
+    },
+    {
+      "id": "C08-L02",
+      "chapterId": "C08",
+      "order": 2,
+      "titleFr": "Compare et relie tes arguments",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C08-L01",
+      "published": false
+    },
+    {
+      "id": "C08-L03",
+      "chapterId": "C08",
+      "order": 3,
+      "titleFr": "Exprime un désaccord avec tact",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C08-L02",
+      "published": false
+    },
+    {
+      "id": "C08-L04",
+      "chapterId": "C08",
+      "order": 4,
+      "titleFr": "Construisez une décision commune",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C08-L03",
+      "published": false
+    },
+    {
+      "id": "C09-L01",
+      "chapterId": "C09",
+      "order": 1,
+      "titleFr": "Reformule quand il manque un mot",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C08-L04",
+      "published": false
+    },
+    {
+      "id": "C09-L02",
+      "chapterId": "C09",
+      "order": 2,
+      "titleFr": "Transmets une information utile",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C09-L01",
+      "published": false
+    },
+    {
+      "id": "C09-L03",
+      "chapterId": "C09",
+      "order": 3,
+      "titleFr": "Adapte ton message à ton interlocuteur",
+      "isCheckpoint": false,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C09-L02",
+      "published": false
+    },
+    {
+      "id": "C09-L04",
+      "chapterId": "C09",
+      "order": 4,
+      "titleFr": "Ta mission finale",
+      "isCheckpoint": true,
+      "isFreeDiscovery": false,
+      "prerequisiteLessonId": "C09-L03",
+      "published": false
+    }
+  ]
+}

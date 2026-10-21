@@ -12,7 +12,9 @@ export type PaywallSource =
   | "labo_add_word"
   | "welcome_already_used"
   | "daily_expression_favorite"
-  | "gift";
+  | "gift"
+  | "learning_path_after_lesson_1" // bilan de la première leçon du parcours (CTA « Débloquer ma prochaine leçon »)
+  | "learning_path_map"; // carte du parcours : leçon publiée mais réservée à l'abonnement
 
 export type ExerciseType = "reading" | "translation" | "listening";
 export type PlanId = "monthly" | "yearly";
@@ -70,4 +72,25 @@ export function logPurchaseComplete(plan: PlanId, extra?: PurchaseExtra) { log("
 export function logPurchaseFailed(plan: PlanId, reason?: string, extra?: PurchaseExtra) {
   log("purchase_failed", { ...purchaseParams(plan, extra), reason: cut(reason ?? "unknown") });
 }
+// Raison donnée par l'utilisateur après avoir fermé la feuille Google Play (micro-question, une fois par utilisateur)
+export type CancelReason = "price" | "try_more" | "not_now" | "other";
+export function logPurchaseCancelReason(reason: CancelReason, plan: PlanId, gift: boolean) {
+  log("purchase_cancel_reason", { reason, plan, gift: gift ? 1 : 0 });
+}
 export function logPurchaseRestored() { log("purchase_restored"); }
+// ---- Parcours d'apprentissage (leçons) — jamais de texte de conversation ni d'audio dans les events ----
+type LessonCtx = { lessonId: string; attemptId: string; contentVersion: number; level: string; flowVersion: string };
+export function logLessonMissionShown(c: LessonCtx) { log("lesson_mission_shown", c); }
+export function logLessonStarted(c: LessonCtx) { log("lesson_started", c); }
+export function logLessonObjectiveCovered(c: LessonCtx, criterionId: string, turn: number, support: string) {
+  log("lesson_objective_covered", { ...c, criterion_id: cut(criterionId), turn, support });
+}
+export function logLessonCoachingShown(c: LessonCtx, requiresRetry: boolean) { log("lesson_coaching_shown", { ...c, requires_retry: requiresRetry ? 1 : 0 }); }
+export function logLessonCoachingRetryDone(c: LessonCtx, covered: boolean) { log("lesson_coaching_retry_done", { ...c, covered: covered ? 1 : 0 }); }
+export function logLessonAttemptEnd(c: LessonCtx, kind: string, turns: number, activeSeconds: number, supportUsed: boolean) {
+  log("lesson_attempt_end", { ...c, kind, turns, active_seconds: Math.round(activeSeconds), support_used: supportUsed ? 1 : 0 });
+}
+export function logLessonInterrupted(c: LessonCtx, lastState: string, coveredCount: number, turn: number) {
+  log("lesson_interrupted", { ...c, last_state: lastState, covered_count: coveredCount, turn });
+}
+export function logLessonNextClick(c: LessonCtx, destination: "lesson" | "paywall") { log("lesson_next_click", { ...c, destination }); }
