@@ -11,13 +11,18 @@ import { loadProfile } from "../../lib/profile";
 import { computeStreak } from "../../lib/streak";
 import { L, ILL, Icon, RoundButton, Pill, PrimaryButton, ListenButton, SectionLabel } from "../../components/lessonUi";
 import LessonConversation, { ConversationEnd } from "./LessonConversation";
-import { startOrResumeLesson, updateAttemptState, finalizeAttempt, syncLearningEntitlement, lessonStartError, LessonStartError } from "../../lib/learningPath/attempts";
+import { startOrResumeLesson, updateAttemptState, finalizeAttempt, syncLearningEntitlement, lessonStartError, LessonStartError, warmLessonTurn, warmFinalizeAttempt } from "../../lib/learningPath/attempts";
 import { getChapter, getLesson, LESSONS, lessonsOfChapter } from "../../lib/learningPath/catalog";
 import type { AttemptResult, AttemptTurn, LessonAttempt, LessonDefinition, LessonVariant } from "../../lib/learningPath/types";
 import {
   logLessonMissionShown, logLessonStarted, logLessonObjectiveCovered, logLessonCoachingShown, logLessonCoachingRetryDone,
   logLessonAttemptEnd, logLessonInterrupted, logLessonNextClick,
+  logAvatarSessionRequested, logAvatarSessionReady, logAvatarSessionFailed, logAvatarSessionStopped, logAvatarFallback,
 } from "../../lib/analytics";
+import { useAvatarSession } from "../../lib/liveAvatar/useAvatarSession";
+import { coachForVoice } from "../../lib/learningPath/coaches";
+import { coachIntroEn } from "../../lib/learningPath/intro";
+type AttemptResultLike = Awaited<ReturnType<typeof finalizeAttempt>>;
 
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 
@@ -83,6 +88,20 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   const reveal = useRef(new Animated.Value(0)).current;
   const reduceMotionRef = useRef(false);
 
+  // Coach vidéo : une session par leçon, démarrée au « C'est parti », arrêtée avant le bilan. Le serveur décide (flag, quotas).
+  const coach = coachForVoice(voice);
+  const coachId = coach.id;
+  const avatarCtx = () => ({ lessonId, attemptId: attempt?.id ?? "", coachId, mode: "unknown" as const });
+  const avatar = useAvatarSession({
+    attemptId: attempt?.id ?? null,
+    coachId,
+    onRequested: () => logAvatarSessionRequested(avatarCtx()),
+    onReady: (ms) => logAvatarSessionReady(avatarCtx(), ms),
+    onFailed: (r) => logAvatarSessionFailed(avatarCtx(), r),
+    onFallback: (r) => logAvatarFallback(avatarCtx(), r),
+    onStopped: (r, sec) => logAvatarSessionStopped(avatarCtx(), r, sec),
+  });
+
   const lesson = getLesson(lessonId);
   const chapter = lesson ? getChapter(lesson.chapterId) : null;
   const chapterLessons = lesson ? lessonsOfChapter(lesson.chapterId) : [];
@@ -91,12 +110,6 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then((v) => { reduceMotionRef.current = v; }).catch(() => {});
-    loadProfile().then((p) => {
-      if (p?.voice) setVoice(p.voice);
-      if (p?.speechRate) setSpeechRate(p.speechRate);
-      if (p?.level) setLevel(p.level);
-      if (p?.flowVersion) setFlowVersion(p.flowVersion);
-    });
     return () => { try { player.pause(); } catch {} };
   }, []);
 
@@ -104,18 +117,36 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
     let cancelled = false;
     (async () => {
       try {
+        // Le profil (voix → coach vidéo) doit être connu AVANT tout avatar.start(), sinon le coach par défaut part en vidéo
+        let profileVoice = "us-male";
+        try {
+          const p = await loadProfile();
+          if (cancelled) return;
+          if (p?.voice) { setVoice(p.voice); profileVoice = p.voice; }
+          if (p?.speechRate) setSpeechRate(p.speechRate);
+          if (p?.level) setLevel(p.level);
+          if (p?.flowVersion) setFlowVersion(p.flowVersion);
+        } catch {}
         let r;
-        try { r = await startOrResumeLesson(lessonId); }
+        const startOpts = { voice: profileVoice, isFirstLesson: LESSONS[0]?.id === lessonId };
+        try { r = await startOrResumeLesson(lessonId, startOpts); }
         catch (e: any) {
           if (lessonStartError(e) !== "subscription_required") throw e;
           await syncLearningEntitlement(); // juste après un achat, le webhook peut ne pas être passé
-          r = await startOrResumeLesson(lessonId);
+          r = await startOrResumeLesson(lessonId, startOpts);
         }
         if (cancelled) return;
         setAttempt(r.attempt); setVariant(r.variant); setTurns(r.turns);
+        warmLessonTurn(); warmFinalizeAttempt(); // instances prêtes quand l'utilisateur parle / termine
         const st = r.resumed ? r.attempt.state : "briefing";
         if (st === "validating" || st === "evaluating") { runFinalize(r.attempt.id); return; }
-        if (["conversation", "coaching_retry", "paused", "retry", "feedback"].includes(st)) { startedAtRef.current = Date.now(); setPhase("conversation"); return; }
+        if (["conversation", "coaching_retry", "paused", "retry", "feedback"].includes(st)) {
+          // Reprise : la session vidéo démarre AVANT d'afficher la conversation, sinon la réplique est lue en local sans attendre l'avatar
+          startedAtRef.current = Date.now();
+          avatar.start(r.attempt.id); // identifiant passé explicitement : pas de dépendance au re-rendu
+          setPhase("conversation");
+          return;
+        }
         setPhase("mission");
         logLessonMissionShown({ lessonId, attemptId: r.attempt.id, contentVersion: r.variant.contentVersion, level: r.variant.practiceLevel, flowVersion });
       } catch (e: any) {
@@ -128,10 +159,20 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
     return () => { cancelled = true; };
   }, [lessonId]);
 
+  // Bilan lancé en avance (pendant la phrase de clôture du coach) : runFinalize réutilise la promesse en cours
+  const finalizePromiseRef = useRef<{ attemptId: string; p: Promise<[AttemptResultLike, number]> } | null>(null);
+  const startFinalize = (attemptId: string) => {
+    if (finalizePromiseRef.current?.attemptId === attemptId) return finalizePromiseRef.current.p;
+    const p = Promise.all([finalizeAttempt(attemptId), computeStreak().catch(() => 0)]) as Promise<[AttemptResultLike, number]>;
+    finalizePromiseRef.current = { attemptId, p };
+    p.catch(() => { finalizePromiseRef.current = null; }); // un échec ne doit pas être mis en cache
+    return p;
+  };
   const runFinalize = async (attemptId: string) => {
+    avatar.stop("USER_CLOSED"); // la vidéo ne reste jamais ouverte pendant le bilan / le paywall
     setPhase("validating"); setFinalizeFailed(false);
     try {
-      const [r, s] = await Promise.all([finalizeAttempt(attemptId), computeStreak().catch(() => 0)]);
+      const [r, s] = await startFinalize(attemptId);
       setResult(r); setStreak(s); setPhase("success");
       const active = startedAtRef.current ? (Date.now() - startedAtRef.current) / 1000 : 0;
       logLessonAttemptEnd(ctx(), r.kind, endRef.current?.turns ?? turns.length, active, endRef.current?.coachingUsed ?? r.kind === "validated_with_support");
@@ -175,7 +216,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
         <View style={styles.loadingWrap}>
           <Image source={ILL.bulles} style={styles.loadingIll} resizeMode="contain" />
           <Text style={styles.loadingTitle}>On prépare ta leçon…</Text>
-          <Text style={styles.loadingSub}>Sam choisit les phrases adaptées à ton niveau.</Text>
+          <Text style={styles.loadingSub}>{coach.displayName} choisit les phrases adaptées à ton niveau.</Text>
         </View>
         <Skeleton lines={3} />
         <Skeleton lines={3} dots />
@@ -219,7 +260,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
             </View>
             <View style={styles.pillRow}>
               <Pill icon="horloge">Environ {variant.targetMinutes} min</Pill>
-              <Pill icon="micro" bg={L.lavender}>Avec Sam</Pill>
+              <Pill icon="micro" bg={L.lavender}>Avec {coach.displayName}</Pill>
             </View>
           </View>
 
@@ -244,10 +285,10 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
             </View>
           ) : null}
 
-          <Text style={styles.guide}>Sam te guide à chaque étape.</Text>
+          <Text style={styles.guide}>{coach.displayName} te guide à chaque étape.</Text>
           <PrimaryButton
             label="C'est parti"
-            onPress={() => { startedAtRef.current = Date.now(); updateAttemptState(attempt.id, "conversation"); logLessonStarted(ctx()); setPhase("conversation"); }}
+            onPress={() => { startedAtRef.current = Date.now(); updateAttemptState(attempt.id, "conversation"); logLessonStarted(ctx()); setPhase("conversation"); avatar.start(attempt.id); }}
           />
         </ScrollView>
       </View>
@@ -270,8 +311,13 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
           voice={voice}
           speakingRate={speechRate}
           validating={phase === "validating"}
+          avatar={avatar}
+          coachId={coachId}
+          intro={attempt.briefingEn ? undefined : LESSONS[0]?.id === lessonId ? coachIntroEn(coach, variant.practiceLevel) : undefined}
+          openingOverride={attempt.briefingEn || undefined}
+          onClosingStarted={() => startFinalize(attempt.id)}
           onCompleted={(end) => { endRef.current = end; runFinalize(attempt.id); }}
-          onBack={(coveredCount, turn) => { logLessonInterrupted(ctx(), attempt.state, coveredCount, turn); updateAttemptState(attempt.id, "paused"); onExit({ reason: "back" }); }}
+          onBack={(coveredCount, turn) => { avatar.stop("USER_CLOSED"); logLessonInterrupted(ctx(), attempt.state, coveredCount, turn); updateAttemptState(attempt.id, "paused"); onExit({ reason: "back" }); }}
           onCoachingShown={(r) => logLessonCoachingShown(ctx(), r)}
           onObjectiveCovered={(id, turn, support) => logLessonObjectiveCovered(ctx(), id, turn, support)}
           onCoachingRetryDone={(ok) => logLessonCoachingRetryDone(ctx(), ok)}
@@ -323,7 +369,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
 
         {result.nextFocusFr ? (
           <View style={[styles.card, { backgroundColor: L.lavender }]}>
-            <View style={styles.coachingHead}><Icon name="etoile" size={20} /><Text style={styles.coachingTitle}>Le conseil de Sam</Text></View>
+            <View style={styles.coachingHead}><Icon name="etoile" size={20} /><Text style={styles.coachingTitle}>Le conseil de {coach.displayName}</Text></View>
             <Text style={styles.coachingText}>{result.nextFocusFr}</Text>
           </View>
         ) : null}

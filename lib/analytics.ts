@@ -14,7 +14,8 @@ export type PaywallSource =
   | "daily_expression_favorite"
   | "gift"
   | "learning_path_after_lesson_1" // bilan de la première leçon du parcours (CTA « Débloquer ma prochaine leçon »)
-  | "learning_path_map"; // carte du parcours : leçon publiée mais réservée à l'abonnement
+  | "learning_path_map" // carte du parcours : leçon publiée mais réservée à l'abonnement
+  | "daily_talk"; // point du jour : une session gratuite par semaine, puis abonnement
 
 export type ExerciseType = "reading" | "translation" | "listening";
 export type PlanId = "monthly" | "yearly";
@@ -94,3 +95,20 @@ export function logLessonInterrupted(c: LessonCtx, lastState: string, coveredCou
   log("lesson_interrupted", { ...c, last_state: lastState, covered_count: coveredCount, turn });
 }
 export function logLessonNextClick(c: LessonCtx, destination: "lesson" | "paywall") { log("lesson_next_click", { ...c, destination }); }
+
+// ---- Coach vidéo (LiveAvatar) — espace de noms séparé, aucun contenu sensible ----
+type AvatarCtx = { lessonId: string; attemptId: string; coachId: string; mode: "sandbox" | "live" | "unknown" };
+export function logAvatarSessionRequested(c: AvatarCtx) { log("avatar_session_requested", c); }
+export function logAvatarSessionReady(c: AvatarCtx, connectMs: number) { log("avatar_session_ready", { ...c, connect_ms: Math.round(connectMs) }); }
+export function logAvatarSessionFailed(c: AvatarCtx, reason: string) { log("avatar_session_failed", { ...c, reason: cut(reason) }); }
+export function logAvatarSessionStopped(c: AvatarCtx, reason: string, seconds: number) { log("avatar_session_stopped", { ...c, reason: cut(reason), seconds: Math.round(seconds) }); }
+export function logAvatarFallback(c: AvatarCtx, reason: string) { log("avatar_fallback", { ...c, reason: cut(reason) }); }
+export function logAvatarInterrupted(c: AvatarCtx) { log("avatar_interrupted", c); }
+
+// ---- Le point du jour (discussion quotidienne) ----
+type DailyCtx = { sessionId: string; regime: string; coachId: string };
+export function logDailyTalkStart(c: DailyCtx, resumed: boolean) { log("daily_talk_start", { ...c, resumed: resumed ? 1 : 0 }); }
+export function logDailyTalkTurn(c: DailyCtx, turn: number, modality: "voice" | "text") { log("daily_talk_turn", { ...c, turn, modality }); }
+export function logDailyTalkReuseOk(c: DailyCtx, turn: number) { log("daily_talk_reuse_ok", { ...c, turn }); }
+export function logDailyTalkEnd(c: DailyCtx, turns: number, coaching: boolean, reused: number) { log("daily_talk_end", { ...c, turns, coaching: coaching ? 1 : 0, reused }); }
+export function logDailyTalkLocked() { log("daily_talk_locked", {}); }

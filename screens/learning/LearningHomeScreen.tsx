@@ -3,9 +3,15 @@
 // expression du jour. Lecture seule : le serveur revalide prérequis et droits à l'ouverture d'une leçon.
 import React, { useEffect, useState } from "react";
 import type { LayoutChangeEvent } from "react-native";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Image } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Image, Modal } from "react-native";
+import { useAudioPlayer } from "expo-audio";
+import * as FileSystem from "expo-file-system/legacy";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../../lib/firebase";
 import { L, ILL, Icon, IconName } from "../../components/lessonUi";
-import { loadProfile } from "../../lib/profile";
+import { loadProfile, saveProfile } from "../../lib/profile";
+import { coachForVoice, COACHES, LessonCoach } from "../../lib/learningPath/coaches";
+import { getDailyTalkStatus } from "../../lib/dailyTalk";
 import { getLearningPath } from "../../lib/learningPath/path";
 import { CHAPTERS } from "../../lib/learningPath/catalog";
 import type { LearningPathView, PathNode } from "../../lib/learningPath/types";
@@ -17,7 +23,7 @@ import type { PaywallSource } from "../../lib/analytics";
 
 
 // Cache mémoire de l'expression du jour (même logique que l'accueil legacy)
-let exprCache: { day: string; expr: Expression; fav: boolean } | null = null;
+let exprCache: { day: string; expr: Expression; fav: boolean; audioPath?: string; audioVoice?: string } | null = null;
 const todayKey = () => new Date().toDateString();
 
 type NodeUi = { icon: IconName; label: string; tone: "done" | "active" | "locked" | "ghost"; openable: boolean; paywall: boolean };
@@ -58,7 +64,16 @@ function PathDots({ rows }: { rows: { key: string; x: number; layout?: { y: numb
   );
 }
 
-export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, onLocked, onStartFreeConversation, onGoDailyHub, onShowPaywall, onGoProfile }: {
+const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
+
+const COACH_SQUARE = 86;
+const COACH_CUTOUT_H = 104;
+function cutoutRatio(src: any): number {
+  const r = Image.resolveAssetSource(src);
+  return r && r.width && r.height ? r.width / r.height : 1;
+}
+
+export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, onLocked, onStartFreeConversation, onGoDailyHub, onShowPaywall, onGoProfile, onGoDailyTalk }: {
   refreshKey: number;
   premium: boolean;
   onOpenLesson: (lessonId: string) => void;
@@ -67,13 +82,51 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
   onGoDailyHub: () => void; // « Exercices du jour »
   onShowPaywall: (source: PaywallSource) => void;
   onGoProfile: () => void;
+  onGoDailyTalk: () => void; // « Le point du jour » (discussion quotidienne avec le coach)
 }) {
   const [name, setName] = useState("");
+  const [coachPoster, setCoachPoster] = useState<any>(() => coachForVoice(null).poster);
+  const [coachName, setCoachName] = useState(coachForVoice(null).displayName);
+
+  const [dailyStatus, setDailyStatus] = useState<"todo" | "in_progress" | "done">("todo");
   const [path, setPath] = useState<LearningPathView | null>(null);
   const [streak, setStreak] = useState(0);
   const [hubDone, setHubDone] = useState(0);
   const [expr, setExpr] = useState<Expression | null>(() => (exprCache?.day === todayKey() ? exprCache.expr : null));
   const [exprFav, setExprFav] = useState(() => (exprCache?.day === todayKey() ? exprCache.fav : false));
+  const [voice, setVoice] = useState("us-male");
+  const [speechRate, setSpeechRate] = useState(0.95);
+  const [exprBusy, setExprBusy] = useState(false);
+  const player = useAudioPlayer();
+  const [showCoachPicker, setShowCoachPicker] = useState(false);
+  const coach = coachForVoice(voice);
+  // Changer de coach = changer la voix du profil (même réglage que dans Profil)
+  const pickCoach = async (c: LessonCoach) => {
+    setShowCoachPicker(false);
+    if (c.voice === voice) return;
+    setVoice(c.voice); setCoachPoster(c.poster); setCoachName(c.displayName);
+    try { await saveProfile({ voice: c.voice }); } catch (e) { console.warn("Changement de coach échoué:", e); }
+  };
+  // Écoute de l'expression du jour avec la voix du coach
+  // Audio préparé dès l'affichage (fonction + TTS ≈ 2–10 s à froid) ; un tap sur « Écouter » joue le fichier en cache
+  const prepareExprAudio = async (e: Expression, v: string, rate: number): Promise<string | null> => {
+    if (exprCache?.day === todayKey() && exprCache.audioPath && exprCache.audioVoice === v) return exprCache.audioPath;
+    const res: any = await translateText({ text: e.en, mode: "speak", voice: v, speakingRate: rate });
+    if (!res.data?.audioBase64) return null;
+    const path = FileSystem.cacheDirectory + `expr_${todayKey()}_${v}_${Date.now()}.mp3`;
+    await FileSystem.writeAsStringAsync(path, res.data.audioBase64, { encoding: FileSystem.EncodingType.Base64 });
+    if (exprCache?.day === todayKey()) { exprCache.audioPath = path; exprCache.audioVoice = v; }
+    return path;
+  };
+  const listenExpr = async () => {
+    if (!expr || exprBusy) return;
+    setExprBusy(true);
+    try {
+      const path = await prepareExprAudio(expr, voice, speechRate);
+    if (path) { player.replace({ uri: path }); player.seekTo(0); player.play(); }
+    } catch (e) { console.warn("Écoute expression échouée:", e); }
+    finally { setExprBusy(false); }
+  };
   const [showAll, setShowAll] = useState(false);
   const [rowLayouts, setRowLayouts] = useState<Record<string, { y: number; h: number }>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -81,6 +134,9 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
   const load = async () => {
     const [p, view, s] = await Promise.all([loadProfile(), getLearningPath(premium), computeStreak().catch(() => 0)]);
     setName(p?.name ?? "");
+    setCoachPoster(coachForVoice(p?.voice).poster); setCoachName(coachForVoice(p?.voice).displayName);
+    if (p?.voice) setVoice(p.voice); if (p?.speechRate) setSpeechRate(p.speechRate);
+    getDailyTalkStatus().then(setDailyStatus).catch(() => {});
     setPath(view);
     setStreak(s);
     getChallengesDone().then((d) => setHubDone(HUB_CHALLENGES.reduce((n, c) => n + (d[c] ? 1 : 0), 0))).catch(() => {});
@@ -90,7 +146,10 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
         const fav = await listFavorites().then((f) => f.some((x: any) => x.word.toLowerCase() === e.en.toLowerCase())).catch(() => false);
         exprCache = { day: todayKey(), expr: e, fav };
         setExpr(e); setExprFav(fav);
+        prepareExprAudio(e, p?.voice || "us-male", p?.speechRate || 0.95).catch(() => {});
       }).catch(() => {});
+    } else if (exprCache && !exprCache.audioPath) {
+      prepareExprAudio(exprCache.expr, p?.voice || "us-male", p?.speechRate || 0.95).catch(() => {});
     }
   };
   useEffect(() => { load(); }, [refreshKey, premium]);
@@ -135,12 +194,10 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
       {/* En-tête */}
       <View style={styles.top}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.hello}>Salut {name} 👋</Text>
+          <Text style={styles.hello}>Salut {name}</Text>
           <Text style={styles.helloSub}>Une étape de plus vers un anglais plus fluide.</Text>
         </View>
-        <Pressable onPress={onGoProfile} style={styles.avatar} accessibilityRole="button" accessibilityLabel="Profil">
-          <Image source={ILL.avatar} style={{ width: 56, height: 56, borderRadius: 28 }} resizeMode="cover" />
-        </Pressable>
+
       </View>
       <View style={styles.pills}>
         <View style={styles.pill}><Icon name="flamme" size={16} /><Text style={styles.pillText}>{streak} jour{streak > 1 ? "s" : ""}</Text></View>
@@ -149,12 +206,8 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
       </View>
 
       {/* Mon parcours */}
-      <View style={styles.sectionRow}>
+        <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>Mon parcours</Text>
-        <Pressable onPress={() => setShowAll((v) => !v)} hitSlop={8} style={styles.linkBtn} accessibilityRole="button">
-          <Text style={styles.linkText}>{showAll ? "Réduire" : "Tout voir"}</Text>
-          <Icon name="chevron" size={16} tint={L.primary} style={showAll ? { transform: [{ rotate: "-90deg" }] } : undefined} />
-        </Pressable>
       </View>
 
       <View style={styles.pathCard}>
@@ -164,8 +217,22 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
             <Text style={styles.chapterTitle}>{chapter.titleFr}</Text>
             <Text style={styles.chapterPromise}>{chapter.promiseFr.charAt(0).toUpperCase() + chapter.promiseFr.slice(1)}</Text>
           </View>
-          <Image source={ILL.bulles} style={styles.chapterImg} resizeMode="contain" />
+          {/* Buste détouré qui déborde du carré coloré (couleur propre au coach) */}
+          <View style={styles.coachFrame}>
+            <View style={[styles.coachSquare, { backgroundColor: coach.tint }]} />
+            {/* Largeur calculée depuis le ratio du PNG : le bas de l'image = le bas du carré, quel que soit le cadrage */}
+            <Image source={coach.cutout} style={[styles.coachCutout, { width: COACH_CUTOUT_H * cutoutRatio(coach.cutout) }]} resizeMode="stretch" />
+          </View>
         </View>
+        {/* Coach du parcours */}
+        <Pressable onPress={() => setShowCoachPicker(true)} style={styles.coachRow} accessibilityRole="button" accessibilityLabel={`Coach : ${coachName}. Changer`}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.coachRowTitle}>Avec {coachName} · Coach IA</Text>
+            <Text style={styles.coachRowSub}>{coach.accent === "en-GB" ? "Anglais britannique" : "Anglais américain"}</Text>
+          </View>
+          <Text style={styles.coachRowChange}>Changer</Text>
+          <Icon name="chevron" size={16} />
+        </Pressable>
         <View style={styles.progressRow}>
           <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.max(4, pct)}%` }]} /></View>
           <Text style={styles.progressPct}>{pct} %</Text>
@@ -234,13 +301,14 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
       {/* Pratiquer à mon rythme */}
       <Text style={[styles.sectionTitle, { marginTop: 28, marginBottom: 12 }]}>Pratiquer à mon rythme</Text>
       <View style={styles.tiles}>
-        <Pressable onPress={premium ? onStartFreeConversation : () => onShowPaywall("daily_conversation")} style={[styles.tile, styles.tilePeach]} accessibilityRole="button" accessibilityLabel="Conversation libre">
-          {!premium && <View style={styles.lockBadge}><Icon name="cadenas" size={12} tint="#fff" /></View>}
+        {/* Le point du jour : discussion quotidienne avec le coach (1/semaine sans abonnement, le serveur décide) */}
+        <Pressable onPress={onGoDailyTalk} style={[styles.tile, styles.tilePeach, dailyStatus === "done" && { backgroundColor: L.successSoft }]} accessibilityRole="button" accessibilityLabel={`Le point du jour avec ${coachName}`}>
+          {dailyStatus === "done" && <View style={styles.countBadge}><Icon name="check" size={14} /></View>}
           <Image source={ILL.micro} style={styles.tileImg} resizeMode="contain" />
           <View style={styles.tileFoot}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.tileTitle}>Conversation libre</Text>
-              <Text style={styles.tileSub}>Choisis ton sujet</Text>
+              <Text style={styles.tileTitle}>Le point du jour</Text>
+              <Text style={styles.tileSub}>{dailyStatus === "done" ? "Fait pour aujourd'hui" : dailyStatus === "in_progress" ? "En cours · reprendre" : `3 min avec ${coachName}`}</Text>
             </View>
             <Icon name="chevron" size={18} />
           </View>
@@ -262,19 +330,42 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
         </Pressable>
       </View>
 
+      {/* Choix du coach */}
+      <Modal visible={showCoachPicker} transparent animationType="fade" onRequestClose={() => setShowCoachPicker(false)}>
+        <Pressable style={styles.pickerOverlay} onPress={() => setShowCoachPicker(false)}>
+          <Pressable style={styles.pickerSheet} onPress={() => {}}>
+            <Text style={styles.pickerTitle}>Choisis ton coach</Text>
+            <Text style={styles.pickerSub}>Sa voix et son accent t'accompagnent dans les leçons et le point du jour.</Text>
+            {(Object.values(COACHES) as LessonCoach[]).filter((c) => c.enabled).map((c) => (
+              <Pressable key={c.id} onPress={() => pickCoach(c)} style={[styles.pickerRow, c.voice === voice && styles.pickerRowOn]} accessibilityRole="button" accessibilityState={{ selected: c.voice === voice }}>
+                <Image source={c.poster} style={styles.pickerImg} resizeMode="cover" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pickerName}>{c.displayName}</Text>
+                  <Text style={styles.pickerAccent}>{c.accentLabel}</Text>
+                </View>
+                {c.voice === voice && <Icon name="check" size={20} />}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Expression du jour */}
       {expr && (
         <View style={styles.exprCard}>
-          <Pressable onPress={toggleExprFav} hitSlop={8} style={styles.exprStar} accessibilityRole="button" accessibilityLabel={exprFav ? "Retirer des favoris" : "Ajouter aux favoris"}>
-            <Icon name="etoile" size={20} style={exprFav ? undefined : { opacity: 0.35 }} />
-          </Pressable>
           <Text style={styles.exprK}>EXPRESSION DU JOUR</Text>
           <Text style={styles.exprEn}>{expr.en}</Text>
           <Text style={styles.exprFr}>{expr.fr}</Text>
-          <Pressable onPress={premium ? onStartFreeConversation : () => onShowPaywall("daily_conversation")} style={styles.exprBtn} accessibilityRole="button">
-            <Text style={styles.exprBtnText}>La mettre en pratique</Text>
-            <Icon name="fleche" size={16} tint={L.textPrimary} />
-          </Pressable>
+          <View style={styles.exprActions}>
+            <Pressable onPress={listenExpr} disabled={exprBusy} style={[styles.exprBtn, exprBusy && { opacity: 0.6 }]} accessibilityRole="button" accessibilityLabel="Écouter l'expression">
+              <Icon name="ecouter" size={16} tint={L.textPrimary} />
+              <Text style={styles.exprBtnText}>Écouter</Text>
+            </Pressable>
+            <Pressable onPress={toggleExprFav} style={[styles.exprBtn, exprFav && styles.exprBtnOn]} accessibilityRole="button" accessibilityLabel={exprFav ? "Retirer des favoris" : "Garder dans mes favoris"}>
+              <Icon name="etoile" size={16} tint={L.textPrimary} />
+              <Text style={styles.exprBtnText}>{exprFav ? "Gardée" : "Garder"}</Text>
+            </Pressable>
+          </View>
         </View>
       )}
     </ScrollView>
@@ -303,6 +394,22 @@ const styles = StyleSheet.create({
   chapterTitle: { color: L.textPrimary, fontSize: 24, fontWeight: "700", marginTop: 4, letterSpacing: -0.3 },
   chapterPromise: { color: L.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 4 },
   chapterImg: { width: 92, height: 80 },
+  coachFrame: { width: 112, height: COACH_CUTOUT_H, alignItems: "flex-end", justifyContent: "flex-end" },
+  coachSquare: { position: "absolute", right: 0, bottom: 0, width: COACH_SQUARE, height: COACH_SQUARE, borderRadius: 18 },
+  coachCutout: { position: "absolute", right: 0, bottom: 0, height: COACH_CUTOUT_H, borderBottomLeftRadius: 18, borderBottomRightRadius: 18 }, // bas aligné sur le carré, dépasse en haut et à gauche
+  coachRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: L.background, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, marginTop: 12 },
+  coachRowTitle: { color: L.textPrimary, fontSize: 14, fontWeight: "700" },
+  coachRowSub: { color: L.textSecondary, fontSize: 12.5, marginTop: 1 },
+  coachRowChange: { color: L.textPrimary, fontSize: 13.5, fontWeight: "700" },
+  pickerOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.55)", justifyContent: "flex-end" },
+  pickerSheet: { backgroundColor: L.background, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 20, paddingBottom: 32 },
+  pickerTitle: { color: L.textPrimary, fontSize: 20, fontWeight: "800" },
+  pickerSub: { color: L.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 4, marginBottom: 12 },
+  pickerRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.surface, borderRadius: 18, padding: 10, marginTop: 8, borderWidth: 2, borderColor: "transparent" },
+  pickerRowOn: { borderColor: L.accentDeep },
+  pickerImg: { width: 56, height: 56, borderRadius: 14, backgroundColor: L.accentSoft },
+  pickerName: { color: L.textPrimary, fontSize: 16, fontWeight: "700" },
+  pickerAccent: { color: L.textSecondary, fontSize: 13 },
   progressRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12, marginBottom: 14 },
   progressTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: L.border, overflow: "hidden" },
   progressFill: { height: 10, borderRadius: 5, backgroundColor: L.accent },
@@ -345,10 +452,11 @@ const styles = StyleSheet.create({
   countText: { color: "#6B5CE7", fontSize: 14, fontWeight: "700" },
 
   exprCard: { backgroundColor: "#FBE4A8", borderRadius: 22, padding: 18, marginTop: 14 },
-  exprStar: { position: "absolute", top: 12, right: 12, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.9)", alignItems: "center", justifyContent: "center", zIndex: 2 },
   exprK: { color: "#B9771A", fontSize: 12, fontWeight: "700", letterSpacing: 0.8 },
   exprEn: { color: L.textPrimary, fontSize: 24, fontWeight: "700", marginTop: 6, letterSpacing: -0.3 },
   exprFr: { color: "#7A4A17", fontSize: 14, marginTop: 4 },
-  exprBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-end", borderWidth: 1.5, borderColor: L.primary, borderRadius: 14, minHeight: 44, paddingHorizontal: 14, marginTop: 10 },
+  exprActions: { flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 10 },
+  exprBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1.5, borderColor: L.primary, borderRadius: 14, minHeight: 44, paddingHorizontal: 14 },
+  exprBtnOn: { backgroundColor: "rgba(255,255,255,0.75)" },
   exprBtnText: { color: L.textPrimary, fontSize: 14, fontWeight: "700" },
 });

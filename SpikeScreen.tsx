@@ -1,40 +1,33 @@
-// SpikeScreen.tsx — conversation voix OU texte : choix du canal, correction rouge/vert, favoris, plafond 1re séance.
+// SpikeScreen.tsx — conversation à thème (scènes, conversation libre, bienvenue) dans le design des leçons :
+// en-tête avec l'image du thème + progression, bulles claires, carte « Le conseil de … », aides flottantes,
+// composer clavier · micro · réécouter. Pas de coach vidéo ici. Logique inchangée (voix/texte, correction, favoris, bilan).
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, Platform, Animated, Image } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, Animated, Image, Linking } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import { SkeletonCard, SkeletonLine, SkeletonBox } from "./components/Skeleton";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-  useAudioRecorder,
-  useAudioRecorderState,
-  useAudioPlayer,
-  RecordingPresets,
-  AudioModule,
-  setAudioModeAsync,
-} from "expo-audio";
+import { Feather } from "@expo/vector-icons";
+import { useAudioRecorder, useAudioRecorderState, useAudioPlayer, RecordingPresets, AudioModule, setAudioModeAsync } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./lib/firebase";
 import DailySceneImg from "./assets/hub/daily-scene-aleatoire.svg";
 import { Scenario } from "./lib/scenarios";
-import { T } from "./lib/theme";
+import { L, Icon, RoundButton, ListenButton, PrimaryButton } from "./components/lessonUi";
+import TypingDots from "./components/TypingDots";
+import { coachForVoice } from "./lib/learningPath/coaches";
 import { startSession, addTurn, closeSession, SessionTurn } from "./lib/sessions";
 import { loadProfile, markFirstSessionDone, markTranslateHintSeen, VoiceKey, saveSpeechRate } from "./lib/profile";
 import { logWelcomeConversationAbandon, logWelcomeConversationComplete } from "./lib/analytics";
 import { labelForRate, nextRate } from "./lib/speech";
 import { Level } from "./lib/level";
 import { addFavorite } from "./lib/favorites";
-import { recordStumble } from "./lib/practiceWords";
 import { addSpeakingSeconds } from "./lib/speakingTime";
 import DebriefView from "./components/DebriefView";
-import CorrectionCard, { Correction, PronStatus } from "./components/CorrectionCard";
+import type { Correction } from "./components/CorrectionCard";
 import { StatusBar } from "expo-status-bar";
 import type { LessonVariant, AttemptTurn, ObservedCriterion, SupportKind } from "./lib/learningPath/types";
 
-// Illustrations : scènes préenregistrées (mêmes visuels que l'écran de sélection) + une image générique pour la discussion du jour.
-// Illustrations des scènes (.png, nommées directement d'après l'id du scénario — Metro exige des
-// chemins statiques dans require(), donc chaque entrée est écrite explicitement).
-// La discussion du jour (daily/welcome) reste illustrée en SVG, séparément (DailySceneImg ci-dessous).
+// Illustrations des scènes (.png nommées d'après l'id du scénario — Metro exige des chemins statiques dans require()).
+// La conversation libre (daily/welcome) reste illustrée en SVG (DailySceneImg).
 const SCENE_ILLUSTRATIONS: Record<string, any> = {
   // Pro
   "entretien-embauche": require("./assets/scenes/entretien-embauche.png"),
@@ -104,21 +97,19 @@ type Turn = {
   feedback: string | null;
   pronunciation: Pronunciation;
   correction: Correction | null;
-  observedCriteria?: ObservedCriterion[]; // mode leçon uniquement (observations provisoires du coach)
+  observedCriteria?: ObservedCriterion[]; // mode leçon (hérité)
 };
 
-// Mode leçon (parcours d'apprentissage) : la conversation est pilotée par une variante du catalogue,
-// les tours sont persistés dans la tentative (serveur) et la fin est reprise par LessonScreen.
+// Mode leçon hérité (ancien parcours) : conservé pour compatibilité, le nouveau parcours passe par LessonConversation.
 export type LessonConversation = {
   attemptId: string;
   variant: LessonVariant;
-  resumeTurns: AttemptTurn[]; // tours déjà enregistrés (reprise après pause / réessai)
-  turnLimit: number; // nb total de tours autorisés dans cette passe (maxUsefulTurns, ou + en réessai)
-  onTurn: (turn: AttemptTurn) => void; // persistance serveur, sans bloquer l'écran
-  onEnd: () => void; // l'utilisateur a atteint la limite et demande la suite
+  resumeTurns: AttemptTurn[];
+  turnLimit: number;
+  onTurn: (turn: AttemptTurn) => void;
+  onEnd: () => void;
 };
 
-// Contexte passé au coach à la place d'un scénario : rôle, consigne, ouverture et relances de la variante.
 function buildLessonContext(v: LessonVariant): string {
   const followUps = v.followUpsEn.map((q) => `"${q}"`).join(", ");
   return `${v.coachRole}. The learner plays: ${v.userRole}. This is a short guided lesson of at most ${v.maxUsefulTurns} exchanges; stay warm and simple. You already opened with: "${v.openingEn}". Natural follow-up questions to use when they fit: ${followUps}. Only if the learner is clearly comfortable, you may ask: "${v.difficultyFollowUpEn}".`;
@@ -137,59 +128,12 @@ type Opening = { context_fr: string; reply_en: string; reply_fr: string; hardWor
 type Debrief = { points_forts: string[]; axe: string; message_fr: string } | null;
 type WordPopup = { word: string; fr: string; loading: boolean } | null;
 
-// Ne garde que les mots faibles réellement présents dans ce que l'utilisateur a dit.
-function cleanWeakWords(weak: { word: string; score: number }[], said: string): string[] {
-  const saidSet = new Set(said.toLowerCase().replace(/[^a-z0-9\s']/g, " ").split(/\s+/).filter(Boolean));
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const w of weak) {
-    const k = w.word.toLowerCase().replace(/[^a-z0-9']/g, "");
-    if (!k || seen.has(k) || !saidSet.has(k)) continue;
-    seen.add(k);
-    out.push(w.word);
-    if (out.length >= 3) break;
-  }
-  return out;
-}
-
-// Observations du coach renvoyées par spikeTurn/chatTurn en mode leçon (champ absent hors leçon → undefined).
 function parseObserved(raw: any): ObservedCriterion[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const ok = new Set(["not_observed", "emerging", "achieved"]);
   return raw
     .filter((o) => o && typeof o.criterion_id === "string" && ok.has(o.status))
     .map((o) => ({ criterionId: o.criterion_id, statusCandidate: o.status, support: "none" as SupportKind, confidence: (["low", "medium", "high"].includes(o.confidence) ? o.confidence : "low") }));
-}
-
-// Trois points qui pulsent (bulle de frappe du coach).
-function TypingDots() {
-  const d1 = useRef(new Animated.Value(0.3)).current;
-  const d2 = useRef(new Animated.Value(0.3)).current;
-  const d3 = useRef(new Animated.Value(0.3)).current;
-  const dots = [d1, d2, d3];
-
-  useEffect(() => {
-    const anims = dots.map((d, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 160),
-          Animated.timing(d, { toValue: 1, duration: 350, useNativeDriver: true }),
-          Animated.timing(d, { toValue: 0.3, duration: 350, useNativeDriver: true }),
-          Animated.delay((2 - i) * 160),
-        ])
-      )
-    );
-    anims.forEach((a) => a.start());
-    return () => anims.forEach((a) => a.stop());
-  }, []);
-
-  return (
-    <View style={{ flexDirection: "row", gap: 5, paddingVertical: 4, paddingHorizontal: 2 }}>
-      {dots.map((d, i) => (
-        <Animated.View key={i} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#F2ECE1", opacity: d, transform: [{ scale: d }] }} />
-      ))}
-    </View>
-  );
 }
 
 // Transforme une erreur technique en message clair pour l'utilisateur (jamais de JSON brut à l'écran).
@@ -202,26 +146,41 @@ function friendlyError(e: any): string {
   return "Une erreur est survenue. Réessaie dans un instant.";
 }
 
+// Phrase corrigée : les mots absents de la phrase d'origine sont surlignés en vert (même rendu que la leçon)
+function CorrectedPhrase({ original, target }: { original: string; target: string }) {
+  const norm = (w: string) => w.toLowerCase().replace(/[^a-z0-9']/g, "");
+  const orig = new Set(original.split(/\s+/).map(norm).filter(Boolean));
+  const tokens = target.split(/(\s+)/);
+  return (
+    <Text style={styles.coachingPhrase}>
+      {tokens.map((tok, i) => {
+        if (/^\s+$/.test(tok) || !tok) return tok;
+        const changed = !orig.has(norm(tok));
+        return <Text key={i} style={changed ? styles.coachingChanged : undefined}>{tok}</Text>;
+      })}
+    </Text>
+  );
+}
+
+const correctedText = (c: Correction) => c.corrected.map((t) => t.text).join(" ");
+
 // Nombre d'échanges minimum dans la conversation de présentation pour recevoir le cadeau en la quittant
 const GIFT_MIN_TURNS = 1;
 
 export default function SpikeScreen({ scenario, onExit, daily, welcome, premium, lesson }: { scenario: Scenario; onExit: (offerGift?: boolean) => void; daily?: boolean; welcome?: boolean; premium?: boolean; lesson?: LessonConversation }) {
   const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
-  // metering: niveau sonore en direct pendant l'enregistrement, si le SDK le fournit (voir startRecording).
-  // Repli propre si non disponible : recorderState.metering reste undefined, les barres restent au repos.
   const recorderState = useAudioRecorderState(recorder, 80);
   const player = useAudioPlayer();
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  // La discussion du jour (daily/welcome) reste un SVG générique ; les vraies scènes sont désormais des PNG.
   const isDailyIllustration = daily || welcome;
   const scenePngSource = isDailyIllustration ? null : SCENE_ILLUSTRATIONS[scenario.id];
   const hasIllustration = isDailyIllustration || !!scenePngSource;
   const [turns, setTurns] = useState<Turn[]>(() => (lesson ? lesson.resumeTurns.map(attemptTurnToTurn) : []));
-  // Mode leçon : aide utilisée depuis le dernier tour ("hint" = traduction, "model" = exemple) — remise à "none" à chaque tour
   const supportRef = useRef<SupportKind>("none");
   const [opening, setOpening] = useState<Opening>(null);
   const [debrief, setDebrief] = useState<Debrief>(null);
   const [status, setStatus] = useState<"opening" | "idle" | "recording" | "processing" | "debriefing">("opening");
+  const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -238,12 +197,14 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
   const favFlashAnim = useRef(new Animated.Value(0)).current;
   const [firstSessionCongrats, setFirstSessionCongrats] = useState(false);
   const [showTranslateHint, setShowTranslateHint] = useState(false);
+  const [sceneOpen, setSceneOpen] = useState(false);
+  const [micDenied, setMicDenied] = useState(false);
   // Canal de conversation
   const [channel, setChannel] = useState<Channel>("voice");
   const [showChannelChoice, setShowChannelChoice] = useState(true);
   const [textInput, setTextInput] = useState("");
   const [pendingUserText, setPendingUserText] = useState("");
-  // Assistant : traduire (FR→EN) + réponse d'exemple
+  // Aides : traduire (FR→EN) + réponse d'exemple
   const [showTranslate, setShowTranslate] = useState(false);
   const [translateInput, setTranslateInput] = useState("");
   const [translateResult, setTranslateResult] = useState("");
@@ -254,18 +215,18 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
   const recordStartRef = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
   const debriefingRef = useRef(false);
+  const lastCoachRef = useRef<{ text: string; audio: string | null }>({ text: "", audio: null });
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
+  const coachName = coachForVoice(voiceKey).displayName;
   const sessionLimit = lesson ? lesson.turnLimit : welcome ? WELCOME_LIMIT : (isFirstSession ? FIRST_SESSION_LIMIT : SCENARIO_LIMIT);
-  const capped = true;
-  const reachedLimit = capped && turns.length >= sessionLimit;
-  const chatGoal = capped ? sessionLimit : 8;
-  const chatProgress = Math.min(100, Math.round((turns.length / chatGoal) * 100));
+  const reachedLimit = turns.length >= sessionLimit;
+  const title = lesson ? lesson.variant.titleFr : daily ? "Conversation libre" : scenario.title;
 
   useEffect(() => {
     (async () => {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
-      if (!perm.granted) setError("Permission micro refusée");
+      if (!perm.granted) { setMicDenied(true); setChannel("text"); }
     })();
   }, []);
 
@@ -282,10 +243,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
   // Le hint "Touche un mot pour le traduire" disparaît tout seul après quelques secondes.
   useEffect(() => {
     if (!showTranslateHint) return;
-    const t = setTimeout(() => {
-      setShowTranslateHint(false);
-      markTranslateHintSeen();
-    }, 4500);
+    const t = setTimeout(() => { setShowTranslateHint(false); markTranslateHintSeen(); }, 4500);
     return () => clearTimeout(t);
   }, [showTranslateHint]);
 
@@ -297,39 +255,39 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     return () => clearInterval(id);
   }, [status]);
 
-  // Poids fixes par barre (variation visuelle) — le niveau réel (metering) module leur hauteur en direct.
-  const WAVE_BARS = 28;
-  const waveWeights = useRef(Array.from({ length: WAVE_BARS }, () => 0.5 + Math.random() * 0.5)).current;
+  // État « le coach parle » (pour le bouton Arrêter / Réécouter du composer)
+  useEffect(() => {
+    const sub = player.addListener("playbackStatusUpdate", (st: any) => { if (st?.didJustFinish) setSpeaking(false); });
+    return () => { sub.remove(); try { player.pause(); } catch {} };
+  }, [player]);
 
   const playBase64 = async (base64: string) => {
     const p = FileSystem.cacheDirectory + `reply_${Date.now()}.mp3`;
     await FileSystem.writeAsStringAsync(p, base64, { encoding: FileSystem.EncodingType.Base64 });
     player.replace(p);
     player.play();
+    setSpeaking(true);
   };
+  const stopAudio = () => { try { player.pause(); } catch {} setSpeaking(false); };
 
-  // Lit une phrase anglaise à voix haute via translateText mode "speak" (bouton "écouter" en mode texte).
+  // Lit une phrase anglaise à voix haute via translateText mode "speak".
   const playText = async (key: string, text: string) => {
     setListenLoading((p) => ({ ...p, [key]: true }));
     try {
       const res: any = await translateText({ text, mode: "speak", voice: voiceKey, speakingRate: speechRate });
-      if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
-    } catch (e) {
-      console.warn("Écoute échouée:", e);
-    } finally {
-      setListenLoading((p) => ({ ...p, [key]: false }));
-    }
+      if (res.data?.audioBase64) {
+        if (text === lastCoachRef.current.text) lastCoachRef.current.audio = res.data.audioBase64;
+        await playBase64(res.data.audioBase64);
+      }
+    } catch (e) { console.warn("Écoute échouée:", e); }
+    finally { setListenLoading((p) => ({ ...p, [key]: false })); }
   };
-
-  // Lit la version corrigée à voix haute.
-  const playCorrected = async (correction: Correction) => {
-    const text = correction.corrected.map((t) => t.text).join(" ");
-    try {
-      const res: any = await translateText({ text, mode: "speak", voice: voiceKey, speakingRate: speechRate });
-      if (res.data?.audioBase64) await playBase64(res.data.audioBase64);
-    } catch (e) {
-      console.warn("Lecture de la correction échouée:", e);
-    }
+  // Réécouter la dernière réplique du coach (audio déjà reçu si possible, sinon synthèse)
+  const replayLast = () => {
+    const last = lastCoachRef.current;
+    if (!last.text) return;
+    stopAudio();
+    if (last.audio) playBase64(last.audio); else playText("last", last.text);
   };
 
   // Accès rapide : fait défiler les 4 vitesses et enregistre le choix (réglage global).
@@ -339,7 +297,18 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     await saveSpeechRate(r);
   };
 
-  // Assistant — Traduire (FR→EN)
+  const historyPayload = () => ({
+    history: [
+      ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
+      ...turns.map((t) => ({ user: t.user, coach: t.coach })),
+    ],
+    scenarioId: (daily || welcome || lesson) ? null : scenario.id,
+    level,
+    sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
+    customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
+  });
+
+  // Aide — Traduire (FR→EN)
   const openTranslate = () => { setTranslateInput(""); setTranslateResult(""); setShowTranslate(true); };
   const runTranslate = async () => {
     const text = translateInput.trim();
@@ -349,36 +318,19 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
       const res: any = await translateToEnglish({ text, level });
       setTranslateResult(res.data?.english ?? "");
       if (supportRef.current === "none") supportRef.current = "hint";
-    } catch (e) {
-      console.warn("Traduction échouée:", e);
-      setTranslateResult("");
-    } finally {
-      setTranslateLoading(false);
-    }
+    } catch (e) { console.warn("Traduction échouée:", e); setTranslateResult(""); }
+    finally { setTranslateLoading(false); }
   };
 
-  // Assistant — Réponse d'exemple (selon le contexte)
+  // Aide — Réponse d'exemple (selon le contexte)
   const openExample = () => { supportRef.current = "model"; setExampleData(null); setShowExample(true); runExample(); };
   const runExample = async () => {
     setExampleLoading(true); setExampleData(null);
     try {
-      const res: any = await suggestExample({
-        history: [
-          ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
-          ...turns.map((t) => ({ user: t.user, coach: t.coach })),
-        ],
-        scenarioId: (daily || welcome || lesson) ? null : scenario.id,
-        level,
-        sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
-        customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
-      });
+      const res: any = await suggestExample(historyPayload());
       setExampleData({ en: res.data?.example_en ?? "", fr: res.data?.example_fr ?? "" });
-    } catch (e) {
-      console.warn("Exemple échoué:", e);
-      setExampleData(null);
-    } finally {
-      setExampleLoading(false);
-    }
+    } catch (e) { console.warn("Exemple échoué:", e); setExampleData(null); }
+    finally { setExampleLoading(false); }
   };
 
   // Le choix du canal déclenche le chargement de l'ouverture (et joue l'audio seulement en mode voix).
@@ -389,10 +341,10 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
   };
 
   const loadOpening = async (ch: Channel) => {
-    // Mode leçon : l'ouverture vient du catalogue, pas du serveur (lue à voix haute en mode voix, sauf en reprise)
     if (lesson) {
       const v = lesson.variant;
       setOpening({ context_fr: v.objectiveFr, reply_en: v.openingEn, reply_fr: "", hardWords: [] });
+      lastCoachRef.current = { text: v.openingEn, audio: null };
       if (ch === "voice" && turns.length === 0) playText("op", v.openingEn);
       setStatus("idle");
       return;
@@ -402,20 +354,13 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
       if (welcome) {
         const p = await loadProfile();
         res = await welcomeOpening({
-          level: p?.level ?? "B1",
-          name: p?.name ?? null,
-          interests: p?.interests ?? [],
-          goals: p?.goals ?? [],
-          job: p?.job ?? null,
+          level: p?.level ?? "B1", name: p?.name ?? null, interests: p?.interests ?? [], goals: p?.goals ?? [], job: p?.job ?? null,
           voice: p?.voice ?? "us-male", speakingRate: speechRate,
         });
       } else if (daily) {
         const p = await loadProfile();
         res = await dailyOpening({
-          level: p?.level ?? "B1",
-          interests: p?.interests ?? [],
-          goals: p?.goals ?? [],
-          job: p?.job ?? null,
+          level: p?.level ?? "B1", interests: p?.interests ?? [], goals: p?.goals ?? [], job: p?.job ?? null,
           voice: p?.voice ?? "us-male", speakingRate: speechRate,
         });
       } else {
@@ -427,7 +372,8 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
         reply_fr: res.data.reply_fr ?? "",
         hardWords: res.data.hard_words ?? [],
       });
-      if (ch === "voice") playBase64(res.data.replyAudioBase64);
+      lastCoachRef.current = { text: res.data.reply_en, audio: res.data.replyAudioBase64 ?? null };
+      if (ch === "voice" && res.data.replyAudioBase64) playBase64(res.data.replyAudioBase64);
     } catch (e: any) {
       const msg = String(e?.message || "");
       setError(msg.includes("UNSAFE_CONTEXT") ? "Ce contexte n'est pas approprié pour une scène. Essaie autre chose." : friendlyError(e));
@@ -438,7 +384,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
 
   const persistTurn = async (turn: Turn, index: number) => {
     if (lesson) {
-      // Tentative de leçon : le tour part vers la Function recordLessonTurn (id stable par index → ré-envoi idempotent)
       lesson.onTurn({
         id: `t${String(index).padStart(2, "0")}`,
         index,
@@ -460,38 +405,30 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     try {
       let sid = sessionId;
       if (!sid) { sid = await startSession(daily ? "daily" : scenario.id, daily ? "daily" : "scenario"); setSessionId(sid); }
-      const st: SessionTurn = {
-        user: turn.user, coach: turn.coach, feedback: turn.feedback ?? "",
-        pronunciation: turn.pronunciation, at: Date.now(),
-      };
+      const st: SessionTurn = { user: turn.user, coach: turn.coach, feedback: turn.feedback ?? "", pronunciation: turn.pronunciation, at: Date.now() };
       await addTurn(sid, st);
     } catch (e) { console.warn("Persistance du tour échouée:", e); }
   };
 
-  // Ajoute le tour, gère les stumbles, la persistance, le scroll et la fin de séance (commun voix + texte).
+  // Ajoute le tour, persiste, scrolle et gère la fin de séance (commun voix + texte).
   const finalizeTurn = (newTurn: Turn) => {
     const nextCount = turns.length + 1;
     setTurns((prev) => [...prev, newTurn]);
-    for (const m of newTurn.misheard) recordStumble(m.said, m.heard);
     persistTurn(newTurn, nextCount - 1);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     if (nextCount >= sessionLimit) {
       setStatus("idle");
-      if (lesson) return; // la suite (observations, micro-exercice) est affichée par LessonScreen via le bouton « Continuer »
-      if (isFirstSession || welcome) {
-        setTimeout(() => setFirstSessionCongrats(true), 800);
-      } else {
-        setTimeout(() => runDebrief(), 800);
-      }
+      if (lesson) return;
+      if (isFirstSession || welcome) setTimeout(() => setFirstSessionCongrats(true), 800);
+      else setTimeout(() => runDebrief(), 800);
     }
   };
 
   const startRecording = async () => {
     if (status !== "idle" || reachedLimit) return;
-    setError(null); setHint(null);
+    stopAudio(); setError(null); setHint(null);
     try {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      // isMeteringEnabled est réglé à la création du recorder (useAudioRecorder ci-dessus).
       await recorder.prepareToRecordAsync();
       recorder.record();
       recordStartRef.current = Date.now();
@@ -499,7 +436,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     } catch (e: any) { setError(friendlyError(e)); setStatus("idle"); }
   };
 
-  // Annule l'enregistrement en cours (icône poubelle) — rien n'est envoyé.
   const cancelRecording = async () => {
     if (status !== "recording") return;
     try {
@@ -509,13 +445,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     setStatus("idle");
   };
 
-  // Un tap démarre, un tap envoie (pas un "maintenir" : la carte d'enregistrement remplace le bouton
-  // à l'écran, ce qui interromprait un geste de pression continue sur le même élément).
-  const toggleRecording = () => {
-    if (status === "idle") startRecording();
-    else if (status === "recording") stopAndSend();
-  };
-
   const stopAndSend = async () => {
     if (status !== "recording") return;
     setStatus("processing");
@@ -523,35 +452,27 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
       await recorder.stop();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (Date.now() - recordStartRef.current < MIN_RECORDING_MS) {
-        setHint("Maintiens le bouton et parle — je t'écoute.");
+        setHint("Touche le micro et parle, je t'écoute.");
         setStatus("idle"); return;
       }
       const uri = recorder.uri;
       if (!uri) throw new Error("Aucun enregistrement produit");
       const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      // Temps de parole : durée réelle de ce tour, cumulée par jour (nouveau suivi, pas de rétroactif).
       addSpeakingSeconds((Date.now() - recordStartRef.current) / 1000).catch(() => {});
 
-      const willBeLast = capped && turns.length + 1 >= sessionLimit;
+      const willBeLast = turns.length + 1 >= sessionLimit;
       const res: any = await spikeTurn({
         audioBase64, mimeType: "audio/mp4",
-        history: [
-          ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
-          ...turns.map((t) => ({ user: t.user, coach: t.coach })),
-        ],
-        scenarioId: (daily || welcome || lesson) ? null : scenario.id,
-        level,
-        sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
-        customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
+        ...historyPayload(),
         isLastTurn: willBeLast,
         voice: voiceKey, speakingRate: speechRate,
         ...(lesson ? { lessonCriteria: lesson.variant.requiredCriteria } : {}),
       });
-      console.log("TIMINGS:", JSON.stringify(res.data.timings));
+      if (__DEV__) console.log("TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
-      playBase64(d.replyAudioBase64); // on lance l'audio SANS attendre qu'il finisse
-
-      if (!d.transcript) { setHint(d.feedback_fr || "Je n'ai rien entendu — réessaie."); return; }
+      if (!d.transcript) { setHint(d.feedback_fr || "Je n'ai rien entendu, réessaie."); return; }
+      lastCoachRef.current = { text: d.reply_en, audio: d.replyAudioBase64 ?? null };
+      if (d.replyAudioBase64) playBase64(d.replyAudioBase64); // audio lancé sans attendre la fin
 
       finalizeTurn({
         user: d.transcript,
@@ -571,28 +492,23 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
   const sendText = async () => {
     const text = textInput.trim();
     if (!text || status === "processing" || reachedLimit) return;
-    setTextInput("");            // vide l'input tout de suite
-    setPendingUserText(text);    // affiche le message dans la conversation tout de suite
+    stopAudio();
+    setTextInput("");
+    setPendingUserText(text);
     setStatus("processing");
     setError(null); setHint(null);
     try {
-      const willBeLast = capped && turns.length + 1 >= sessionLimit;
+      const willBeLast = turns.length + 1 >= sessionLimit;
       const res: any = await chatTurn({
         text,
-        history: [
-          ...(opening ? [{ user: "", coach: opening.reply_en }] : []),
-          ...turns.map((t) => ({ user: t.user, coach: t.coach })),
-        ],
-        scenarioId: (daily || welcome || lesson) ? null : scenario.id,
-        level,
-        sceneContext: (welcome || lesson) ? null : (opening?.context_fr ?? null),
-        customContext: lesson ? buildLessonContext(lesson.variant) : welcome ? WELCOME_TURN_CONTEXT : (scenario.custom ?? null),
+        ...historyPayload(),
         isLastTurn: willBeLast,
         ...(lesson ? { lessonCriteria: lesson.variant.requiredCriteria } : {}),
       });
-      console.log("CHAT TIMINGS:", JSON.stringify(res.data.timings));
+      if (__DEV__) console.log("CHAT TIMINGS:", JSON.stringify(res.data.timings));
       const d = res.data;
-      setPendingUserText("");     // le tour complet prend le relais
+      setPendingUserText("");
+      lastCoachRef.current = { text: d.reply_en, audio: null };
       finalizeTurn({
         user: text,
         coach: d.reply_en,
@@ -600,7 +516,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
         hardWords: d.hard_words ?? [],
         misheard: [],
         feedback: d.feedback_fr ?? null,
-        pronunciation: null, // pas de prononciation en mode texte
+        pronunciation: null,
         correction: d.correction ?? null,
         observedCriteria: parseObserved(d.observed_criteria),
       });
@@ -608,9 +524,9 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     finally { setStatus((s) => (s === "processing" ? "idle" : s)); }
   };
 
-  // La flèche retour sort sans rien marquer, SAUF pour la démo freemium (welcome, non premium) :
-  // là, on prévient avant de perdre la conversation, et on ne consomme l'essai qu'en cas de confirmation.
+  // La flèche retour sort sans rien marquer, SAUF pour la démo freemium (welcome, non premium).
   const handleBack = () => {
+    stopAudio();
     if (welcome && !premium && turns.length > 0) { setShowExitConfirm(true); return; }
     onExit();
   };
@@ -618,7 +534,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     setShowExitConfirm(false);
     logWelcomeConversationAbandon();
     markFirstSessionDone().catch(() => {});
-    // Le cadeau est quand même offert dès qu'il y a eu au moins un échange
     onExit(turns.length >= GIFT_MIN_TURNS);
   };
 
@@ -630,15 +545,11 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     try {
       if (isFirstSession) markFirstSessionDone();
       if (welcome) logWelcomeConversationComplete();
-      const res: any = await sessionDebrief({
-        turns: turns.map((t) => ({ user: t.user, coach: t.coach, pronunciation: t.pronunciation })),
-      });
+      const res: any = await sessionDebrief({ turns: turns.map((t) => ({ user: t.user, coach: t.coach, pronunciation: t.pronunciation })) });
       setDebrief(res.data);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       if (sessionId) {
-        const st: SessionTurn[] = turns.map((t) => ({
-          user: t.user, coach: t.coach, feedback: t.feedback ?? "", pronunciation: t.pronunciation, at: 0,
-        }));
+        const st: SessionTurn[] = turns.map((t) => ({ user: t.user, coach: t.coach, feedback: t.feedback ?? "", pronunciation: t.pronunciation, at: 0 }));
         closeSession(sessionId, res.data, st).catch((e) => console.warn("Clôture échouée:", e));
       }
     } catch (e: any) { setError(friendlyError(e)); }
@@ -658,9 +569,6 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     ]).start(() => setFavFlash(null));
   };
 
-  // "Ajouter aux révisions" (panneau de correction) : retiré — pas cohérent de forcer une phrase
-  // entière dans le Labo, qui est pensé pour des mots.
-
   const onWordTap = async (raw: string, knownFr: string, key: string) => {
     const word = raw.replace(/[^A-Za-z'-]/g, "");
     if (!word) return;
@@ -671,9 +579,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     try {
       const res: any = await translateText({ text: word, mode: "word" });
       setWordPopup({ word, fr: res.data.translation || "", loading: false });
-    } catch {
-      setWordPopup({ word, fr: "", loading: false });
-    }
+    } catch { setWordPopup({ word, fr: "", loading: false }); }
   };
 
   const toggleBubble = async (key: string, text: string) => {
@@ -682,19 +588,17 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
     try {
       const res: any = await translateText({ text, mode: "sentence" });
       setBubbleFr((p) => ({ ...p, [key]: res.data.translation || "(traduction indisponible)" }));
-    } catch {
-      setBubbleFr((p) => ({ ...p, [key]: "(traduction indisponible)" }));
-    } finally {
-      setBubbleLoading((p) => ({ ...p, [key]: false }));
-    }
+    } catch { setBubbleFr((p) => ({ ...p, [key]: "(traduction indisponible)" })); }
+    finally { setBubbleLoading((p) => ({ ...p, [key]: false })); }
   };
 
+  // Texte du coach : chaque mot est touchable (traduction), les mots difficiles sont soulignés
   const renderBubbleText = (text: string, hardWords: HardWord[], bubbleKey: string) => {
     const hardMap: Record<string, string> = {};
     hardWords.forEach((h) => { hardMap[h.word.toLowerCase().replace(/[^a-z]/g, "")] = h.fr; });
     const tokens = text.split(/(\s+)/);
     return (
-      <Text style={styles.themText}>
+      <Text style={styles.coachText}>
         {tokens.map((tok, i) => {
           if (/^\s+$/.test(tok)) return tok;
           const clean = tok.toLowerCase().replace(/[^a-z]/g, "");
@@ -702,11 +606,7 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
           const wordKey = `${bubbleKey}-${i}`;
           const isSelected = selectedWordKey === wordKey;
           return (
-            <Text
-              key={i}
-              onPress={() => onWordTap(tok, hardMap[clean] ?? "", wordKey)}
-              style={[isHard ? styles.hardWord : styles.tappableWord, isSelected && styles.selectedWord]}
-            >
+            <Text key={i} onPress={() => onWordTap(tok, hardMap[clean] ?? "", wordKey)} style={[isHard && styles.hardWord, isSelected && styles.selectedWord]}>
               {tok}
             </Text>
           );
@@ -716,374 +616,304 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
   };
 
   const renderCoachBubble = (text: string, hardWords: HardWord[], key: string) => (
-    <View style={styles.themBubble}>
+    <View style={styles.coachBubble}>
       {renderBubbleText(text, hardWords, key)}
-      {bubbleFr[key] ? <Text style={styles.translation}>{bubbleFr[key]}</Text> : null}
-      <View style={styles.bubbleActions}>
-        <Pressable onPress={() => playText(key, text)} style={styles.translateBtn} hitSlop={8}>
-          {listenLoading[key] ? (
-            <ActivityIndicator size="small" color="#CFC8BE" />
-          ) : (
-            <>
-              <Feather name="play" size={13} color="#CFC8BE" />
-              <Text style={styles.translateBtnText}>Réécouter</Text>
-            </>
-          )}
+      {bubbleFr[key] ? <Text style={styles.coachFr}>{bubbleFr[key]}</Text> : null}
+      <View style={styles.msgActions}>
+        <Pressable onPress={() => { stopAudio(); playText(key, text); }} style={styles.msgAction} hitSlop={8} accessibilityRole="button" accessibilityLabel="Écouter">
+          {listenLoading[key] ? <ActivityIndicator size="small" color={L.textSecondary} /> : <><Icon name="ecouter" size={18} /><Text style={styles.msgActionText}>Écouter</Text></>}
         </Pressable>
-        <Pressable onPress={() => toggleBubble(key, text)} style={styles.translateBtn} hitSlop={8}>
-          {bubbleLoading[key] ? (
-            <ActivityIndicator size="small" color="#CFC8BE" />
-          ) : (
-            <>
-              <Feather name="globe" size={13} color="#CFC8BE" />
-              <Text style={styles.translateBtnText}>{bubbleFr[key] ? "Masquer" : "Traduire"}</Text>
-            </>
-          )}
+        <Pressable onPress={() => toggleBubble(key, text)} style={styles.msgAction} hitSlop={8} accessibilityRole="button" accessibilityLabel="Traduire">
+          {bubbleLoading[key] ? <ActivityIndicator size="small" color={L.textSecondary} /> : <><Icon name="traduire" size={18} /><Text style={styles.msgActionText}>{bubbleFr[key] ? "Masquer" : "Traduire"}</Text></>}
         </Pressable>
       </View>
     </View>
   );
 
+  // Carte « Le conseil de … » : uniquement quand il y a quelque chose à corriger (comme en leçon)
+  const renderCoaching = (t: Turn, i: number) => {
+    if (!t.correction?.has_errors) return null;
+    const target = correctedText(t.correction);
+    const key = `k${i}`;
+    return (
+      <View style={styles.coachingCard} accessibilityLabel={`Le conseil de ${coachName}. ${t.feedback ?? ""} ${target}`}>
+        <View style={styles.coachingHead}><Icon name="etoile" size={20} /><Text style={styles.coachingTitle}>Le conseil de {coachName}</Text></View>
+        {t.feedback ? <Text style={styles.coachingExplanation}>{t.feedback}</Text> : null}
+        <CorrectedPhrase original={t.user} target={target} />
+        <ListenButton onPress={() => { stopAudio(); playText(key, target); }} busy={listenLoading[key]} style={{ marginTop: 12 }} />
+      </View>
+    );
+  };
+
+  const sceneImage = (style: any) => !hasIllustration ? null : (
+    <View style={style}>
+      {isDailyIllustration
+        ? <DailySceneImg width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
+        : <Image source={scenePngSource} style={{ width: "100%", height: "100%" }} resizeMode="cover" />}
+    </View>
+  );
+
+  const busy = status === "processing" || status === "debriefing" || status === "opening";
+  const level01 = typeof recorderState.metering === "number" ? Math.max(0, Math.min(1, (recorderState.metering + 55) / 55)) : 0.15;
+  const composerLabel =
+    status === "processing" ? "Je prépare ma réponse…" :
+    speaking ? `${coachName} te répond…` :
+    "Touche pour parler";
+  const remaining = Math.max(0, sessionLimit - turns.length);
+  const progressText = reachedLimit ? "Scène terminée" : remaining === 1 ? "Dernier échange" : `${remaining} échanges`;
+
   return (
   <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
     <View style={styles.container}>
-    <StatusBar style="dark" />
+      <StatusBar style="dark" />
+      {/* En-tête : retour · titre · vitesse · terminer */}
       <View style={styles.header}>
-        <Pressable onPress={handleBack} hitSlop={12}><Feather name="chevron-left" size={26} color={T.inkSoft} /></Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>{lesson ? lesson.variant.titleFr : daily ? "Discussion du jour" : scenario.title}</Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${chatProgress}%` }]} />
-          </View>
-        </View>
+        <RoundButton icon="retour" label="Retour" onPress={handleBack} size={44} iconSize={20} />
+        <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
         {!showChannelChoice && (
-          <Pressable onPress={cycleRate} hitSlop={8} style={styles.speedPill}>
-            <Feather name="sliders" size={12} color={T.abricotDeep} />
+          <Pressable onPress={cycleRate} hitSlop={8} style={styles.speedPill} accessibilityRole="button" accessibilityLabel={`Vitesse ${labelForRate(speechRate)}`}>
+            <Feather name="sliders" size={13} color={L.accentDeep} />
             <Text style={styles.speedPillText}>{labelForRate(speechRate)}</Text>
           </Pressable>
         )}
         {turns.length > 0 && !debrief && !lesson && (
-          <Pressable onPress={runDebrief} disabled={status !== "idle"} hitSlop={10} style={styles.closeBtn}>
-            <Feather name="x" size={20} color={T.inkSoft} />
-          </Pressable>
+          <RoundButton icon="fermer" label="Terminer et voir mon bilan" onPress={runDebrief} disabled={status !== "idle"} size={44} iconSize={18} />
         )}
       </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
-      {hint && <Text style={styles.hint}>{hint}</Text>}
-      {favFlash && (
-        <Animated.View
-          style={[
-            styles.favBadge,
-            {
-              opacity: favFlashAnim,
-              transform: [{ scale: favFlashAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
-            },
-          ]}
-        >
-          <View style={styles.favBadgeIcon}><Feather name="check" size={14} color="#fff" /></View>
-          <Text style={styles.favBadgeText}>« {favFlash} » ajouté à ton dictionnaire !</Text>
-        </Animated.View>
-      )}
-
-      <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
-        {status === "opening" && !showChannelChoice && (
-          <View style={{ marginTop: 6 }}>
-            <SkeletonCard style={{ borderLeftWidth: 3, borderLeftColor: T.abricot, borderRadius: 18, padding: 14, marginBottom: 12 }}>
-              <SkeletonLine width="24%" style={{ marginBottom: 10 }} />
-              <SkeletonLine width="92%" />
-              <SkeletonLine width="68%" style={{ marginBottom: 0 }} />
-            </SkeletonCard>
-            <SkeletonBox height={72} radius={20} style={{ borderTopLeftRadius: 6, marginRight: 38 }} />
-          </View>
-        )}
-
-        {opening && (
-          <>
-            {turns.length === 0 ? (
-              <View style={styles.sceneCard}>
-                {hasIllustration && (
-                  <View style={styles.sceneImgWrap}>
-                    {isDailyIllustration ? (
-                      <DailySceneImg width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
-                    ) : (
-                      <Image source={scenePngSource} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
-                    )}
-                  </View>
-                )}
-                <View style={styles.sceneTextInner}>
-                  <Text style={styles.sceneK}>{lesson ? "TON OBJECTIF" : "LA SCÈNE"}</Text>
-                  <Text style={styles.sceneText}>{opening.context_fr}</Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.scenePill}>
-                {hasIllustration && (
-                  <View style={styles.scenePillImgWrap}>
-                    {isDailyIllustration ? (
-                      <DailySceneImg width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
-                    ) : (
-                      <Image source={scenePngSource} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
-                    )}
-                  </View>
-                )}
-                <Text style={styles.scenePillText} numberOfLines={1}>{opening.context_fr}</Text>
-              </View>
-            )}
-            {renderCoachBubble(opening.reply_en, opening.hardWords, "op")}
-          </>
-        )}
-
-        {turns.map((t, i) => (
-          <View key={i}>
-            <View style={styles.meBubble}><Text style={styles.meText}>{t.user}</Text></View>
-
-            <CorrectionCard
-              correction={t.correction ?? { has_errors: false, original: [], corrected: [] }}
-              feedback={t.feedback ?? ""}
-              pronunciation={t.pronunciation ? { clear: (t.misheard ?? []).length === 0, problems: t.misheard ?? [] } : undefined}
-              onPlayCorrected={t.correction?.has_errors ? () => playCorrected(t.correction!) : undefined}
-            />
-
-            {renderCoachBubble(t.coach, t.hardWords, `t${i}`)}
-          </View>
-        ))}
-
-        {pendingUserText ? (
-          <View style={styles.meBubble}><Text style={styles.meText}>{pendingUserText}</Text></View>
-        ) : null}
-
-        {status === "processing" && (
-          <View style={styles.themBubble}>
-            <TypingDots />
-          </View>
-        )}
-
-        {debrief && <DebriefView debrief={debrief} />}
-      </ScrollView>
-
-      {status === "debriefing" && (
-        <ActivityIndicator size="large" color={T.abricot} style={{ marginBottom: 8 }} />
-      )}
-
-      {opening && !debrief && !reachedLimit && !showChannelChoice && (
-        <View style={styles.assistBar}>
-          <Pressable style={styles.assistBtn} onPress={openTranslate} disabled={status === "processing"} hitSlop={6}>
-            <Feather name="help-circle" size={15} color={T.abricotDeep} />
-            <Text style={styles.assistBtnText}>Aide-moi à dire</Text>
-          </Pressable>
-          <Pressable style={styles.assistBtn} onPress={openExample} disabled={status === "processing"} hitSlop={6}>
-            <MaterialCommunityIcons name="auto-fix" size={15} color={T.abricotDeep} />
-            <Text style={styles.assistBtnText}>Un exemple</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {!debrief ? (
-        reachedLimit ? (
-          <View style={styles.controls}>
-            <Pressable onPress={() => (lesson ? lesson.onEnd() : setFirstSessionCongrats(true))} style={styles.limitButton}>
-              <Text style={styles.limitButtonText}>{lesson ? "Continuer la leçon" : "Voir mon bilan"}</Text>
-            </Pressable>
-          </View>
-        ) : channel === "voice" ? (
-          status === "recording" ? (
-            <View style={styles.recCard}>
-              <View style={styles.waveformRow}>
-                {waveWeights.map((w, i) => {
-                  // metering (dBFS, très négatif = silence, proche de 0 = fort) — normalisé en 0..1.
-                  // Repli : si non disponible sur ce SDK/appareil, level reste à un niveau bas fixe (barres calmes, pas figées à plat).
-                  const metering = recorderState.metering;
-                  const level = typeof metering === "number" ? Math.max(0, Math.min(1, (metering + 55) / 55)) : 0.15;
-                  const h = 4 + w * level * 34;
-                  return <View key={i} style={[styles.waveBarLive, { height: h }]} />;
-                })}
-              </View>
-              <View style={styles.recRow}>
-                <Pressable onPress={cancelRecording} style={styles.cancelBtn} hitSlop={10}>
-                  <Feather name="trash-2" size={18} color="#C0392B" />
-                </Pressable>
-                <Pressable onPress={toggleRecording} style={[styles.mic, styles.micActive]}>
-                  <Feather name="mic" size={28} color="#fff" />
-                </Pressable>
-                <Text style={styles.recTime}>{Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, "0")}</Text>
-              </View>
-              <Text style={styles.recHint}>Touche le micro pour envoyer · la poubelle pour annuler</Text>
+      {/* Carte du thème : image + contexte de la scène + progression des échanges */}
+      {!showChannelChoice && (
+        <Pressable onPress={() => setSceneOpen((v) => !v)} style={[styles.sceneBar, reachedLimit && styles.sceneBarDone]} accessibilityRole="button" accessibilityLabel={`${lesson ? "Ton objectif" : "La scène"} : ${opening?.context_fr ?? ""}`}>
+          <View style={styles.sceneRow}>
+            {sceneImage(styles.sceneThumb)}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sceneK}>{lesson ? "Ton objectif" : daily ? "Discussion" : "La scène"} · <Text style={reachedLimit ? { color: L.success } : undefined}>{progressText}</Text></Text>
+              {opening
+                ? <Text style={styles.sceneText} numberOfLines={sceneOpen ? undefined : 2}>{opening.context_fr}</Text>
+                : <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}><ActivityIndicator size="small" color={L.textSecondary} /><Text style={styles.sceneWait}>{coachName} prépare la scène…</Text></View>}
             </View>
-          ) : (
-            <View style={styles.controls}>
-              <Pressable onPress={() => setChannel("text")} style={styles.keyboardBtn} hitSlop={10}>
-                <MaterialCommunityIcons name="keyboard-outline" size={20} color={T.inkSoft} />
-              </Pressable>
-              <View style={styles.micZone}>
-                <Pressable onPress={toggleRecording} disabled={status !== "idle"} style={styles.mic}>
-                  <Feather name="mic" size={30} color="#fff" />
-                </Pressable>
-                <Text style={styles.micLabel}>Touche pour parler</Text>
-              </View>
-              <View style={{ width: 44 }} />
-            </View>
-          )
-        ) : (
-          <View style={styles.textControls}>
-            <View style={styles.inputRow}>
-              <Pressable onPress={() => { if (status === "idle") setChannel("voice"); }} style={styles.keyboardBtn} hitSlop={10}>
-                <Feather name="mic" size={19} color={T.inkSoft} />
-              </Pressable>
-              <TextInput
-                style={styles.textInput}
-                value={textInput}
-                onChangeText={setTextInput}
-                placeholder="Écris ta réponse en anglais…"
-                placeholderTextColor={T.inkSoft}
-                multiline
-                editable={status !== "processing"}
-              />
-              <Pressable
-                onPress={sendText}
-                disabled={status === "processing" || !textInput.trim()}
-                style={[styles.sendBtn, (status === "processing" || !textInput.trim()) && styles.sendBtnDisabled]}
-              >
-                <Feather name="send" size={20} color="#fff" />
-              </Pressable>
-            </View>
+            <Icon name="chevron" size={18} style={{ transform: [{ rotate: sceneOpen ? "-90deg" : "90deg" }] }} />
           </View>
-        )
-      ) : (
-        <Pressable onPress={() => onExit(true)} style={styles.newSessionButton}>
-          <Text style={styles.newSessionText}>Terminer</Text>
+          <View style={styles.segments}>
+            {Array.from({ length: sessionLimit }).map((_, i) => <View key={i} style={[styles.segment, i < turns.length && { backgroundColor: L.success }, i === turns.length && !reachedLimit && { backgroundColor: L.accentDeep }]} />)}
+          </View>
         </Pressable>
       )}
 
-      {showTranslateHint && (opening || turns.length > 0) && channel === "voice" && (
+      {error ? <Text style={styles.errorText} accessibilityLiveRegion="polite">{error}</Text> : null}
+      {hint ? <Text style={styles.hintText}>{hint}</Text> : null}
+      {favFlash && (
+        <Animated.View style={[styles.favBadge, { opacity: favFlashAnim, transform: [{ scale: favFlashAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }] }]}>
+          <View style={styles.favBadgeIcon}><Icon name="check" size={12} tint="#fff" /></View>
+          <Text style={styles.favBadgeText}>« {favFlash} » ajouté à ton dictionnaire</Text>
+        </Animated.View>
+      )}
+
+      <View style={{ flex: 1 }}>
+        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
+          {status === "opening" && !showChannelChoice && (
+            <View style={[styles.coachBubble, styles.typingBubble]}><TypingDots /></View>
+          )}
+
+          {opening && renderCoachBubble(opening.reply_en, opening.hardWords, "op")}
+
+          {turns.map((t, i) => (
+            <View key={i}>
+              <View style={styles.userBubble}><Text style={styles.userText}>{t.user}</Text></View>
+              {renderCoaching(t, i)}
+              {renderCoachBubble(t.coach, t.hardWords, `t${i}`)}
+            </View>
+          ))}
+
+          {pendingUserText ? <View style={styles.userBubble}><Text style={styles.userText}>{pendingUserText}</Text></View> : null}
+          {status === "processing" && <View style={[styles.coachBubble, styles.typingBubble]}><TypingDots /></View>}
+          {status === "debriefing" && <View style={styles.typing}><ActivityIndicator size="small" color={L.textSecondary} /><Text style={styles.typingText}>Je prépare ton bilan…</Text></View>}
+
+          {debrief && <DebriefView debrief={debrief} />}
+        </ScrollView>
+
+        {/* Aides flottantes : « Aide-moi à dire » et « Un exemple » */}
+        {opening && !debrief && !reachedLimit && !showChannelChoice && (
+          <View style={styles.floatCol} pointerEvents="box-none">
+            <RoundButton icon="aide" label="Aide-moi à dire" onPress={openTranslate} disabled={busy} size={46} iconSize={20} style={styles.floatBtn} />
+            <RoundButton icon="exemple" label="Un exemple" onPress={openExample} disabled={busy} size={46} iconSize={20} style={styles.floatBtn} />
+          </View>
+        )}
+      </View>
+
+      {/* Composer */}
+      {debrief ? (
+        <PrimaryButton label="Terminer" onPress={() => onExit(true)} arrow={false} style={{ marginBottom: 8 }} />
+      ) : reachedLimit ? (
+        <PrimaryButton label={lesson ? "Continuer la leçon" : "Voir mon bilan"} onPress={() => (lesson ? lesson.onEnd() : setFirstSessionCongrats(true))} disabled={status === "debriefing"} style={{ marginBottom: 8 }} />
+      ) : showChannelChoice ? null : (
+        <View style={styles.composer}>
+          {channel === "voice" ? (
+            status === "recording" ? (
+              <View style={styles.recRow}>
+                <RoundButton icon="fermer" label="Annuler l'enregistrement" onPress={cancelRecording} tint={L.danger} />
+                <View style={styles.micZone}>
+                  <View style={styles.waveRow}>{Array.from({ length: 18 }).map((_, i) => <View key={i} style={[styles.waveBar, { height: 4 + ((i * 7) % 10 + 6) * level01 * 2 }]} />)}</View>
+                  <Pressable onPress={stopAndSend} style={[styles.micHalo, styles.micHaloActive]} accessibilityRole="button" accessibilityLabel="Arrêter et envoyer">
+                    <View style={[styles.mic, styles.micActive]}><Icon name="envoyer" size={30} tint="#fff" /></View>
+                  </Pressable>
+                  <Text style={styles.composerLabel}>{Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, "0")} · Appuie pour envoyer</Text>
+                </View>
+                <View style={{ width: 52 }} />
+              </View>
+            ) : (
+              <View style={styles.recRow}>
+                <RoundButton icon="clavier" label="Répondre au clavier" onPress={() => setChannel("text")} />
+                <View style={styles.micZone}>
+                  <Pressable onPress={startRecording} disabled={busy} style={[styles.micHalo, busy && { opacity: 0.4 }]} accessibilityRole="button" accessibilityLabel="Parler" accessibilityState={{ disabled: busy }}>
+                    <View style={[styles.mic, busy && styles.micIdle]}><Icon name="micro" size={30} tint="#fff" /></View>
+                  </Pressable>
+                  <Text style={styles.composerLabel}>{composerLabel}</Text>
+                </View>
+                {speaking
+                  ? <RoundButton icon="fermer" label="Arrêter la lecture" onPress={stopAudio} />
+                  : <RoundButton icon="rejouer" label={`Réécouter ${coachName}`} onPress={replayLast} disabled={busy || !lastCoachRef.current.text} />}
+              </View>
+            )
+          ) : (
+            <View>
+              {micDenied && (
+                <Pressable onPress={() => Linking.openSettings()} style={styles.micDeniedRow} accessibilityRole="button">
+                  <Text style={styles.micDeniedText}>Micro refusé — tu peux écrire, ou autoriser le micro dans les réglages.</Text>
+                </Pressable>
+              )}
+              <View style={styles.inputRow}>
+                {!micDenied && <RoundButton icon="micro" label="Répondre à la voix" onPress={() => { if (status === "idle") setChannel("voice"); }} />}
+                <TextInput
+                  style={styles.textInput}
+                  value={textInput}
+                  onChangeText={setTextInput}
+                  placeholder="Écris ta réponse en anglais…"
+                  placeholderTextColor={L.textSecondary}
+                  multiline
+                  editable={status !== "processing"}
+                  accessibilityLabel="Ta réponse en anglais"
+                />
+                <Pressable onPress={sendText} disabled={status === "processing" || !textInput.trim()} style={[styles.sendBtn, (status === "processing" || !textInput.trim()) && { opacity: 0.4 }]} accessibilityRole="button" accessibilityLabel="Envoyer">
+                  <Icon name="envoyer" size={22} tint="#fff" />
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+
+      {showTranslateHint && opening && !showChannelChoice && (
         <View style={styles.hintBanner} pointerEvents="none">
-          <Feather name="globe" size={16} color={T.night} />
+          <Icon name="traduire" size={16} tint={L.lavenderText} />
           <Text style={styles.hintBannerText}>Touche un mot pour le traduire</Text>
         </View>
       )}
 
-      {/* Choix du canal au lancement */}
+      {/* Démo freemium : confirmation avant de quitter */}
       <Modal visible={showExitConfirm} transparent animationType="fade" onRequestClose={() => setShowExitConfirm(false)}>
-        <Pressable style={styles.exitOverlay} onPress={() => setShowExitConfirm(false)}>
-          <Pressable style={styles.exitCard} onPress={() => {}}>
-            <Text style={styles.exitTitle}>Ta conversation sera perdue</Text>
-            <Text style={styles.exitBody}>Tu es sur ta conversation de présentation gratuite — elle ne peut se faire qu'une fois. Es-tu sûr de vouloir quitter maintenant ?</Text>
-            <Pressable onPress={confirmExit} style={styles.exitDangerBtn}>
-              <Text style={styles.exitDangerText}>Quitter quand même</Text>
+        <Pressable style={styles.overlay} onPress={() => setShowExitConfirm(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.sheetTitle}>Ta conversation sera perdue</Text>
+            <Text style={[styles.sheetHint, { marginTop: 6 }]}>Tu es sur ta conversation de présentation gratuite, elle ne peut se faire qu'une fois. Es-tu sûr de vouloir quitter maintenant ?</Text>
+            <Pressable onPress={confirmExit} style={[styles.sheetBtn, { backgroundColor: L.danger }]} accessibilityRole="button">
+              <Text style={[styles.sheetBtnText, { color: "#fff" }]}>Quitter quand même</Text>
             </Pressable>
-            <Pressable onPress={() => setShowExitConfirm(false)} style={{ paddingVertical: 12, alignItems: "center" }}>
-              <Text style={styles.exitCancelText}>Continuer la conversation</Text>
+            <Pressable onPress={() => setShowExitConfirm(false)} style={styles.sheetCancel} accessibilityRole="button">
+              <Text style={styles.sheetCancelText}>Continuer la conversation</Text>
             </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
 
+      {/* Choix du canal au lancement */}
       <Modal visible={showChannelChoice} transparent animationType="fade">
-        <View style={styles.choiceOverlay}>
-          <View style={styles.choiceCard}>
-            <Text style={styles.choiceTitle}>Comment veux-tu t'entraîner ?</Text>
-            <Text style={styles.choiceBody}>Tu pourras changer à tout moment pendant la conversation.</Text>
-            <Pressable style={styles.choiceBtn} onPress={() => chooseChannel("voice")}>
-              <View style={styles.choiceIcon}><Feather name="mic" size={22} color={T.night} /></View>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            {sceneImage(styles.choiceImg)}
+            <Text style={[styles.sheetTitle, { textAlign: "center", marginTop: hasIllustration ? 14 : 0 }]}>Comment veux-tu t'entraîner ?</Text>
+            <Text style={[styles.sheetHint, { textAlign: "center", marginTop: 6 }]}>Tu pourras changer à tout moment pendant la conversation.</Text>
+            <Pressable style={styles.choiceBtn} onPress={() => chooseChannel("voice")} accessibilityRole="button">
+              <View style={styles.choiceIcon}><Icon name="micro" size={22} tint={L.accentDeep} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.choiceBtnTitle}>À l'oral</Text>
-                <Text style={styles.choiceBtnDesc}>Parle à voix haute, travaille ta prononciation</Text>
+                <Text style={styles.choiceBtnDesc}>Parle à voix haute, comme dans la vraie vie</Text>
               </View>
+              <Icon name="chevron" size={16} />
             </Pressable>
-            <Pressable style={styles.choiceBtn} onPress={() => chooseChannel("text")}>
-              <View style={styles.choiceIcon}><Feather name="message-square" size={22} color={T.night} /></View>
+            <Pressable style={styles.choiceBtn} onPress={() => chooseChannel("text")} accessibilityRole="button">
+              <View style={[styles.choiceIcon, { backgroundColor: L.lavender }]}><Icon name="clavier" size={22} tint={L.lavenderText} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.choiceBtnTitle}>À l'écrit</Text>
                 <Text style={styles.choiceBtnDesc}>Tape tes réponses, sans faire de bruit</Text>
               </View>
+              <Icon name="chevron" size={16} />
             </Pressable>
           </View>
         </View>
       </Modal>
 
-      {/* Assistant — Traduire (FR→EN) */}
+      {/* Aide-moi à dire */}
       <Modal visible={showTranslate} transparent animationType="fade" onRequestClose={() => setShowTranslate(false)}>
-        <KeyboardAvoidingView behavior="padding" style={styles.assistOverlay}>
-          <View style={styles.assistCard}>
-            <View style={styles.assistHead}>
-              <Text style={styles.assistTitle}>Comment le dire en anglais</Text>
-              <Pressable onPress={() => setShowTranslate(false)} hitSlop={10}><Feather name="x" size={22} color={T.inkSoft} /></Pressable>
+        <KeyboardAvoidingView behavior="padding" style={styles.overlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Comment le dire en anglais</Text>
+              <RoundButton icon="fermer" label="Fermer" onPress={() => setShowTranslate(false)} size={40} iconSize={16} />
             </View>
-            <Text style={styles.assistHint}>Écris en français ce que tu veux dire. Je te montre comment le dire — à toi de le formuler ensuite.</Text>
-            <TextInput
-              style={styles.assistInput}
-              value={translateInput}
-              onChangeText={setTranslateInput}
-              placeholder="Ex : Je voudrais réserver une table pour deux…"
-              placeholderTextColor={T.inkSoft}
-              multiline
-            />
-            <Pressable onPress={runTranslate} disabled={translateLoading || !translateInput.trim()} style={[styles.assistAction, (translateLoading || !translateInput.trim()) && { opacity: 0.4 }]}>
-              {translateLoading ? <ActivityIndicator size="small" color={T.night} /> : <Text style={styles.assistActionText}>Traduire</Text>}
+            <Text style={styles.sheetHint}>Écris en français ce que tu veux dire. {coachName} te montre comment le dire, à toi de le formuler ensuite.</Text>
+            <TextInput style={styles.sheetInput} value={translateInput} onChangeText={setTranslateInput} placeholder="Ex : Je voudrais réserver une table pour deux…" placeholderTextColor={L.textSecondary} multiline />
+            <Pressable onPress={runTranslate} disabled={translateLoading || !translateInput.trim()} style={[styles.sheetBtn, (translateLoading || !translateInput.trim()) && { opacity: 0.4 }]} accessibilityRole="button">
+              {translateLoading ? <ActivityIndicator color={L.textPrimary} /> : <Text style={styles.sheetBtnText}>Traduire</Text>}
             </Pressable>
             {translateResult ? (
-              <View style={styles.assistResult}>
-                <Text style={styles.assistResultText}>{translateResult}</Text>
-                <Pressable onPress={() => playText("modal-translate", translateResult)} style={styles.assistListen} hitSlop={8}>
-                  {listenLoading["modal-translate"] ? <ActivityIndicator size="small" color={T.inkSoft} /> : (<><Feather name="volume-2" size={14} color={T.inkSoft} /><Text style={styles.assistListenText}>Écouter</Text></>)}
-                </Pressable>
+              <View style={styles.sheetResult}>
+                <Text style={styles.sheetResultText}>{translateResult}</Text>
+                <ListenButton onPress={() => playText("modal-translate", translateResult)} busy={listenLoading["modal-translate"]} style={{ marginTop: 10, backgroundColor: L.accentSoft }} />
               </View>
             ) : null}
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Assistant — Réponse d'exemple */}
+      {/* Un exemple */}
       <Modal visible={showExample} transparent animationType="fade" onRequestClose={() => setShowExample(false)}>
-        <View style={styles.assistOverlay}>
-          <View style={styles.assistCard}>
-            <View style={styles.assistHead}>
-              <Text style={styles.assistTitle}>Une idée de réponse</Text>
-              <Pressable onPress={() => setShowExample(false)} hitSlop={10}><Feather name="x" size={22} color={T.inkSoft} /></Pressable>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Une idée de réponse</Text>
+              <RoundButton icon="fermer" label="Fermer" onPress={() => setShowExample(false)} size={40} iconSize={16} />
             </View>
-            <Text style={styles.assistHint}>Un exemple de ce que tu pourrais répondre. Inspire-t'en, puis dis-le ou écris-le avec tes mots.</Text>
-            {exampleLoading ? (
-              <ActivityIndicator color={T.abricot} style={{ marginVertical: 24 }} />
-            ) : exampleData && exampleData.en ? (
-              <View style={styles.assistResult}>
-                <Text style={styles.assistResultText}>{exampleData.en}</Text>
-                {exampleData.fr ? <Text style={styles.assistResultFr}>{exampleData.fr}</Text> : null}
-                <View style={styles.assistResultActions}>
-                  <Pressable onPress={() => playText("modal-example", exampleData.en)} style={styles.assistListen} hitSlop={8}>
-                    {listenLoading["modal-example"] ? <ActivityIndicator size="small" color={T.inkSoft} /> : (<><Feather name="volume-2" size={14} color={T.inkSoft} /><Text style={styles.assistListenText}>Écouter</Text></>)}
-                  </Pressable>
-                  <Pressable onPress={runExample} style={styles.assistListen} hitSlop={8}>
-                    <Feather name="refresh-cw" size={14} color={T.inkSoft} /><Text style={styles.assistListenText}>Autre idée</Text>
-                  </Pressable>
+            <Text style={styles.sheetHint}>Inspire-t'en, puis dis-le ou écris-le avec tes mots.</Text>
+            {exampleLoading ? <ActivityIndicator color={L.accentDeep} style={{ marginVertical: 20 }} /> : exampleData?.en ? (
+              <View style={styles.sheetResult}>
+                <Text style={styles.sheetResultText}>{exampleData.en}</Text>
+                {exampleData.fr ? <Text style={styles.sheetResultFr}>{exampleData.fr}</Text> : null}
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                  <ListenButton onPress={() => playText("modal-example", exampleData.en)} busy={listenLoading["modal-example"]} style={{ backgroundColor: L.accentSoft }} />
+                  <Pressable onPress={runExample} style={styles.sheetLink} accessibilityRole="button"><Icon name="rejouer" size={16} /><Text style={styles.sheetLinkText}>Autre idée</Text></Pressable>
                 </View>
               </View>
-            ) : (
-              <Text style={styles.assistHint}>Impossible de générer un exemple pour l'instant. Réessaie.</Text>
-            )}
+            ) : <Text style={styles.sheetHint}>Impossible de générer un exemple pour l'instant. Réessaie.</Text>}
           </View>
         </View>
       </Modal>
 
+      {/* Mot touché : traduction + ajout au dictionnaire */}
       <Modal visible={!!wordPopup} transparent animationType="fade" onRequestClose={() => setWordPopup(null)}>
-        <Pressable style={styles.modalOverlay} onPress={() => { setWordPopup(null); setSelectedWordKey(null); }}>
-          <Pressable style={styles.wordCard} onPress={() => {}}>
+        <Pressable style={styles.overlay} onPress={() => { setWordPopup(null); setSelectedWordKey(null); }}>
+          <Pressable style={[styles.sheet, { alignItems: "center" }]} onPress={() => {}}>
             <Text style={styles.wordEn}>{wordPopup?.word}</Text>
             {wordPopup?.loading ? (
-              <ActivityIndicator color={T.abricotDeep} style={{ marginTop: 10 }} />
+              <ActivityIndicator color={L.accentDeep} style={{ marginTop: 10 }} />
             ) : wordPopup?.fr ? (
               <>
                 <Text style={styles.wordFr}>{wordPopup.fr}</Text>
                 <View style={styles.wordBtnRow}>
-                  <Pressable onPress={() => playText(`pop-${wordPopup!.word}`, wordPopup!.word)} style={styles.wordListenBtn}>
-                    {listenLoading[`pop-${wordPopup!.word}`] ? (
-                      <ActivityIndicator size="small" color={T.night} />
-                    ) : (
-                      <><Feather name="volume-2" size={15} color={T.night} /><Text style={styles.wordListenText}>Écouter</Text></>
-                    )}
-                  </Pressable>
-                  <Pressable onPress={() => addWordToFav({ word: wordPopup!.word, fr: wordPopup!.fr })} style={styles.wordFavBtn}>
-                    <Feather name="star" size={16} color={T.night} />
-                    <Text style={styles.wordFavText}>Ajouter à mes mots</Text>
+                  <ListenButton onPress={() => playText(`pop-${wordPopup!.word}`, wordPopup!.word)} busy={listenLoading[`pop-${wordPopup!.word}`]} style={{ backgroundColor: L.accentSoft }} />
+                  <Pressable onPress={() => addWordToFav({ word: wordPopup!.word, fr: wordPopup!.fr })} style={styles.wordFavBtn} accessibilityRole="button">
+                    <Icon name="etoile" size={18} tint={L.textPrimary} />
+                    <Text style={styles.wordFavText}>Garder ce mot</Text>
                   </Pressable>
                 </View>
               </>
@@ -1094,153 +924,121 @@ export default function SpikeScreen({ scenario, onExit, daily, welcome, premium,
         </Pressable>
       </Modal>
 
+      {/* Première conversation terminée */}
       <Modal visible={firstSessionCongrats} transparent animationType="fade">
-        <View style={styles.congratsOverlay}>
-          <View style={styles.congratsCard}>
-            <View style={styles.congratsIcon}><Feather name="award" size={40} color="#fff" /></View>
-            <Text style={styles.congratsTitle}>Félicitations !</Text>
-            <Text style={styles.congratsBody}>
-              Tu viens de faire tes premiers pas en anglais. Ça se fête ! Voyons ce que ça donne.
-            </Text>
-            <Pressable onPress={runDebrief} style={styles.congratsBtn}>
-              <Text style={styles.congratsBtnText}>Voir mon bilan</Text>
-            </Pressable>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { alignItems: "center" }]}>
+            <View style={styles.congratsIcon}><Icon name="etoile" size={36} tint="#fff" /></View>
+            <Text style={[styles.sheetTitle, { fontSize: 24, textAlign: "center" }]}>Félicitations !</Text>
+            <Text style={[styles.sheetHint, { textAlign: "center", marginTop: 8, fontSize: 15 }]}>Tu viens de faire tes premiers pas en anglais. Ça se fête ! Voyons ce que ça donne.</Text>
+            <PrimaryButton label="Voir mon bilan" onPress={runDebrief} style={{ alignSelf: "stretch" }} />
           </View>
         </View>
       </Modal>
     </View>
-    </KeyboardAvoidingView>
+  </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 56, backgroundColor: T.cream },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
-  headerTitle: { color: T.night, fontSize: 17, fontWeight: "800" },
-  speedPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: T.chipAbricot, borderRadius: 12, paddingVertical: 5, paddingHorizontal: 8, marginRight: 6 },
-  speedPillText: { color: T.abricotDeep, fontSize: 11, fontWeight: "800" },
-  progressTrack: { height: 6, borderRadius: 3, backgroundColor: "#EAE6DE", overflow: "hidden", marginTop: 6 },
-  progressFill: { height: 6, borderRadius: 3, backgroundColor: T.abricot },
-  error: { color: "#C0392B", marginBottom: 8, fontWeight: "600" },
-  hint: { color: "#B8860B", marginBottom: 8, fontWeight: "600" },
-  favBadge: { flexDirection: "row", alignItems: "center", gap: 9, alignSelf: "center", backgroundColor: "#2E7D53", borderRadius: 14, paddingVertical: 9, paddingHorizontal: 14, marginBottom: 8 },
-  favBadgeIcon: { width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" },
+  container: { flex: 1, backgroundColor: L.background, paddingHorizontal: L.gutter, paddingTop: 46 },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  headerTitle: { flex: 1, color: L.textPrimary, fontSize: 18, fontWeight: "700" },
+  speedPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: L.accentSoft, borderRadius: 16, paddingVertical: 7, paddingHorizontal: 10 },
+  speedPillText: { color: L.accentDeep, fontSize: 13, fontWeight: "800" },
+
+  // Carte du thème
+  sceneBar: { backgroundColor: L.surface, borderRadius: 16, borderWidth: 1, borderColor: L.border, paddingVertical: 8, paddingHorizontal: 12, marginBottom: 6 },
+  sceneBarDone: { backgroundColor: L.successSoft, borderColor: L.successSoft },
+  sceneRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  sceneThumb: { width: 52, height: 52, borderRadius: 14, overflow: "hidden", backgroundColor: L.border },
+  sceneK: { color: L.textSecondary, fontSize: 12.5, fontWeight: "800", letterSpacing: 0.3, textTransform: "uppercase" },
+  sceneText: { color: L.textPrimary, fontSize: 14.5, fontWeight: "600", lineHeight: 20, marginTop: 2 },
+  sceneWait: { color: L.textSecondary, fontSize: 14, fontWeight: "600" },
+  segments: { flexDirection: "row", gap: 4, marginTop: 8 },
+  segment: { flex: 1, height: 5, borderRadius: 3, backgroundColor: L.border },
+
+  errorText: { color: L.danger, fontSize: 14, fontWeight: "600", marginVertical: 6 },
+  hintText: { color: L.textSecondary, fontSize: 14, fontWeight: "600", marginVertical: 6 },
+  favBadge: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "center", backgroundColor: L.success, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 14, marginVertical: 6 },
+  favBadgeIcon: { width: 18, height: 18, borderRadius: 9, backgroundColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
   favBadgeText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  openingWait: { color: T.inkSoft, fontSize: 14, fontWeight: "600", textAlign: "center", marginTop: 24 },
-  scroll: { flex: 1, marginBottom: 10 },
 
-  // Toggle de canal (voix / texte) dans le header
-  keyboardBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#F2ECE3", alignItems: "center", justifyContent: "center" },
-  closeBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#F2ECE3", alignItems: "center", justifyContent: "center" },
-  exitOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.55)", alignItems: "center", justifyContent: "center", padding: 30 },
-  exitCard: { backgroundColor: "#FFFFFF", borderRadius: 20, padding: 22, width: "100%" },
-  exitTitle: { color: T.night, fontSize: 17, fontWeight: "800", marginBottom: 8 },
-  exitBody: { color: T.inkSoft, fontSize: 13.5, fontWeight: "600", lineHeight: 20, marginBottom: 18 },
-  exitDangerBtn: { backgroundColor: "#C0392B", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
-  exitDangerText: { color: "#fff", fontSize: 14.5, fontWeight: "800" },
-  exitCancelText: { color: T.abricotDeep, fontSize: 14, fontWeight: "800" },
+  scrollContent: { paddingTop: 4, paddingBottom: 8 },
+  floatCol: { position: "absolute", right: 0, bottom: 6, gap: 8 },
+  floatBtn: { shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
 
-  // Assistant : barre de deux boutons
-  assistBar: { flexDirection: "row", justifyContent: "center", gap: 10, marginBottom: 10 },
-  assistBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FFFFFF", borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: "#EEE6DA" },
-  assistBtnText: { color: T.abricotDeep, fontSize: 13, fontWeight: "800" },
-  // Assistant : fenêtres
-  assistOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.7)", justifyContent: "center", padding: 24 },
-  assistCard: { backgroundColor: T.cream, borderRadius: 22, padding: 20 },
-  assistHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  assistTitle: { color: T.night, fontSize: 18, fontWeight: "800", letterSpacing: -0.3 },
-  assistHint: { color: T.inkSoft, fontSize: 13, fontWeight: "600", lineHeight: 19, marginBottom: 14 },
-  assistInput: { backgroundColor: "#FFFFFF", borderRadius: 14, padding: 14, fontSize: 15, color: T.night, minHeight: 70, maxHeight: 140, borderWidth: 1, borderColor: "#EEE6DA", textAlignVertical: "top" },
-  assistAction: { backgroundColor: T.abricot, borderRadius: 14, paddingVertical: 13, alignItems: "center", marginTop: 12 },
-  assistActionText: { color: T.night, fontSize: 15, fontWeight: "800" },
-  assistResult: { backgroundColor: "#FFF3E9", borderRadius: 14, padding: 14, marginTop: 14, borderLeftWidth: 3, borderLeftColor: T.abricot },
-  assistResultText: { color: T.night, fontSize: 16, fontWeight: "700", lineHeight: 23 },
-  assistResultFr: { color: T.inkSoft, fontSize: 13.5, fontWeight: "600", fontStyle: "italic", lineHeight: 19, marginTop: 8 },
-  assistResultActions: { flexDirection: "row", gap: 18, marginTop: 10 },
-  assistListen: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 4 },
-  assistListenText: { color: T.inkSoft, fontSize: 12.5, fontWeight: "700" },
+  coachBubble: { backgroundColor: L.surface, borderRadius: L.radiusCard, borderTopLeftRadius: 8, padding: 14, marginBottom: 10, marginRight: 56, alignSelf: "flex-start", maxWidth: "100%" },
+  typingBubble: { paddingVertical: 12, paddingHorizontal: 18 },
+  coachText: { color: L.textPrimary, fontSize: 16, lineHeight: 23 },
+  hardWord: { color: L.accentDeep, textDecorationLine: "underline", fontWeight: "700" },
+  selectedWord: { backgroundColor: L.accentSoft, borderRadius: 4 },
+  coachFr: { color: L.textSecondary, fontSize: 13.5, fontStyle: "italic", lineHeight: 19, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: L.border },
+  msgActions: { flexDirection: "row", gap: 16, marginTop: 6 },
+  msgAction: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 32 },
+  msgActionText: { color: L.textSecondary, fontSize: 13.5, fontWeight: "700" },
+  userBubble: { backgroundColor: L.accentSoft, borderRadius: L.radiusCard, borderTopRightRadius: 8, padding: 14, marginBottom: 10, marginLeft: 24, marginRight: 56, alignSelf: "flex-end", maxWidth: "100%" },
+  userText: { color: L.textPrimary, fontSize: 16, fontWeight: "700", lineHeight: 23 },
 
-  sceneCard: { backgroundColor: "#FFFFFF", borderRadius: 18, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: T.abricot, overflow: "hidden" },
-  sceneImgWrap: { height: 90, backgroundColor: T.creamLine },
-  sceneTextInner: { padding: 14 },
-  sceneK: { color: T.abricotDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 4 },
-  sceneText: { color: T.inkSoft, fontSize: 13, fontWeight: "600", lineHeight: 20 },
-  scenePill: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FFFFFF", borderRadius: 14, paddingVertical: 7, paddingHorizontal: 10, marginBottom: 12, alignSelf: "flex-start", maxWidth: "80%" },
-  scenePillImgWrap: { width: 26, height: 26, borderRadius: 8, overflow: "hidden", backgroundColor: T.creamLine },
-  scenePillText: { color: T.inkSoft, fontSize: 12, fontWeight: "700", flexShrink: 1 },
+  coachingCard: { backgroundColor: L.lavender, borderRadius: L.radiusCard, padding: 14, marginBottom: 10, marginRight: 56 },
+  coachingHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  coachingTitle: { color: L.lavenderText, fontSize: 15, fontWeight: "700" },
+  coachingExplanation: { color: L.textPrimary, fontSize: 14.5, lineHeight: 21 },
+  coachingPhrase: { color: L.textPrimary, fontSize: 17, fontWeight: "700", lineHeight: 25, marginTop: 8 },
+  coachingChanged: { color: L.success, backgroundColor: "#DDF3E7" },
 
-  themBubble: { backgroundColor: T.night, borderRadius: 20, borderTopLeftRadius: 6, padding: 13, marginBottom: 10, marginRight: 38, alignItems: "flex-start" },
-  themText: { color: "#F2ECE1", fontSize: 14, fontWeight: "600", lineHeight: 22 },
-  tappableWord: { color: "#F2ECE1" },
-  hardWord: { color: T.abricot, textDecorationLine: "underline", textDecorationStyle: "dotted", fontWeight: "700" },
-  selectedWord: { backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 4 },
-  translation: { color: "#CFC8BE", fontSize: 13, fontWeight: "600", fontStyle: "italic", lineHeight: 19, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.15)" },
-  bubbleActions: { flexDirection: "row", gap: 16, marginTop: 8 },
-  translateBtn: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingVertical: 4 },
-  translateBtnText: { color: "#CFC8BE", fontSize: 12, fontWeight: "700" },
+  typing: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8 },
+  typingText: { color: L.textSecondary, fontSize: 14, fontWeight: "600" },
 
-  meBubble: { backgroundColor: T.abricot, borderRadius: 20, borderTopRightRadius: 6, padding: 13, marginBottom: 8, marginLeft: 38 },
-  meText: { color: T.night, fontSize: 14, fontWeight: "700", lineHeight: 21 },
-
-  controls: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingBottom: 24 },
-  controlsSpacer: { width: 84 },
-  endButton: { width: 84, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 11, alignItems: "center" },
-  endButtonText: { color: T.inkSoft, fontSize: 12, fontWeight: "800" },
+  composer: { paddingTop: 2, paddingBottom: 6 },
+  recRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   micZone: { flex: 1, alignItems: "center" },
-  mic: { width: 76, height: 76, borderRadius: 38, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
-  micActive: { backgroundColor: "#E8734D" },
-  micLabel: { color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 9 },
-
-  recCard: { backgroundColor: "#FFFFFF", borderRadius: 24, marginHorizontal: 20, marginBottom: 20, padding: 18, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 6 },
-  waveformRow: { flexDirection: "row", alignItems: "center", gap: 3, height: 40, alignSelf: "stretch", justifyContent: "center" },
-  waveBarLive: { width: 3, borderRadius: 1.5, backgroundColor: T.abricot },
-  recRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", alignSelf: "stretch", marginTop: 14 },
-  cancelBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#FBDAD3", alignItems: "center", justifyContent: "center" },
-  recTime: { color: T.inkSoft, fontSize: 13, fontWeight: "700", width: 44, textAlign: "right" },
-  recHint: { color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 12 },
-  limitButton: { flex: 1, backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", marginHorizontal: 20 },
-  limitButtonText: { color: T.night, fontSize: 15, fontWeight: "800" },
-
-  // Mode texte : barre de saisie
-  textControls: { paddingBottom: 20 },
-  endTextBtn: { alignSelf: "flex-end", backgroundColor: "#FFFFFF", borderRadius: 12, paddingVertical: 8, paddingHorizontal: 16, marginBottom: 8 },
+  micHalo: { width: 76, height: 76, borderRadius: 38, backgroundColor: L.accentSoft, alignItems: "center", justifyContent: "center" },
+  micHaloActive: { backgroundColor: "#FBE3E0" },
+  mic: { width: 60, height: 60, borderRadius: 30, backgroundColor: L.accentDeep, alignItems: "center", justifyContent: "center" },
+  micActive: { backgroundColor: L.danger },
+  micIdle: { backgroundColor: "#D9D3CB" },
+  composerLabel: { color: L.textSecondary, fontSize: 13, fontWeight: "700", marginTop: 2, textAlign: "center" },
+  waveRow: { flexDirection: "row", alignItems: "center", gap: 3, height: 28, justifyContent: "center", marginBottom: 6 },
+  waveBar: { width: 3, borderRadius: 1.5, backgroundColor: L.accentDeep },
   inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  textInput: { flex: 1, backgroundColor: "#FFFFFF", borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, fontSize: 15, color: T.night, maxHeight: 120, borderWidth: 1, borderColor: "#EEE6DA" },
-  sendBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
-  sendBtnDisabled: { opacity: 0.4 },
+  textInput: { flex: 1, backgroundColor: L.surface, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: L.textPrimary, maxHeight: 120, minHeight: 52 },
+  sendBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: L.accentDeep, alignItems: "center", justifyContent: "center" },
+  micDeniedRow: { marginBottom: 8, minHeight: 36, justifyContent: "center" },
+  micDeniedText: { color: L.textSecondary, fontSize: 13, fontWeight: "600" },
 
-  newSessionButton: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", marginBottom: 24 },
-  newSessionText: { color: T.night, fontSize: 15, fontWeight: "800" },
+  hintBanner: { position: "absolute", bottom: 130, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: L.lavender, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16 },
+  hintBannerText: { color: L.lavenderText, fontSize: 13, fontWeight: "800" },
 
-  hintBanner: { position: "absolute", bottom: 120, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: T.miel, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16 },
-  hintBannerText: { color: T.night, fontSize: 13, fontWeight: "800" },
+  // Feuilles (aides, mot, choix du canal, confirmation, félicitations)
+  overlay: { flex: 1, backgroundColor: "rgba(25,41,71,0.6)", justifyContent: "center", padding: 24 },
+  sheet: { backgroundColor: L.background, borderRadius: 24, padding: 20 },
+  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  sheetTitle: { color: L.textPrimary, fontSize: 19, fontWeight: "700" },
+  sheetHint: { color: L.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: 14 },
+  sheetInput: { backgroundColor: L.surface, borderRadius: 16, padding: 14, fontSize: 16, color: L.textPrimary, minHeight: 70, maxHeight: 140, textAlignVertical: "top" },
+  sheetBtn: { backgroundColor: L.accentDeep, borderRadius: 16, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 12 },
+  sheetBtnText: { color: L.textPrimary, fontSize: 16, fontWeight: "700" },
+  sheetCancel: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  sheetCancelText: { color: L.accentDeep, fontSize: 15, fontWeight: "800" },
+  sheetResult: { backgroundColor: L.surface, borderRadius: 16, padding: 14, marginTop: 14 },
+  sheetResultText: { color: L.textPrimary, fontSize: 17, fontWeight: "700", lineHeight: 24 },
+  sheetResultFr: { color: L.textSecondary, fontSize: 14, fontStyle: "italic", lineHeight: 20, marginTop: 6 },
+  sheetLink: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 46, paddingHorizontal: 8 },
+  sheetLinkText: { color: L.textSecondary, fontSize: 14, fontWeight: "700" },
 
-  // Choix du canal
-  choiceOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.75)", alignItems: "center", justifyContent: "center", padding: 32 },
-  choiceCard: { backgroundColor: T.cream, borderRadius: 24, padding: 24, width: "100%" },
-  choiceTitle: { color: T.night, fontSize: 20, fontWeight: "800", letterSpacing: -0.3, textAlign: "center" },
-  choiceBody: { color: T.inkSoft, fontSize: 14, fontWeight: "600", lineHeight: 20, textAlign: "center", marginTop: 8, marginBottom: 20 },
-  choiceBtn: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: "#FFFFFF", borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: "#EEE6DA" },
-  choiceIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },
-  choiceBtnTitle: { color: T.night, fontSize: 16, fontWeight: "800" },
-  choiceBtnDesc: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600", lineHeight: 17, marginTop: 2 },
+  choiceImg: { height: 110, borderRadius: 18, overflow: "hidden", backgroundColor: L.border },
+  choiceBtn: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: L.surface, borderRadius: 16, padding: 14, marginBottom: 10 },
+  choiceIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: L.accentSoft, alignItems: "center", justifyContent: "center" },
+  choiceBtnTitle: { color: L.textPrimary, fontSize: 16, fontWeight: "700" },
+  choiceBtnDesc: { color: L.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 },
 
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.6)", alignItems: "center", justifyContent: "center", padding: 40 },
-  wordCard: { backgroundColor: T.cream, borderRadius: 20, padding: 22, width: "100%", alignItems: "center" },
-  wordEn: { color: T.night, fontSize: 24, fontWeight: "800", letterSpacing: -0.4 },
-  wordFr: { color: T.abricotDeep, fontSize: 18, fontWeight: "700", marginTop: 6 },
-  wordFrMuted: { color: T.inkSoft, fontSize: 14, fontWeight: "600", marginTop: 6, textAlign: "center" },
+  wordEn: { color: L.textPrimary, fontSize: 24, fontWeight: "800", letterSpacing: -0.4 },
+  wordFr: { color: L.accentDeep, fontSize: 18, fontWeight: "700", marginTop: 6 },
+  wordFrMuted: { color: L.textSecondary, fontSize: 14, fontWeight: "600", marginTop: 6, textAlign: "center" },
   wordBtnRow: { flexDirection: "row", gap: 10, marginTop: 18, alignSelf: "stretch" },
-  wordListenBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: "#F0EAE0", borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16 },
-  wordListenText: { color: T.night, fontSize: 13.5, fontWeight: "800" },
-  wordFavBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: T.abricot, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16 },
-  wordFavText: { color: T.night, fontSize: 14, fontWeight: "800" },
+  wordFavBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: L.accentDeep, borderRadius: 16, minHeight: 48, paddingHorizontal: 14 },
+  wordFavText: { color: L.textPrimary, fontSize: 14.5, fontWeight: "800" },
 
-  congratsOverlay: { flex: 1, backgroundColor: "rgba(10,14,25,0.8)", alignItems: "center", justifyContent: "center", padding: 36 },
-  congratsCard: { backgroundColor: T.cream, borderRadius: 24, padding: 26, width: "100%", alignItems: "center" },
-  congratsIcon: { width: 84, height: 84, borderRadius: 42, backgroundColor: "#4CAF7D", alignItems: "center", justifyContent: "center", marginBottom: 20 },
-  congratsTitle: { color: T.night, fontSize: 24, fontWeight: "800", letterSpacing: -0.4 },
-  congratsBody: { color: T.inkSoft, fontSize: 15, fontWeight: "600", lineHeight: 22, textAlign: "center", marginTop: 10, marginBottom: 20 },
-  congratsBtn: { backgroundColor: T.abricot, borderRadius: 16, padding: 16, alignItems: "center", alignSelf: "stretch" },
-  congratsBtnText: { color: T.night, fontSize: 15, fontWeight: "800" },
+  congratsIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: L.success, alignItems: "center", justifyContent: "center", marginBottom: 16 },
 });

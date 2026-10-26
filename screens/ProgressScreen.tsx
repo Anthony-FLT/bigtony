@@ -6,6 +6,7 @@ import { computeStreak, getWeekActivity, getWeeklyGoalStatus, STREAK_MILESTONES 
 import { getChallengeStats } from "../lib/dailyChallenges";
 import { getWeekSpeakingMinutes } from "../lib/speakingTime";
 import { getProgressStats, TroubleWord } from "../lib/progressstats";
+import { getLearningWeekStats, LearningWeekStats } from "../lib/learningStats";
 import { listFavorites } from "../lib/favorites";
 import { loadProfile } from "../lib/profile";
 import { Scenario } from "../lib/scenarios";
@@ -24,6 +25,7 @@ type Data = {
   speakingPerDay: number[];
   speakingTotalMinutes: number;
   topTroubleWord: TroubleWord;
+  learning: LearningWeekStats; // leçons, points du jour, XP, cartes à replacer
 };
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -33,11 +35,13 @@ export default function ProgressScreen({
   onResume,
   onGoLabo,
   onGoFavorites,
+  onGoDailyTalk,
 }: {
   refreshKey: number;
   onResume?: (s: Scenario) => void;
   onGoLabo: () => void;
   onGoFavorites: () => void;
+  onGoDailyTalk?: () => void; // « phrases à replacer » → point du jour
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [period, setPeriod] = useState<"semaine" | "mois">("semaine");
@@ -50,7 +54,7 @@ export default function ProgressScreen({
       monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
       monday.setHours(0, 0, 0, 0);
 
-      const [profile, streak, weekActivity, challengeStats, speaking, progressStats, favorites] = await Promise.all([
+      const [profile, streak, weekActivity, challengeStats, speaking, progressStats, favorites, learning] = await Promise.all([
         loadProfile(),
         computeStreak(),
         getWeekActivity(),
@@ -58,6 +62,7 @@ export default function ProgressScreen({
         getWeekSpeakingMinutes(),
         getProgressStats(),
         listFavorites(),
+        getLearningWeekStats(),
       ]);
       const weeklyGoal = profile?.weeklyGoal ?? 3;
       const goalStatus = await getWeeklyGoalStatus(weeklyGoal);
@@ -75,9 +80,11 @@ export default function ProgressScreen({
         weekConversations: progressStats.weekConversations,
         weekNewWords,
         dictionaryTotal: favorites.length,
-        speakingPerDay: speaking.perDay,
-        speakingTotalMinutes: speaking.totalMinutes,
+        // Temps de parole : conversations libres + leçons + points du jour
+        speakingPerDay: speaking.perDay.map((m, i) => m + (learning.minutesPerDay[i] ?? 0)),
+        speakingTotalMinutes: speaking.totalMinutes + learning.totalMinutes,
         topTroubleWord: progressStats.topTroubleWord,
+        learning,
       });
     })();
   }, [refreshKey]);
@@ -146,28 +153,28 @@ export default function ProgressScreen({
             <WeekStrip days={data.weekActivity} goal={data.weeklyGoal} dark />
           </View>
 
-          {/* Cette semaine — 4 statistiques */}
+          {/* Cette semaine — 4 statistiques (nouveau flux : leçons, points du jour, XP, dictionnaire) */}
           <Text style={styles.sectionK}>CETTE SEMAINE</Text>
           <View style={styles.statGrid}>
             <View style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: "#FBE9C7" }]}><Feather name="award" size={17} color="#B0821A" /></View>
-              <Text style={styles.statNum}>{data.todayDone}<Text style={styles.statDenom}>/3</Text></Text>
-              <Text style={styles.statLabel}>défis faits aujourd'hui</Text>
-            </View>
-            <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: "#DFF3E4" }]}><Feather name="zap" size={17} color="#2E7D53" /></View>
-              <Text style={styles.statNum}>{data.weekDone}</Text>
-              <Text style={styles.statLabel}>défis cette semaine</Text>
+              <Text style={styles.statNum}>{data.learning.weekLessonsValidated}<Text style={styles.statDenom}>/{data.learning.weekLessons}</Text></Text>
+              <Text style={styles.statLabel}>leçon{data.learning.weekLessons > 1 ? "s" : ""} validée{data.learning.weekLessonsValidated > 1 ? "s" : ""}</Text>
             </View>
             <View style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: T.chipAbricot }]}><Feather name="message-circle" size={17} color={T.abricotDeep} /></View>
-              <Text style={styles.statNum}>{data.weekConversations}</Text>
-              <Text style={styles.statLabel}>conversation{data.weekConversations > 1 ? "s" : ""}</Text>
+              <Text style={styles.statNum}>{data.learning.weekDailyTalks}</Text>
+              <Text style={styles.statLabel}>point{data.learning.weekDailyTalks > 1 ? "s" : ""} du jour</Text>
             </View>
             <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: "#E9E3FB" }]}><Feather name="book-open" size={17} color="#5B3FA6" /></View>
-              <Text style={styles.statNum}>{data.weekNewWords}</Text>
-              <Text style={styles.statLabel}>mot{data.weekNewWords > 1 ? "s" : ""} dans ton dictionnaire</Text>
+              <View style={[styles.statIcon, { backgroundColor: "#DFF3E4" }]}><Feather name="zap" size={17} color="#2E7D53" /></View>
+              <Text style={styles.statNum}>+{data.learning.weekXp}</Text>
+              <Text style={styles.statLabel}>XP cette semaine · {data.learning.xpTotal} au total</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: "#E9E3FB" }]}><Feather name="headphones" size={17} color="#5B3FA6" /></View>
+              <Text style={styles.statNum}>{data.learning.weekExercises}<Text style={styles.statDenom}> + {data.learning.weekScenes}</Text></Text>
+              <Text style={styles.statLabel}>exercice{data.learning.weekExercises > 1 ? "s" : ""} · scène{data.learning.weekScenes > 1 ? "s" : ""}</Text>
             </View>
           </View>
 
@@ -192,6 +199,16 @@ export default function ProgressScreen({
 
           {/* À travailler */}
           <Text style={styles.sectionK}>À TRAVAILLER</Text>
+          {data.learning.reviewDue > 0 && (
+            <Pressable style={styles.troubleCard} onPress={onGoDailyTalk ?? (() => {})}>
+              <View style={styles.troubleWordBox}><Text style={styles.troubleWordText}>{data.learning.reviewDue}</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.troubleTitle}>phrase{data.learning.reviewDue > 1 ? "s" : ""} de tes leçons à replacer</Text>
+                <Text style={styles.troubleSub}>Ton coach te tendra la perche au prochain point du jour.</Text>
+              </View>
+              {onGoDailyTalk && <View style={styles.goBadge}><Text style={styles.goBadgeText}>Go</Text></View>}
+            </Pressable>
+          )}
           {data.topTroubleWord && (
             <Pressable style={styles.troubleCard} onPress={onGoLabo}>
               <View style={styles.troubleWordBox}><Text style={styles.troubleWordText}>{data.topTroubleWord.word}</Text></View>

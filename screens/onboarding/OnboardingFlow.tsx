@@ -35,10 +35,10 @@ const AGE_OPTIONS: { key: AgeRange; label: string }[] = [
 ];
 
 const COACH_VOICES: { key: VoiceKey; label: string }[] = [
-  { key: "us-female", label: "Femme · US" },
-  { key: "us-male", label: "Homme · US" },
-  { key: "uk-female", label: "Femme · UK" },
-  { key: "uk-male", label: "Homme · UK" },
+  { key: "us-female", label: "Emma · US" },
+  { key: "us-male", label: "Sam · US" },
+  { key: "uk-female", label: "Alice · UK" },
+  { key: "uk-male", label: "James · UK" },
 ];
 
 // Écran d'accueil : deux bandes de scènes qui défilent lentement

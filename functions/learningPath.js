@@ -26,6 +26,14 @@ const VOICES = {
   "uk-female": { languageCode: "en-GB", name: "en-GB-Neural2-A" },
 };
 const FR_VOICE = { languageCode: "fr-FR", name: "fr-FR-Neural2-B" };
+// Identité du coach selon la voix choisie (mêmes prénoms que lib/learningPath/coaches.ts)
+const COACH_IDENTITY = {
+  "us-male":   { name: "Sam",   english: "American English" },
+  "us-female": { name: "Emma",  english: "American English" },
+  "uk-male":   { name: "James", english: "British English (British spelling and vocabulary)" },
+  "uk-female": { name: "Alice", english: "British English (British spelling and vocabulary)" },
+};
+const coachIdentity = (voice) => COACH_IDENTITY[voice] || COACH_IDENTITY["us-male"];
 const ttsClient = new textToSpeech.TextToSpeechClient();
 async function synthesize(text, voice, rate) {
   const [res] = await ttsClient.synthesizeSpeech({
@@ -74,6 +82,19 @@ function isPublished(lessonId) {
 // Flag serveur : config/featureFlags { learningPathEnabled: bool, learningPathRatio: 0..1 }
 // Absent → désactivé. Désactiver n'affecte que les NOUVELLES assignations.
 // ---------------------------------------------------------------
+// Réglages de génération (config/lesson) : { thinkingLevel: "low" | "minimal" | "high" } — cache 60 s, lu en parallèle des autres lectures
+const THINKING_LEVELS = new Set(["minimal", "low", "medium", "high"]);
+let lessonConfigCache = { at: 0, value: { thinkingLevel: "low" } };
+async function readLessonConfig() {
+  if (Date.now() - lessonConfigCache.at < 60_000) return lessonConfigCache.value;
+  try {
+    const d = (await db.doc("config/lesson").get()).data() || {};
+    const thinkingLevel = THINKING_LEVELS.has(d.thinkingLevel) ? d.thinkingLevel : "low";
+    lessonConfigCache = { at: Date.now(), value: { thinkingLevel } };
+  } catch (e) { console.warn("readLessonConfig échoué:", e); lessonConfigCache.at = Date.now(); }
+  return lessonConfigCache.value;
+}
+
 async function readFlags() {
   try {
     const snap = await db.doc("config/featureFlags").get();
@@ -213,9 +234,46 @@ function sanitizeTurn(turn, variant) {
 // Refus : not-found (leçon non publiée / variante absente), failed-precondition "prerequisite_not_validated",
 // permission-denied "subscription_required".
 // ---------------------------------------------------------------
-exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5 }, async (request) => {
+// Ouverture parlée de la leçon : bonjour + plan de ce qu'on va travailler + première question (verbatim).
+// Générée une fois à la création de la tentative, stockée dessus (briefingEn / briefingFr). Repli : modèle simple.
+async function makeLessonBriefing({ variant, lesson, coachVoice, learnerName, isFirstLesson }) {
+  const who = coachIdentity(coachVoice);
+  const name = learnerName ? ` ${learnerName}` : "";
+  const fallback = {
+    en: `Hi${name}! ${isFirstLesson ? `I'm ${who.name}, your English coach. ` : ""}Today we'll practise: ${lesson.titleFr}.`,
+    fr: `Salut${name} ! ${isFirstLesson ? `Je suis ${who.name}, ton coach d'anglais. ` : ""}Aujourd'hui on travaille : ${lesson.titleFr}.`,
+  };
+  try {
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
+    const objectives = variant.requiredCriteria.map((c, i) => `${i + 1}. ${c.descriptionFr}`).join("\n");
+    const res = await genWithRetry(ai, {
+      model: "gemini-3.6-flash",
+      contents: [{ role: "user", parts: [{ text: "Write the spoken opening." }] }],
+      config: {
+        systemInstruction: `You are ${who.name}, a warm English coach (${who.english}) opening a short lesson with ${learnerName || "the learner"} (level ${variant.practiceLevel}).
+Lesson: "${lesson.titleFr}" — ${variant.objectiveFr || ""}. In the conversation you play: ${variant.coachRole}.
+What the learner must manage to do today (in French, translate into simple English):
+${objectives}
+${isFirstLesson ? `This is their very first lesson: say who you are in one short sentence ("I'm ${who.name}, your English coach").` : "You already know each other: no self-introduction."}
+Write what you SAY, in this order: (1) hello with their first name; (2) ONE or TWO short sentences giving the direction of the lesson, as a plan ("Today we'll practise… First…, then…, and finally…"), in simple English for ${variant.practiceLevel}; (3) ONE short transition that hands over to the first question WITHOUT asking it ("Let's start.", "Ready? Let's go."). The first question ("${variant.openingEn}") will be said right after as a separate message: do NOT include it, do not ask any question.
+Rules: 4 sentences maximum. Never say "objective", "criteria", "lesson plan". Warm, natural, no emoji.
+Respond ONLY with JSON {"opening_en": "...", "opening_fr": "<French translation>"}.`,
+        responseMimeType: "application/json",
+        responseSchema: { type: Type.OBJECT, properties: { opening_en: { type: Type.STRING }, opening_fr: { type: Type.STRING } }, required: ["opening_en", "opening_fr"] },
+        temperature: 0.7,
+        thinkingConfig: { thinkingLevel: "low" },
+      },
+    });
+    const p = JSON.parse(res.text);
+    const en = typeof p.opening_en === "string" ? p.opening_en.trim() : "";
+    if (en.length > 20) return { en: en.replace(/\?+\s*$/, ".").slice(0, 600), fr: String(p.opening_fr || "").slice(0, 600) };
+    return fallback;
+  } catch (e) { console.warn("briefing fallback:", e?.message); return fallback; }
+}
+
+exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_API_KEY], timeoutSeconds: 30 }, async (request) => {
   const uid = requireAuth(request);
-  const { lessonId } = request.data || {};
+  const { lessonId, voice = "us-male", isFirstLesson = false } = request.data || {};
   const lesson = typeof lessonId === "string" ? LESSONS.get(lessonId) : null;
   if (!lesson || !isPublished(lessonId)) throw new HttpsError("not-found", "lesson_unavailable");
 
@@ -245,12 +303,15 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5 }, async 
 
   const now = Date.now();
   const ref = attemptsCol.doc();
+  const briefing = await makeLessonBriefing({ variant, lesson, coachVoice: voice, learnerName: typeof user.name === "string" ? user.name.trim().slice(0, 40) : "", isFirstLesson: isFirstLesson === true });
   const attempt = {
     id: ref.id,
     lessonId,
     variantId: variant.id,
     contentVersion: variant.contentVersion,
     practiceLevel,
+    briefingEn: briefing.en, // ouverture parlée (bonjour + direction de la leçon + première question)
+    briefingFr: briefing.fr,
     state: "briefing",
     active: true,
     modalityUsed: [],
@@ -349,6 +410,13 @@ async function genWithRetry(ai, config) {
       return await ai.models.generateContent(config);
     } catch (e) {
       const msg = String(e?.message ?? e);
+      // Niveau de raisonnement refusé par l'API (valeur inconnue pour ce modèle) → on retombe sur "low" plutôt que d'échouer le tour
+      const lvl = config?.config?.thinkingConfig?.thinkingLevel;
+      if (lvl && lvl !== "low" && /thinking/i.test(msg)) {
+        console.warn(`thinkingLevel "${lvl}" refusé, repli sur low:`, msg.slice(0, 160));
+        config = { ...config, config: { ...config.config, thinkingConfig: { thinkingLevel: "low" } } };
+        continue;
+      }
       if (/\b503\b|UNAVAILABLE|high demand|overloaded|try again later/i.test(msg) && attempt < delays.length) {
         await new Promise((r) => setTimeout(r, delays[attempt]));
         continue;
@@ -375,7 +443,7 @@ async function evaluateAttempt(variant, turns, transfer) {
     model: "gemini-3.6-flash",
     contents: [{ role: "user", parts: [{ text: `LESSON OBJECTIVES (level ${variant.practiceLevel}):\n${criteriaText}\n\nCONVERSATION:\n${turnsText}\n\nTRANSFER EXERCISE:\n${transferText}` }] }],
     config: {
-      systemInstruction: `You are an honest, kind English teacher assessing a French learner's short guided lesson. Judge ONLY what the learner actually said or wrote (never the coach's lines). For EACH objective, decide: "achieved" if the learner clearly did it at least once in understandable English (small mistakes are fine if the meaning is clear), "emerging" if attempted but incomplete or too faulty to count, "not_observed" otherwise. Give a confidence ("low"|"medium"|"high"), quote the learner's best evidence verbatim (empty string if none), and write "done_fr": a very short French sentence in the past tense, tutoiement, stating what the learner did for this objective (e.g. "Tu t'es présenté.", "Tu as relancé avec une question."); if not achieved, what remains to do (e.g. "Pose une question à Sam."). Never mark "achieved" on a guess. Also judge the transfer exercise: "transfer_ok" true if the answer meets the expected points. Then write "summary_fr": ONE sentence EN FRANÇAIS, tutoiement, chaleureuse et concrète, qui décrit ce que la personne a réussi (pas de paragraphe, pas de liste d'erreurs). "next_focus_fr": une phrase courte en français sur le point principal à travailler, avec la bonne formulation entre guillemets s'il y a eu une vraie erreur ; chaîne vide si rien à signaler. "key_phrase_en": THE one English sentence worth remembering from this lesson: if the learner was corrected, the corrected version of their own sentence; otherwise their best correct sentence, verbatim. Never a sentence containing an error. "key_phrase_fr": its natural French translation. Respond ONLY with JSON matching the schema.`,
+      systemInstruction: `You are an honest, kind English teacher assessing a French learner's short guided lesson. Judge ONLY what the learner actually said or wrote (never the coach's lines). For EACH objective, decide: "achieved" if the learner clearly did it at least once in understandable English (small mistakes are fine if the meaning is clear), "emerging" if attempted but incomplete or too faulty to count, "not_observed" otherwise. Give a confidence ("low"|"medium"|"high"), quote the learner's best evidence verbatim (empty string if none), and write "done_fr": a very short French sentence in the past tense, tutoiement, stating what the learner did for this objective (e.g. "Tu t'es présenté.", "Tu as relancé avec une question."); if not achieved, what remains to do (e.g. "Pose une question à ton coach."). Never mark "achieved" on a guess. Also judge the transfer exercise: "transfer_ok" true if the answer meets the expected points. Then write "summary_fr": ONE sentence EN FRANÇAIS, tutoiement, chaleureuse et concrète, qui décrit ce que la personne a réussi (pas de paragraphe, pas de liste d'erreurs). "next_focus_fr": une phrase courte en français sur le point principal à travailler, avec la bonne formulation entre guillemets s'il y a eu une vraie erreur ; chaîne vide si rien à signaler. "key_phrase_en": THE one English sentence worth remembering from this lesson: if the learner was corrected, the corrected version of their own sentence; otherwise their best correct sentence, verbatim. Never a sentence containing an error. "key_phrase_fr": its natural French translation. Respond ONLY with JSON matching the schema.`,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -438,10 +506,12 @@ function evaluateFromObservations(variant, turns) {
 // ---------------------------------------------------------------
 exports.finalizeAttempt = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_API_KEY], timeoutSeconds: 60, memory: "512MiB" }, async (request) => {
   const uid = requireAuth(request);
+  if (request.data?.warmup === true) return { ok: true }; // préchauffage (voir lessonTurn)
   const { attemptId } = request.data || {};
   if (typeof attemptId !== "string") throw new HttpsError("invalid-argument", "attemptId manquant");
+  const tStart = Date.now();
   const ref = db.doc(`users/${uid}/attempts/${attemptId}`);
-  const snap = await ref.get();
+  const [snap, turnsSnap] = await Promise.all([ref.get(), ref.collection("turns").orderBy("index").get()]);
   const a = snap.data();
   if (!a) throw new HttpsError("not-found", "attempt_not_found");
   if (a.result && a.active !== true) return a.result; // déjà clôturée
@@ -449,23 +519,28 @@ exports.finalizeAttempt = onCall({ region: REGION, maxInstances: 5, secrets: [GE
   if (!variant) throw new HttpsError("failed-precondition", "variant_missing");
   const lesson = LESSONS.get(a.lessonId);
 
-  const turnsSnap = await ref.collection("turns").orderBy("index").get();
   const turns = turnsSnap.docs.map((d) => d.data());
   if (turns.length === 0) throw new HttpsError("failed-precondition", "no_turns");
+  const tRead = Date.now() - tStart;
 
   let evalResult;
+  const tEval0 = Date.now();
   try {
     evalResult = await evaluateAttempt(variant, turns, a.transfer);
   } catch (e) {
     console.error("finalizeAttempt Gemini error", e);
     evalResult = evaluateFromObservations(variant, turns);
   }
+  const evalMs = Date.now() - tEval0;
 
   // Décision : tous les critères "achieved" avec confiance ≥ medium → validé ; aide « modèle » utilisée → validé avec aide.
   const byId = new Map((evalResult.criteria || []).map((c) => [c.criterion_id, c]));
+  // Un objectif validé pendant la conversation (coché vert à l'écran) reste validé au bilan : l'évaluation groupée
+  // apporte le texte (ce que tu as réussi, phrase à retenir) mais ne peut pas rétrograder ce que l'apprenant a vu.
+  const coveredInConversation = new Set(coveredFromTurns(variant, turns));
   const criteria = variant.requiredCriteria.map((c) => {
     const r = byId.get(c.id) || { status: "not_observed", confidence: "low", evidence_en: "" };
-    const achieved = r.status === "achieved" && r.confidence !== "low";
+    const achieved = coveredInConversation.has(c.id) || (r.status === "achieved" && r.confidence !== "low");
     return {
       id: c.id,
       descriptionFr: c.descriptionFr,
@@ -543,7 +618,9 @@ exports.finalizeAttempt = onCall({ region: REGION, maxInstances: 5, secrets: [GE
     tx.set(stateRef, { xp: result.xpTotal, badges, practiceLevel: state.practiceLevel || a.practiceLevel, updatedAt: now }, { merge: true });
 
     tx.set(ref, { state: kind === "needs_practice" ? "needs_practice" : "completed", active: false, result, updatedAt: now }, { merge: true });
+    writeReviewCards(tx, uid, reviewCardsForResult(attemptId, a.lessonId, turns, result, now)); // matière du point du jour
   });
+  console.log("finalizeAttempt timings", JSON.stringify({ read_ms: tRead, eval_ms: evalMs, total_ms: Date.now() - tStart, evaluatedBy: result.evaluatedBy }));
 
   return result;
 });
@@ -566,13 +643,50 @@ function coveredFromTurns(variant, turns) {
   return [...covered].filter((id) => variant.requiredCriteria.some((c) => c.id === id));
 }
 
-function buildLessonSystemPrompt(variant, state, isText) {
+// ---------------------------------------------------------------
+// Cartes de révision (point du jour) : users/{uid}/learning/review/items/{id} (sous learning → lecture seule côté client, purgé avec le reste)
+// Créées à la clôture d'une leçon : 1 phrase à retenir, 1 point à travailler, jusqu'à 2 corrections. Idempotent par id.
+// Espacement : nextDueAt = lastSeenAt + [1, 3, 7, 14] j selon successCount ; 3 réussites → acquise (plus tirée).
+// ---------------------------------------------------------------
+const REVIEW_INTERVALS_DAYS = [1, 3, 7, 14];
+const DAY_MS = 24 * 3600 * 1000;
+function reviewCardsForResult(attemptId, lessonId, turns, result, now) {
+  const cards = [];
+  const push = (kind, phraseEn, noteFr, idx) => {
+    const phrase = String(phraseEn || "").trim();
+    if (!phrase || phrase.length > 200) return;
+    cards.push({ id: `${attemptId}_${kind}${idx != null ? `_${idx}` : ""}`, kind, phraseEn: phrase, noteFr: String(noteFr || "").slice(0, 200), fromLessonId: lessonId, fromAttemptId: attemptId,
+      createdAt: now, lastSeenAt: null, seenCount: 0, successCount: 0, nextDueAt: now + DAY_MS, acquired: false });
+  };
+  push("key_phrase", result.keyPhraseEn, result.keyPhraseFr);
+  if (result.nextFocusFr) {
+    // Le point à travailler est en français ; on en extrait la formulation anglaise entre guillemets s'il y en a une
+    const m = /[«"“]([^»"”]{3,120})[»"”]/.exec(result.nextFocusFr);
+    if (m && /[a-zA-Z]/.test(m[1])) push("focus", m[1], result.nextFocusFr);
+  }
+  let n = 0;
+  for (const t of turns) {
+    if (n >= 2) break;
+    if (t.coaching && t.coaching.targetPhraseEn) { push("correction", t.coaching.targetPhraseEn, t.coaching.explanationFr, n); n++; }
+  }
+  return cards;
+}
+function writeReviewCards(batchOrTx, uid, cards) {
+  for (const c of cards) batchOrTx.set(db.doc(`users/${uid}/learning/review/items/${c.id}`), c, { merge: true });
+}
+
+// Nombre minimum de réponses de l'apprenant avant de pouvoir conclure, même si tout est couvert (sinon la leçon tient en 3 échanges secs)
+const MIN_TURNS_BEFORE_CLOSING = 5;
+const minTurnsOf = (variant) => Number(variant.minUsefulTurns) || MIN_TURNS_BEFORE_CLOSING;
+
+function buildLessonSystemPrompt(variant, state, isText, voice = "us-male") {
   const criteriaLines = variant.requiredCriteria
     .map((c) => `  - ${c.id} [${state.covered.includes(c.id) ? "COVERED" : "remaining"}]: ${c.descriptionFr} (e.g. "${c.exampleEn}")`)
     .join("\n");
   const asked = state.askedQuestions.length ? state.askedQuestions.map((q) => `  - "${q}"`).join("\n") : "  (none yet)";
   const followUps = variant.followUpsEn.filter((q) => !state.askedQuestions.includes(q)).map((q) => `  - "${q}"`).join("\n") || "  (all used — write a new, different one)";
-  return `You are Sam, a warm English coach. In the conversation you play: ${variant.coachRole}. The learner plays: ${variant.userRole}. Learner level: ${variant.practiceLevel} — keep your English simple and natural for that level, 1 to 2 short sentences per reply, ONE question at a time. The learner is French and hesitant: be kind, never condescending.
+  const who = coachIdentity(voice);
+  return `You are ${who.name}, a warm English coach who speaks ${who.english}. In the conversation you play: ${variant.coachRole}. The learner plays: ${variant.userRole}. Learner level: ${variant.practiceLevel} — keep your English simple and natural for that level, 1 to 2 short sentences per reply, ONE question at a time. The learner is French and hesitant: be kind, never condescending. You already said hello and introduced yourself when the lesson started: never introduce yourself again, never restart with "Hi".
 ${isText ? "The learner TYPED their answer (do not comment on pronunciation)." : "The learner's answer is in the attached audio. First transcribe it verbatim in \"transcript\" (keep their mistakes). If the audio has no intelligible speech, set transcript to \"\" exactly and never invent words."}
 
 LESSON OBJECTIVES (the only thing that matters — each question you ask must serve a REMAINING objective):
@@ -586,45 +700,54 @@ ${followUps}
 AFTER READING THE LEARNER'S ANSWER, decide:
 1. "observed_criteria": for EACH objective, {criterion_id, status, confidence} judged on THIS answer only. "achieved" = clearly done in understandable English (small mistakes allowed if the meaning is clear); "emerging" = attempted but incomplete; "not_observed" otherwise. Never "achieved" on a guess. One answer may achieve several objectives at once.
 2. "next_action":
-   - "propose_completion" if, counting this answer, ALL objectives are covered: "reply_en" is a short, warm closing line WITHOUT any question.
+   - "propose_completion" ONLY if, counting this answer, ALL objectives are covered AND closing is allowed (${state.canClose ? "closing IS allowed now" : `NOT YET: this is answer ${state.turnNumber} of at least ${state.minTurns} — keep the conversation going even if every objective is covered`}): "reply_en" reacts briefly to what the learner just said, then a short warm goodbye. No question, no summary of the lesson, no "great job on your objectives".
+   - if every objective is covered but closing is not allowed yet: react to the learner's answer and ask ONE natural follow-up that builds on something THEY said (same simple level). "target_criterion_id" null.
    - "request_clarification" if the answer is unintelligible or off-topic: ask gently to repeat or rephrase, without asserting a mistake.
    - "coach_retry" ONLY if ${state.coachingUsed ? "NEVER (the one allowed coaching retry was already used — choose another action)" : "the answer contains ONE error worth fixing right now AND the meaning is clear: give a coaching card and invite the learner to say the corrected sentence. Use it at most once per lesson, for a useful point, not for a tiny slip."}
    - otherwise "ask_targeted_question": a natural acknowledgement + ONE new question aimed at a remaining objective ("target_criterion_id").
+   Conversation style: you are a person chatting, not a teacher running a checklist. React to the content of what the learner said (one short genuine reaction) before your question. Never ask "What would you like to know about me?" or "Do you have any questions?". If a remaining objective needs the LEARNER to ask a question, create the opening instead: share one concrete detail about yourself (where you live, your job, a hobby) and stop there — a natural pause invites a question; if the learner still doesn't ask on the next turn, nudge once, lightly: "You can ask me something too, if you like."
 3. "coaching": null, or {explanation_fr, target_phrase_en, requires_retry, reason} when there is a real error worth teaching (also allowed with ask_targeted_question / propose_completion as a side note with requires_retry=false). explanation_fr: ONE short French sentence (tutoiement) explaining the point, no absolute false rules (e.g. "love to read" is also correct — never say -ing is mandatory). target_phrase_en: the learner's own sentence, corrected, natural, same meaning (do not pluralise or change meaning by default). If the learner says you already asked something, acknowledge it briefly and move on.
-4. "reply_fr": French translation of reply_en. "hard_words": 0-3 {word, fr} from reply_en that this level may not know.
 Respond ONLY with JSON matching the schema.`;
 }
 
 exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_API_KEY], timeoutSeconds: 60, memory: "512MiB" }, async (request) => {
   const uid = requireAuth(request);
-  const { attemptId, audioBase64 = null, mimeType = "audio/mp4", text = null, voice = "us-male", speakingRate = 0.95, clientTurnId = null } = request.data || {};
+  // Préchauffage : appelé par l'app à l'ouverture de la mission pour que l'instance (et ses modules) soit prête au premier tour
+  if (request.data?.warmup === true) return { ok: true };
+  const { attemptId, audioBase64 = null, mimeType = "audio/mp4", text = null, voice = "us-male", speakingRate = 0.95, clientTurnId = null, audioFormat = "mp3" } = request.data || {};
+  const wantPcm = audioFormat === "pcm24k"; // coach vidéo : segments PCM 16 bits 24 kHz pour LiveAvatar (lisibles aussi en local via un en-tête WAV)
   if (typeof attemptId !== "string") throw new HttpsError("invalid-argument", "attemptId manquant");
   const isText = typeof text === "string" && text.trim().length > 0;
   if (!isText && (typeof audioBase64 !== "string" || !audioBase64)) throw new HttpsError("invalid-argument", "audio ou texte manquant");
   if (!isText && audioBase64.length > MAX_AUDIO_BASE64_LENGTH) throw new HttpsError("invalid-argument", "Audio trop long");
   if (isText && text.length > 2000) throw new HttpsError("invalid-argument", "Texte trop long");
 
+  const tStart = Date.now();
   const ref = db.doc(`users/${uid}/attempts/${attemptId}`);
-  const snap = await ref.get();
+  const [snap, turnsSnap, genCfg] = await Promise.all([ref.get(), ref.collection("turns").orderBy("index").get(), readLessonConfig()]);
   const a = snap.data();
   if (!a || a.active !== true || !ACTIVE_CONVERSATION_STATES.has(a.state)) throw new HttpsError("failed-precondition", "attempt_not_active");
   const variant = VARIANTS.get(a.variantId);
   if (!variant) throw new HttpsError("failed-precondition", "variant_missing");
 
-  const turnsSnap = await ref.collection("turns").orderBy("index").get();
   const turns = turnsSnap.docs.map((d) => d.data());
+  const tRead = Date.now() - tStart;
   // Idempotence : même clientTurnId déjà traité (double tap, retry réseau) → renvoyer le tour stocké (sans audio)
   if (clientTurnId) {
     const dup = turns.find((t) => t.clientTurnId === clientTurnId);
     if (dup && dup.response) return dup.response;
   }
   const index = turns.length;
+  const atCap = index + 1 >= variant.maxUsefulTurns;
+  const minTurns = minTurnsOf(variant);
   const state = {
     covered: coveredFromTurns(variant, turns),
     askedQuestions: [variant.openingEn, ...turns.map((t) => t.coach).filter((c) => c && c.includes("?"))],
     coachingUsed: a.coachingUsed === true,
+    turnNumber: index + 1,
+    minTurns,
+    canClose: atCap || index + 1 >= minTurns,
   };
-  const atCap = index + 1 >= variant.maxUsefulTurns;
 
   const historyText = [`You: ${variant.openingEn}`, ...turns.map((t) => `Learner: ${t.user}\nYou: ${t.coach}`)].join("\n");
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
@@ -633,19 +756,19 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
     : [{ text: `Conversation so far:\n${historyText}\n\nThe learner's new spoken answer is in the attached audio.` }, { inlineData: { mimeType, data: audioBase64 } }];
 
   let parsed;
+  const tGemini0 = Date.now();
   try {
     const res = await genWithRetry(ai, {
       model: "gemini-3.6-flash",
       contents: [{ role: "user", parts }],
       config: {
-        systemInstruction: buildLessonSystemPrompt(variant, state, isText),
+        systemInstruction: buildLessonSystemPrompt(variant, state, isText, voice),
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             transcript: { type: Type.STRING },
             reply_en: { type: Type.STRING },
-            reply_fr: { type: Type.STRING },
             next_action: { type: Type.STRING },
             target_criterion_id: { type: Type.STRING },
             observed_criteria: {
@@ -667,15 +790,11 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
               },
               required: ["explanation_fr", "target_phrase_en", "requires_retry", "reason"],
             },
-            hard_words: {
-              type: Type.ARRAY,
-              items: { type: Type.OBJECT, properties: { word: { type: Type.STRING }, fr: { type: Type.STRING } }, required: ["word", "fr"] },
-            },
           },
-          required: ["transcript", "reply_en", "reply_fr", "next_action", "observed_criteria", "hard_words"],
+          required: ["transcript", "reply_en", "next_action", "observed_criteria"],
         },
         temperature: 0.6,
-        thinkingConfig: { thinkingLevel: "low" },
+        thinkingConfig: { thinkingLevel: genCfg.thinkingLevel }, // config/lesson.thinkingLevel (défaut low)
       },
     });
     parsed = JSON.parse(res.text);
@@ -687,8 +806,10 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
   const transcript = isText ? text.trim() : str(parsed.transcript);
   if (!transcript) {
     // Rien d'intelligible : pas de tour enregistré, le client affiche une invitation à réessayer
-    return { heardNothing: true, reply_en: str(parsed.reply_en) || "Sorry, I didn't catch that — could you say it again?", reply_fr: str(parsed.reply_fr), replyAudioBase64: null };
+    return { heardNothing: true, reply_en: str(parsed.reply_en) || "Sorry, I didn't catch that — could you say it again?", reply_fr: "", replyAudioBase64: null };
   }
+
+  const geminiMs = Date.now() - tGemini0;
 
   // --- Contrôles serveur sur la sortie du modèle ---
   const allowed = new Set(variant.requiredCriteria.map((c) => c.id));
@@ -705,34 +826,32 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
   let nextAction = NEXT_ACTIONS.has(parsed.next_action) ? parsed.next_action : "ask_targeted_question";
   if (coaching && state.coachingUsed) coaching.requiresRetry = false; // une seule reprise par leçon
   if (nextAction === "coach_retry" && (!coaching || !coaching.requiresRetry)) nextAction = allCovered ? "propose_completion" : "ask_targeted_question";
-  if (allCovered && nextAction === "ask_targeted_question") nextAction = "propose_completion";
+  if (allCovered && nextAction === "ask_targeted_question" && state.canClose) nextAction = "propose_completion";
+  if (nextAction === "propose_completion" && !state.canClose) nextAction = "ask_targeted_question"; // trop tôt : la conversation continue
   if (atCap && nextAction !== "coach_retry") nextAction = "propose_completion"; // plafond : conclusion accompagnée, jamais de nouvelle question
   if (nextAction !== "coach_retry" && coaching) coaching.requiresRetry = false;
   const replyEn = str(parsed.reply_en, 500);
   const targetCriterionId = allowed.has(parsed.target_criterion_id) ? parsed.target_criterion_id : null;
 
-  // --- Audio : réplique (voix choisie par l'utilisateur) + conseil (FR puis EN), jamais superposés côté client ---
+  // --- Audio : uniquement la réplique du coach (voix choisie par l'utilisateur).
+  // Le conseil n'est plus lu : la carte s'affiche, l'apprenant la lit, « Écouter » reste disponible à la demande.
+  // Les champs coachingAudio*/coachingPcm* restent dans la réponse (null) pour les versions déjà installées.
   const v = VOICES[voice] || VOICES["us-male"];
   let replyAudioBase64 = null, coachingAudioFrBase64 = null, coachingAudioEnBase64 = null;
-  try {
-    const jobs = [replyEn ? synthesize(replyEn, v, speakingRate) : Promise.resolve(null)];
-    if (coaching) {
-      jobs.push(synthesize(coaching.explanationFr, FR_VOICE, 1.0));
-      jobs.push(synthesize(coaching.targetPhraseEn, v, Math.min(Number(speakingRate) || 0.95, 0.9)));
-    }
-    const [r, cf, ce] = await Promise.all(jobs);
-    replyAudioBase64 = r; coachingAudioFrBase64 = cf || null; coachingAudioEnBase64 = ce || null;
-  } catch (e) {
-    console.error("lessonTurn TTS error", e); // l'écrit reste disponible
-  }
+  let replyPcmChunks = null, coachingFrPcmChunks = null, coachingEnPcmChunks = null;
+  const tTts0 = Date.now();
+  const synth = wantPcm ? require("./liveAvatar")._internal.synthesizePcmChunks : synthesize;
+  const ttsPromise = (replyEn ? synth(replyEn, v, speakingRate) : Promise.resolve(null))
+    .then((r) => { if (wantPcm) replyPcmChunks = r; else replyAudioBase64 = r; })
+    .catch((e) => { console.error("lessonTurn TTS error", e); }); // l'écrit reste disponible
 
   const now = Date.now();
   const response = {
     turnIndex: index,
     transcript,
     reply_en: replyEn,
-    reply_fr: str(parsed.reply_fr, 500),
-    hard_words: Array.isArray(parsed.hard_words) ? parsed.hard_words.slice(0, 3) : [],
+    reply_fr: "", // traduction à la demande (bouton « Traduire » → translateText), plus générée à chaque tour
+    hard_words: [],
     nextAction,
     targetCriterionId,
     coaching,
@@ -740,9 +859,15 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
     coveredCriteria: [...coveredNow],
     allCovered,
     atCap,
+    // Échanges restants avant la conclusion (après celui-ci) : min. de tours, borné par le plafond. null tant que tout n'est pas couvert.
+    closingIn: nextAction === "propose_completion" ? 0 : allCovered ? Math.max(0, Math.min(minTurns, variant.maxUsefulTurns) - (index + 1)) : null,
+    minTurns,
     replyAudioBase64,
     coachingAudioFrBase64,
     coachingAudioEnBase64,
+    replyPcmChunks,
+    coachingFrPcmChunks,
+    coachingEnPcmChunks,
   };
   const turnDoc = {
     id: `t${String(index).padStart(2, "0")}`,
@@ -759,7 +884,7 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
     nextAction,
     targetCriterionId,
     coaching,
-    response: { ...response, replyAudioBase64: null, coachingAudioFrBase64: null, coachingAudioEnBase64: null },
+    response: { ...response, replyAudioBase64: null, coachingAudioFrBase64: null, coachingAudioEnBase64: null, replyPcmChunks: null, coachingFrPcmChunks: null, coachingEnPcmChunks: null },
     at: now,
   };
   const newState = nextAction === "propose_completion" ? "validating" : nextAction === "coach_retry" ? "coaching_retry" : "conversation";
@@ -773,7 +898,13 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
     coveredCriteria: [...coveredNow],
     updatedAt: now,
   }, { merge: true });
-  await batch.commit();
+  // TTS et écriture Firestore en parallèle (le tour stocké ne contient pas l'audio)
+  await Promise.all([ttsPromise, batch.commit()]);
+  const ttsMs = Date.now() - tTts0;
+  response.replyAudioBase64 = replyAudioBase64;
+  response.replyPcmChunks = replyPcmChunks;
+  response.timings = { read_ms: tRead, gemini_ms: geminiMs, tts_db_ms: ttsMs, total_ms: Date.now() - tStart, pcm: wantPcm, text: isText };
+  console.log("lessonTurn timings", JSON.stringify(response.timings));
   return response;
 });
 
@@ -852,6 +983,44 @@ async function deleteCollection(ref) {
     await d.ref.delete();
   }
 }
+// ---------------------------------------------------------------
+// awardXp({ source: "exercise" | "scene", key, dateKey }) — XP des exercices du jour et des scènes.
+// Barème fixe et plafonds journaliers côté serveur ; idempotent par (jour, source, clé).
+// Journal : users/{uid}/learning/xp/ledger/{dateKey}_{source}_{key}  ·  compteurs : users/{uid}/learning/xp/days/{dateKey}
+// ---------------------------------------------------------------
+const XP_RULES = {
+  exercise: { xp: 5, maxPerDay: 3 },   // écoute, lecture, traduction : 5 XP chacun, 15 max/jour
+  scene: { xp: 15, maxPerDay: 2 },     // scène terminée (débrief affiché) : 15 XP, 2 max/jour
+};
+exports.awardXp = onCall({ region: REGION, maxInstances: 5, timeoutSeconds: 20 }, async (request) => {
+  const uid = requireAuth(request);
+  const { source, key, dateKey } = request.data || {};
+  const rule = XP_RULES[source];
+  if (!rule) throw new HttpsError("invalid-argument", "source inconnue");
+  if (typeof key !== "string" || !key || key.length > 80) throw new HttpsError("invalid-argument", "key invalide");
+  if (typeof dateKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) throw new HttpsError("invalid-argument", "dateKey invalide");
+  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, "_");
+  const ledgerRef = db.doc(`users/${uid}/learning/xp/ledger/${dateKey}_${source}_${safeKey}`);
+  const dayRef = db.doc(`users/${uid}/learning/xp/days/${dateKey}`);
+  const stateRef = db.doc(`users/${uid}/learning/state`);
+  const now = Date.now();
+  return db.runTransaction(async (tx) => {
+    const [lSnap, dSnap, sSnap] = await Promise.all([tx.get(ledgerRef), tx.get(dayRef), tx.get(stateRef)]);
+    if (lSnap.exists) return { xpGained: 0, xpTotal: sSnap.data()?.xp || 0, reason: "duplicate" };
+    const day = dSnap.data() || {};
+    const doneToday = Number(day[source]) || 0;
+    if (doneToday >= rule.maxPerDay) {
+      tx.set(ledgerRef, { source, key: safeKey, xp: 0, at: now, capped: true });
+      return { xpGained: 0, xpTotal: sSnap.data()?.xp || 0, reason: "daily_cap" };
+    }
+    const xpTotal = (sSnap.data()?.xp || 0) + rule.xp;
+    tx.set(ledgerRef, { source, key: safeKey, xp: rule.xp, at: now });
+    tx.set(dayRef, { [source]: doneToday + 1, updatedAt: now }, { merge: true });
+    tx.set(stateRef, { xp: xpTotal, updatedAt: now }, { merge: true });
+    return { xpGained: rule.xp, xpTotal, reason: "ok" };
+  });
+});
+
 exports.purgeLearningData = onCall({ region: REGION, maxInstances: 5, timeoutSeconds: 120 }, async (request) => {
   const uid = requireAuth(request);
   for (const sub of ["attempts", "progress", "learning", "drafts"]) {
@@ -863,6 +1032,8 @@ exports.purgeLearningData = onCall({ region: REGION, maxInstances: 5, timeoutSec
 
 // Exposé hors de la vue du chargeur Firebase
 Object.defineProperty(module.exports, "_internal", {
-  value: { db, LESSONS, CHAPTERS, VARIANTS, getVariant, isPublished, readFlags, requireAuth, hasEntitlement },
+  value: { db, LESSONS, CHAPTERS, VARIANTS, getVariant, isPublished, readFlags, requireAuth, hasEntitlement,
+    // partagé avec dailyTalk.js
+    VOICES, FR_VOICE, synthesize, coachIdentity, genWithRetry, MAX_AUDIO_BASE64_LENGTH, REVIEW_INTERVALS_DAYS, DAY_MS, readLessonConfig },
   enumerable: false,
 });

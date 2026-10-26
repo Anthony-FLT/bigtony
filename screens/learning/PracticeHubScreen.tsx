@@ -12,7 +12,7 @@ export default function PracticeHubScreen({ premium, laboCount, onGoScenarios, o
 }) {
   const rows = [
     { key: "scenes", img: ILL.micro, bg: "#FDE7D2", title: "Une scène au choix", sub: "Entretien, voyage, quotidien… ou ta propre scène", onPress: onGoScenarios, lock: !premium },
-    { key: "labo", img: ILL.cible, bg: "#E7E3FB", title: "Labo de prononciation", sub: laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""} à polir` : "Les mots qui t'ont fait trébucher", onPress: onGoLabo, lock: false },
+    { key: "labo", img: ILL.cible, bg: "#E7E3FB", title: "Labo de prononciation", sub: laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""} à polir` : "Polis la prononciation d'un mot", onPress: onGoLabo, lock: false },
     { key: "words", img: ILL.crayon, bg: "#FBE4A8", title: "Réviser mes mots", sub: "Ton dictionnaire personnel", onPress: onGoFavorites, lock: false },
   ];
   return (

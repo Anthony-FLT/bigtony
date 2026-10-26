@@ -501,7 +501,7 @@ async function compareMisheard(ai, intended, heard) {
 exports.spikeTurn = onCall(
   {
     region: "europe-west1",
-    secrets: [GEMINI_API_KEY, AZURE_SPEECH_KEY],
+    secrets: [GEMINI_API_KEY],
     memory: "512MiB",
     timeoutSeconds: 60,
     maxInstances: 2,
@@ -528,18 +528,11 @@ exports.spikeTurn = onCall(
  
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
  
+    // Conversation : plus d'analyse de prononciation (Azure) ni de conversion WAV — l'audio part tel quel à Gemini.
+    // Les champs misheard / pronunciation restent dans la réponse (vides) pour les anciennes versions de l'app.
     const tConv = Date.now();
-    let wavBuffer = null;
-    try {
-      wavBuffer = await convertToWav(audioBase64);
-    } catch (e) {
-      console.error("ffmpeg error", e);
-    }
-    const convMs = Date.now() - tConv;
- 
     const t0 = Date.now();
     let geminiMs = 0;
-    let azureMs = 0;
  
     const geminiPromise = genWithRetry(ai, {
         model: "gemini-3.6-flash",
@@ -615,22 +608,9 @@ exports.spikeTurn = onCall(
         return r;
       });
  
-    const azurePromise = wavBuffer
-      ? assessPronunciation(wavBuffer, AZURE_SPEECH_KEY.value())
-          .then((r) => {
-            azureMs = Date.now() - t0;
-            return r;
-          })
-          .catch((e) => {
-            console.error("Azure PA error", e);
-            azureMs = Date.now() - t0;
-            return null;
-          })
-      : Promise.resolve(null);
- 
-    let result, pronunciation;
+    let result;
     try {
-      [result, pronunciation] = await Promise.all([geminiPromise, azurePromise]);
+      result = await geminiPromise;
     } catch (e) {
       console.error("Gemini error", e);
       throw new HttpsError("internal", `Gemini: ${e.message}`);
@@ -646,30 +626,18 @@ exports.spikeTurn = onCall(
  
     const t1 = Date.now();
     let ttsResponse;
-    let misheard = [];
     try {
-      const [tts, mh] = await Promise.all([
-        ttsClient.synthesizeSpeech({
-          input: { text: parsed.reply_en },
-          voice: resolveVoice(request.data?.voice),
-          audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
-        }),
-        compareMisheard(ai, parsed.transcript, pronunciation?.azureText || ""),
-      ]);
-      ttsResponse = tts[0];
-      misheard = mh;
+      const [tts] = await ttsClient.synthesizeSpeech({
+        input: { text: parsed.reply_en },
+        voice: resolveVoice(request.data?.voice),
+        audioConfig: { audioEncoding: "MP3", speakingRate: resolveRate(request.data?.speakingRate) },
+      });
+      ttsResponse = tts;
     } catch (e) {
       console.error("TTS error", e);
       throw new HttpsError("internal", `TTS: ${e.message}`);
     }
     const ttsMs = Date.now() - t1;
-
-    // Filtre dictionnaire : on ignore les mots non-anglais (ex. mots français dits en conversation).
-    // → pas affichés comme erreur, pas ajoutés au Labo. Rétrocompatible (mêmes champs, juste filtrés).
-    if (pronunciation && Array.isArray(pronunciation.weakWords)) {
-      pronunciation.weakWords = pronunciation.weakWords.filter((w) => isEnglishWord(w.word));
-    }
-    misheard = misheard.filter((p) => isEnglishWord(p.said));
 
    return {
       transcript: parsed.transcript,
@@ -679,10 +647,10 @@ exports.spikeTurn = onCall(
       correction: parsed.correction ?? null,
       hard_words: parsed.hard_words ?? [],
       observed_criteria: lessonCriteria ? (parsed.observed_criteria ?? []) : undefined,
-      misheard,
-      pronunciation,
+      misheard: [],
+      pronunciation: null,
       replyAudioBase64: Buffer.from(ttsResponse.audioContent).toString("base64"),
-      timings: { conv_ms: convMs, gemini_ms: geminiMs, azure_ms: azureMs, tts_ms: ttsMs, total_ms: Date.now() - tConv },
+      timings: { conv_ms: 0, gemini_ms: geminiMs, azure_ms: 0, tts_ms: ttsMs, total_ms: Date.now() - tConv },
       usage: result.usageMetadata ?? null,
     };
   }
@@ -1168,11 +1136,9 @@ exports.suggestExample = onCall(
 // ---------------------------------------------------------------
 // Débrief de fin de session (inchangé)
 // ---------------------------------------------------------------
-const DEBRIEF_PROMPT = `You are a warm, honest English pronunciation and speaking coach. You debrief IN FRENCH the conversation session of a French learner who wants to feel more confident speaking English.
+const DEBRIEF_PROMPT = `You are a warm, honest English speaking coach. You debrief IN FRENCH the conversation session of a French learner who wants to feel more confident speaking English.
 
-You receive each turn with: what the student meant to say, what a literal speech recognizer actually heard (Azure), the pronunciation scores, and the weakest words.
-
-Key insight: when "meant to say" and "was heard as" differ on a word, that word was mispronounced enough that a native speaker would have misunderstood it. C'est l'information la plus précieuse du débrief.
+You receive each turn with what the student said (transcript, with their mistakes) and the coach's reply. Some older sessions also include pronunciation scores and what a speech recognizer heard; when present, use them (a word heard as another word was mispronounced enough to be misunderstood). When absent, do NOT comment on pronunciation: focus on what they managed to express, vocabulary, grammar, sentence length and how naturally they kept the conversation going.
 
 Respond ONLY with JSON matching the schema:
 - "points_forts": exactement 2 chaînes, courtes, spécifiques et MÉRITÉES (appuyées sur les données réelles de la session, jamais de compliment inventé).
@@ -1213,7 +1179,7 @@ exports.sessionDebrief = onCall(
         const lines = [
           `Turn ${i + 1}`,
           `- Student meant to say: "${t.user}"`,
-          p ? `- Azure literally heard: "${p.azureText}"` : `- Azure: no measurement`,
+          p ? `- Azure literally heard: "${p.azureText}"` : "",
           p
             ? `- Scores: pron ${Math.round(p.pronScore)}, accuracy ${Math.round(p.accuracyScore)}, fluency ${Math.round(p.fluencyScore)}${
                 p.weakWords?.length ? ` — weak words: ${p.weakWords.map((w) => `${w.word}(${w.score})`).join(", ")}` : ""
@@ -1225,9 +1191,10 @@ exports.sessionDebrief = onCall(
       })
       .join("\n\n");
 
-    const summary = `Session summary:\n- Turns: ${turns.length}\n- Average scores: pron ${avg((p) => p.pronScore)}, accuracy ${avg(
-      (p) => p.accuracyScore
-    )}, fluency ${avg((p) => p.fluencyScore)}\n- Recurring weak words: ${recurring || "none"}\n\n${sessionText}`;
+    const scoresLine = scored.length
+      ? `\n- Average scores: pron ${avg((p) => p.pronScore)}, accuracy ${avg((p) => p.accuracyScore)}, fluency ${avg((p) => p.fluencyScore)}\n- Recurring weak words: ${recurring || "none"}`
+      : "\n- No pronunciation measurement for this session (do not comment on pronunciation)";
+    const summary = `Session summary:\n- Turns: ${turns.length}${scoresLine}\n\n${sessionText}`;
 
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
     let result;
@@ -1978,3 +1945,5 @@ Respond ONLY with JSON:
 
 
 Object.assign(exports, require("./learningPath"));
+Object.assign(exports, require("./liveAvatar"));
+Object.assign(exports, require("./dailyTalk"));

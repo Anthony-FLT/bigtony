@@ -147,9 +147,15 @@ export type LessonTurnResponse = {
   coveredCriteria: string[];
   allCovered: boolean;
   atCap: boolean;
+  closingIn?: number | null; // échanges restants avant la conclusion une fois tout couvert (0 = cette réponse était la dernière)
+  minTurns?: number;
   replyAudioBase64: string | null;
   coachingAudioFrBase64: string | null;
   coachingAudioEnBase64: string | null;
+  // audioFormat "pcm24k" (coach vidéo) : segments PCM 16 bits 24 kHz mono base64 (≈ 1 s chacun), MP3 absents
+  replyPcmChunks?: string[] | null;
+  coachingFrPcmChunks?: string[] | null;
+  coachingEnPcmChunks?: string[] | null;
 };
 
 // Résultat de finalizeAttempt (J4) — calculé et stocké côté serveur
@@ -175,6 +181,8 @@ export type LessonAttempt = {
   variantId: string;
   contentVersion: number;
   practiceLevel: PracticeLevel;
+  briefingEn?: string; // ouverture parlée générée à la création (bonjour + direction + première question)
+  briefingFr?: string;
   state: AttemptState;
   active: boolean; // une seule tentative active par leçon ; fermée par J4 (finalizeAttempt) ou "ended_unvalidated"
   coachingUsed?: boolean;

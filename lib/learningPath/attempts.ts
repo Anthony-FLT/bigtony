@@ -28,8 +28,9 @@ export function lessonStartError(e: any): LessonStartError {
   return "unknown";
 }
 
-export async function startOrResumeLesson(lessonId: string): Promise<StartLessonResult> {
-  const res: any = await startOrResumeLessonFn({ lessonId });
+// voice : coach du profil (prénom/accent de l'ouverture) ; isFirstLesson : le coach se présente dans l'ouverture
+export async function startOrResumeLesson(lessonId: string, opts: { voice?: string; isFirstLesson?: boolean } = {}): Promise<StartLessonResult> {
+  const res: any = await startOrResumeLessonFn({ lessonId, ...opts });
   return res.data as StartLessonResult;
 }
 
@@ -53,6 +54,11 @@ export async function updateAttemptState(attemptId: string, state: AttemptState,
 }
 
 // Évaluation finale groupée (serveur) : validation, XP, badge. Idempotent : rappeler renvoie le résultat stocké.
+// Préchauffe l'instance finalizeAttempt (appelé en même temps que lessonTurn)
+export function warmFinalizeAttempt(): void {
+  finalizeAttemptFn({ warmup: true }).catch(() => {});
+}
+
 export async function finalizeAttempt(attemptId: string): Promise<AttemptResult> {
   const res: any = await finalizeAttemptFn({ attemptId });
   return res.data as AttemptResult;
@@ -68,6 +74,11 @@ export async function syncLearningEntitlement(): Promise<void> {
 }
 
 // Un tour de conversation de leçon (voix ou texte). clientTurnId rend l'appel idempotent (double tap, retry réseau).
+// Préchauffe l'instance lessonTurn (démarrage à froid ≈ 3 s évité au premier tour). Sans effet si déjà chaude.
+export function warmLessonTurn(): void {
+  lessonTurnFn({ warmup: true }).catch(() => {});
+}
+
 export async function lessonTurn(input: {
   attemptId: string;
   clientTurnId: string;
@@ -76,6 +87,7 @@ export async function lessonTurn(input: {
   text?: string;
   voice: string;
   speakingRate: number;
+  audioFormat?: "mp3" | "pcm24k";
 }): Promise<LessonTurnResponse> {
   const res: any = await lessonTurnFn(input);
   return res.data as LessonTurnResponse;

@@ -37,7 +37,13 @@
           "color": "#1c2b46"
         }
       ],
-      ["@react-native-firebase/app"]
+      [
+        "@react-native-firebase/app"
+      ],
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc",
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc"
     ],
     "extra": {
       "eas": {

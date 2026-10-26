@@ -32,12 +32,18 @@ import ReadingScreen from "./screens/ReadingScreen";
 import ListeningScreen from "./screens/ListeningScreen";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import LessonScreen from "./screens/lesson/LessonScreen";
+import DailyTalkScreen from "./screens/daily/DailyTalkScreen";
 import LearningHomeScreen from "./screens/learning/LearningHomeScreen";
 import PracticeHubScreen from "./screens/learning/PracticeHubScreen";
 import { syncLearningEntitlement } from "./lib/learningPath/attempts";
 import { LESSONS } from "./lib/learningPath/catalog";
 import { listPracticeWords } from "./lib/practiceWords";
 import { Icon as LessonIcon, IconName as LessonIconName } from "./components/lessonUi";
+import { registerGlobals } from "@livekit/react-native";
+import AvatarTestScreen from "./screens/dev/AvatarTestScreen";
+
+// LiveKit (coach vidéo) : globals WebRTC, à appeler une fois au chargement
+registerGlobals();
 
 type Tab = "home" | "pratiquer" | "progres" | "settings";
 type AppState = "loading" | "onboarding" | "ready";
@@ -69,6 +75,7 @@ function AppInner() {
   const [access, setAccess] = useState<Access | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showDailyHub, setShowDailyHub] = useState(false);
+  const [showDailyTalk, setShowDailyTalk] = useState(false); // « Le point du jour »
   const [showTranslation, setShowTranslation] = useState(false);
   const [showReading, setShowReading] = useState(false);
   const [showListening, setShowListening] = useState(false);
@@ -77,6 +84,7 @@ function AppInner() {
   const [hubCelebrated, setHubCelebrated] = useState(true); // true tant que le profil n'est pas chargé
   const [showHubDone, setShowHubDone] = useState(false);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
+  const [showAvatarTest, setShowAvatarTest] = useState(false); // écran de test LiveAvatar (dev uniquement)
   const isPremium = access?.premium === true;
   const insets = useSafeAreaInsets();
   const bgCream = [styles.rootCream, { paddingBottom: insets.bottom }];
@@ -161,6 +169,15 @@ function AppInner() {
     );
   }
 
+  if (showAvatarTest) {
+    return (
+      <View style={bgPath}>
+        <StatusBar style="dark" />
+        <AvatarTestScreen onBack={() => setShowAvatarTest(false)} />
+      </View>
+    );
+  }
+
   if (activeLessonId) {
     return (
       <View style={bgPath}>
@@ -190,6 +207,24 @@ function AppInner() {
     );
   }
 
+  if (showDailyTalk) {
+    return (
+      <View style={bgPath}>
+        <StatusBar style="dark" />
+        <DailyTalkScreen
+          onExit={() => { setShowDailyTalk(false); setHomeKey((k) => k + 1); }}
+          onLocked={() => { setShowDailyTalk(false); openPaywall("daily_talk"); }}
+        />
+        <Modal visible={showPaywall} animationType="slide" onRequestClose={() => setShowPaywall(false)}>
+          <View style={bgCream}>
+            <StatusBar style="dark" />
+            <PaywallScreen dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
   if (creatingScene) {
     return (
       <View style={bgCream}>
@@ -201,8 +236,8 @@ function AppInner() {
 
   if (activeScenario) {
     return (
-      <View style={bgNight}>
-        <StatusBar style="light" />
+   <View style={bgPath}>
+        <StatusBar style="dark" />
         <SpikeScreen scenario={activeScenario} onExit={() => setActiveScenario(null)} />
       </View>
     );
@@ -210,8 +245,8 @@ function AppInner() {
 
   if (dailyActive) {
     return (
-      <View style={bgNight}>
-        <StatusBar style="light" />
+ <View style={bgPath}>
+        <StatusBar style="dark" />
         <SpikeScreen
           daily
           scenario={{ id: "daily", title: "Conversation libre", emoji: "", category: "quotidien", description: "" }}
@@ -317,10 +352,7 @@ function AppInner() {
     return (
       <View style={bgCream}>
         <StatusBar style="dark" />
-        <Pressable onPress={() => { setShowLabo(false); setHomeKey((k) => k + 1); }} hitSlop={12} style={styles.laboBack} accessibilityRole="button" accessibilityLabel="Retour">
-          <Feather name="chevron-left" size={26} color={T.night} />
-        </Pressable>
-        <LaboScreen refreshKey={laboKey} premium={isPremium} onLocked={() => openPaywall("labo_add_word")} />
+        <LaboScreen refreshKey={laboKey} premium={isPremium} onLocked={() => openPaywall("labo_add_word")} onBack={() => { setShowLabo(false); setHomeKey((k) => k + 1); }} />
       </View>
     );
   }
@@ -348,6 +380,7 @@ function AppInner() {
             onGoDailyHub={() => setShowDailyHub(true)}
             onShowPaywall={openPaywall}
             onGoProfile={() => setTab("settings")}
+            onGoDailyTalk={() => setShowDailyTalk(true)}
           />
         )}
         {tab === "pratiquer" && (
@@ -365,6 +398,7 @@ function AppInner() {
             onResume={(s) => { if (isPremium) setActiveScenario(s); else openPaywall("scenarios"); }}
             onGoLabo={() => { setLaboKey((k) => k + 1); setShowLabo(true); }}
             onGoFavorites={() => setShowFavorites(true)}
+          onGoDailyTalk={() => setShowDailyTalk(true)}
           />
         )}
         {tab === "settings" && (
@@ -423,4 +457,6 @@ const styles = StyleSheet.create({
   tabItem: { flex: 1, alignItems: "center", gap: 3 },
   tabLabel: { fontSize: 12, fontWeight: "700", color: "#8A93A8" },
   tabLabelOn: { color: "#F2873A" },
+  devAvatarBtn: { position: "absolute", top: 60, right: 16, backgroundColor: "#C0392B", borderRadius: 12, paddingVertical: 6, paddingHorizontal: 10 },
+  devAvatarBtnText: { color: "#fff", fontWeight: "800", fontSize: 12 },
 });

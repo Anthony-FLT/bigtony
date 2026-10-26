@@ -10,6 +10,7 @@ import {
   increment,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import { awardXp } from "./xp";
 
 export type SessionPronunciation = {
   pronScore: number;
@@ -103,5 +104,7 @@ export async function closeSession(
     avgFluencyScore: avg((p) => p.fluencyScore),
     weakWords,
   });
+  // XP de la scène (15, 2 max/jour, décidé par le serveur) — les anciennes discussions du jour n'en donnent pas
+  if (turns.length >= 2) awardXp("scene", sessionId).catch(() => {});
 }
 

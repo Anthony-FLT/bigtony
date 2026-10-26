@@ -1,71 +1,68 @@
+// WordPracticeScreen — exercice d'un mot du Labo (maquettes du 26/10) : 1 · Prononcer (écoute, ralenti, astuce, conseils,
+// enregistrement → résultat) puis 2 · En contexte (mise en situation, indice, exemple, phrase → « Bien utilisé ! »).
+// Logique inchangée : getWordCoaching, assessDrill (Azure, scripté), assessWordUsage, setMastered. Enregistrement : un tap pour
+// commencer, un tap pour terminer.
 import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
-import { Feather } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useAudioRecorder, useAudioPlayer, RecordingPresets, setAudioModeAsync, AudioModule } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../lib/firebase";
-import { T } from "../lib/theme";
+import { L, Icon, RoundButton } from "../components/lessonUi";
 import { assessDrill, assessWordUsage, WordUsageResult } from "../lib/labo";
 import { getWordCoaching, Coaching } from "../lib/wordCoaching";
 import { setMastered } from "../lib/practiceWords";
 import CorrectionCard, { Correction } from "../components/CorrectionCard";
 
 const MIN_REC_MS = 400;
+const PRON_OK = 75; // seuil de validation de la prononciation
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 
 const ARPA_IPA: Record<string, string> = { aa:"ɑː",ae:"æ",ah:"ʌ",ao:"ɔː",aw:"aʊ",ay:"aɪ",b:"b",ch:"tʃ",d:"d",dh:"ð",eh:"ɛ",er:"ɜːr",ey:"eɪ",f:"f",g:"ɡ",hh:"h",ih:"ɪ",iy:"iː",jh:"dʒ",k:"k",l:"l",m:"m",n:"n",ng:"ŋ",ow:"oʊ",oy:"ɔɪ",p:"p",r:"r",s:"s",sh:"ʃ",t:"t",th:"θ",uh:"ʊ",uw:"uː",v:"v",w:"w",y:"j",z:"z",zh:"ʒ" };
 const toIPA = (ph: string) => ARPA_IPA[ph.toLowerCase().replace(/[0-9]/g, "")] || ph;
 
+// Met en évidence le mot dans la phrase de l'apprenant
+function Highlighted({ text, word, style }: { text: string; word: string; style: any }) {
+  const idx = text.toLowerCase().indexOf(word.toLowerCase());
+  if (idx === -1) return <Text style={style}>{text}</Text>;
+  return <Text style={style}>{text.slice(0, idx)}<Text style={{ color: L.accentDeep }}>{text.slice(idx, idx + word.length)}</Text>{text.slice(idx + word.length)}</Text>;
+}
+
 export default function WordPracticeScreen({ word, heardAs, onClose }: { word: string; heardAs?: string; onClose: () => void }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer();
-  const insets = useSafeAreaInsets();
   const [coaching, setCoaching] = useState<Coaching | null>(null);
-  const [step, setStep] = useState<"discover" | "use">("discover");
+  const [step, setStep] = useState<"pronounce" | "context">("pronounce");
   const [status, setStatus] = useState<"idle" | "recording" | "processing">("idle");
   // Étape 1
   const [score, setScore] = useState<number | null>(null);
   const [phonemes, setPhonemes] = useState<{ phoneme: string; score: number }[]>([]);
+  const [showTips, setShowTips] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   // Étape 2
-  const [showStarter, setShowStarter] = useState(false);
+  const [showHint, setShowHint] = useState(false);
   const [showExample, setShowExample] = useState(false);
   const [usage, setUsage] = useState<WordUsageResult | null>(null);
   const recStart = useRef(0);
-  const scrollRef = useRef<ScrollView>(null);
-  const PASS_SCORE = 85; // seuil de validation de l'étape 1
 
   useEffect(() => { getWordCoaching(word).then(setCoaching); }, [word]);
-  // Fait défiler jusqu'au résultat dès qu'il arrive
-  useEffect(() => {
-    if (score === null && !usage) return;
-    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
-    return () => clearTimeout(t);
-  }, [score, usage]);
 
   const playB64 = async (b64: string) => {
     try {
       const p = FileSystem.cacheDirectory + `word_${Date.now()}.mp3`;
       await FileSystem.writeAsStringAsync(p, b64, { encoding: FileSystem.EncodingType.Base64 });
-      player.replace(p);
-      player.play();
+      player.replace(p); player.seekTo(0); player.play();
     } catch (e) { console.warn(e); }
   };
-  const playModel = () => { if (coaching?.audioBase64) playB64(coaching.audioBase64); };
-  const playSlow = async () => {
+  const speak = async (text: string, rate?: number) => {
     try {
-      const r: any = await translateText({ text: word, mode: "speak", speakingRate: 0.6 });
+      const r: any = await translateText({ text, mode: "speak", ...(rate ? { speakingRate: rate } : {}) });
       if (r.data?.audioBase64) await playB64(r.data.audioBase64);
     } catch (e) { console.warn(e); }
   };
-  const playExample = async () => {
-    if (!coaching?.example_en) return;
-    try {
-      const r: any = await translateText({ text: coaching.example_en, mode: "speak" });
-      if (r.data?.audioBase64) await playB64(r.data.audioBase64);
-    } catch (e) { console.warn(e); }
-  };
+  const playModel = () => (coaching?.audioBase64 ? playB64(coaching.audioBase64) : speak(word));
+  const playSlow = () => speak(word, 0.6);
 
   const startRec = async () => {
     if (status !== "idle") return;
@@ -79,7 +76,6 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
       setStatus("recording");
     } catch (e) { console.warn(e); setStatus("idle"); }
   };
-
   const stopRec = async () => {
     if (status !== "recording") return;
     setStatus("processing");
@@ -90,198 +86,217 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
       const uri = recorder.uri;
       if (!uri) throw new Error("no uri");
       const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-
-      if (step === "discover") {
+      if (step === "pronounce") {
         const r = await assessDrill(word, b64);
-        const s = Math.round(r.pronScore);
-        setScore(s);
+        setScore(Math.round(r.pronScore));
         setPhonemes(r.words?.[0]?.phonemes ?? []);
+        setShowDetail(false);
       } else {
         const u = await assessWordUsage(word, b64);
         setUsage(u);
-        if (u.wordUsed && u.sentenceOk && (u.pronScore ?? 0) >= 75) setMastered(word, true);
+        if (u.wordUsed && u.sentenceOk && (u.pronScore ?? 0) >= PRON_OK) setMastered(word, true);
       }
     } catch (e) { console.warn(e); }
     finally { setStatus("idle"); }
   };
+  const toggleRec = () => (status === "recording" ? stopRec() : startRec());
 
-  const col = (s: number) => (s < 60 ? T.corail : s < 80 ? T.miel : T.menthe);
+  const pronValidated = score !== null && score >= PRON_OK;
+  const usageOk = !!usage && usage.wordUsed && usage.sentenceOk;
+  const usagePronOk = !!usage && (usage.pronScore === null || usage.pronScore >= PRON_OK);
+  const scoreColor = (s: number) => (s < 60 ? L.danger : s < PRON_OK ? L.accentDeep : L.success);
+
+  // ---------- Bouton principal (micro) ----------
+  const micLabel = step === "pronounce" ? "Prononcer" : "Dire ma phrase";
+  const micButton = (
+    <Pressable onPress={toggleRec} disabled={status === "processing" || !coaching} style={[styles.cta, status === "recording" && styles.ctaRec, (status === "processing" || !coaching) && { opacity: 0.6 }]} accessibilityRole="button" accessibilityLabel={status === "recording" ? "Terminer l'enregistrement" : micLabel}>
+      {status === "processing" ? <ActivityIndicator color="#fff" /> : (
+        <View style={styles.ctaRow}>
+          <Icon name={status === "recording" ? "envoyer" : "micro"} size={20} tint="#fff" />
+          <Text style={styles.ctaText}>{status === "recording" ? "Terminer" : micLabel}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+  const micCaption = status === "recording" ? "Appuie quand tu as fini." : status === "processing" ? "Analyse en cours…" : "Appuie pour commencer.";
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={onClose} hitSlop={12} style={styles.close}><Feather name="x" size={22} color={T.night} /></Pressable>
-
-      <View style={styles.head}>
-        <Text style={styles.k}>LABO</Text>
-        <Text style={styles.h1}>{step === "discover" ? "Découvre le mot" : "À toi de l'utiliser"}</Text>
+      {/* En-tête : retour, titre, fermer */}
+      <View style={styles.header}>
+        {step === "context" ? <RoundButton icon="retour" label="Étape précédente" onPress={() => setStep("pronounce")} size={44} iconSize={20} /> : <RoundButton icon="retour" label="Retour" onPress={onClose} size={44} iconSize={20} />}
+        <Text style={styles.headerTitle}>Le labo</Text>
+        <RoundButton icon="fermer" label="Fermer" onPress={onClose} size={44} iconSize={16} />
       </View>
 
       {/* Stepper */}
       <View style={styles.stepper}>
         <View style={styles.stepItem}>
-          <View style={[styles.stepCircle, styles.stepOn]}>
-            {step === "use" ? <Feather name="check" size={16} color="#fff" /> : <Text style={styles.stepNum}>1</Text>}
-          </View>
-          <Text style={styles.stepLabel}>Découvrir</Text>
+          <View style={[styles.stepDot, step === "pronounce" ? styles.stepDotOn : styles.stepDotDone]}>{step === "context" ? <Icon name="check" size={14} tint="#fff" /> : <Text style={styles.stepNum}>1</Text>}</View>
+          <Text style={[styles.stepLabel, step === "pronounce" && styles.stepLabelOn]}>Prononcer</Text>
         </View>
-        <View style={styles.stepLine} />
+        <View style={[styles.stepLine, { backgroundColor: L.accentDeep }]} />
         <View style={styles.stepItem}>
-          <View style={[styles.stepCircle, step === "use" ? styles.stepOn : styles.stepOff]}>
-            <Text style={[styles.stepNum, step !== "use" && styles.stepNumOff]}>2</Text>
-          </View>
-          <Text style={[styles.stepLabel, step !== "use" && styles.stepLabelOff]}>Utiliser</Text>
+          <View style={[styles.stepDot, step === "context" ? styles.stepDotOn : styles.stepDotOff]}><Text style={[styles.stepNum, step !== "context" && { color: L.textSecondary }]}>2</Text></View>
+          <Text style={[styles.stepLabel, step === "context" && styles.stepLabelOn]}>En contexte</Text>
         </View>
       </View>
 
-      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 26, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ paddingHorizontal: L.gutter, paddingBottom: 24 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {!coaching ? (
-          <ActivityIndicator color={T.abricotDeep} style={{ marginTop: 40 }} />
-        ) : step === "discover" ? (
-          // ===================== ÉTAPE 1 — DÉCOUVRIR =====================
+          <ActivityIndicator color={L.primary} style={{ marginTop: 40 }} />
+        ) : step === "pronounce" ? (
           <>
+            {/* Carte du mot */}
             <View style={styles.wordCard}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.word}>{word}</Text>
-                <Text style={styles.ipaMeaning}>{coaching.ipa} · {coaching.meaning_fr}</Text>
-              </View>
-              <Pressable onPress={playModel} style={styles.listenBtn} hitSlop={8}>
-                <Feather name="volume-2" size={20} color={T.night} />
-              </Pressable>
-            </View>
-
-            <View style={styles.howCard}>
-              <View style={styles.howHead}>
-                <Feather name="headphones" size={16} color={T.abricot} />
-                <Text style={styles.howTitle}>ÉCOUTE, PUIS ESSAIE</Text>
-              </View>
-              <Text style={styles.howText}>{coaching.how_to_fr}</Text>
-              <View style={styles.trapRow}>
-                <Text style={styles.trapText}>{coaching.trap_fr}</Text>
+              <Text style={styles.word}>{word}</Text>
+              <Text style={styles.meaning}>{coaching.meaning_fr}</Text>
+              <View style={styles.listenRow}>
+                <Pressable onPress={playModel} style={styles.listenBtn} accessibilityRole="button" accessibilityLabel="Écouter"><Icon name="ecouter" size={18} /><Text style={styles.listenText}>Écouter</Text></Pressable>
+                <View style={styles.listenSep} />
+                <Pressable onPress={playSlow} style={styles.listenBtn} accessibilityRole="button" accessibilityLabel="Écouter au ralenti"><MaterialCommunityIcons name="speedometer-slow" size={18} color={L.textPrimary} /><Text style={styles.listenText}>Ralenti</Text></Pressable>
               </View>
             </View>
 
-            <Pressable onPress={playSlow} style={styles.slowBtn}>
-              <Feather name="volume-2" size={18} color={T.night} />
-              <Text style={styles.slowText}>Écouter lentement</Text>
+            {coaching.trap_fr ? (
+              <View style={styles.tip}><MaterialCommunityIcons name="lightbulb-outline" size={18} color={L.lavenderText} /><Text style={styles.tipText}>{coaching.trap_fr}</Text></View>
+            ) : null}
+
+            <Pressable onPress={() => setShowTips((v) => !v)} style={styles.collapse} accessibilityRole="button">
+              <Text style={styles.collapseTitle}>Conseils de prononciation</Text>
+              <Icon name="chevron" size={16} style={{ transform: [{ rotate: showTips ? "-90deg" : "90deg" }] }} />
             </Pressable>
+            {showTips && (
+              <View style={styles.collapseBody}>
+                {coaching.ipa ? <Text style={styles.ipa}>{coaching.ipa}</Text> : null}
+                <Text style={styles.collapseText}>{coaching.how_to_fr}</Text>
+                {heardAs ? <Text style={styles.heard}>La dernière fois, on a entendu « {heardAs} » à la place.</Text> : null}
+              </View>
+            )}
 
-            {heardAs ? <Text style={styles.heard}>La dernière fois, on a entendu « {heardAs} » à la place.</Text> : null}
-
+            {/* Résultat */}
             {score !== null && (
-              <View style={styles.resultCard}>
-                <Text style={[styles.scorePct, { color: col(score) }]}>{score}%</Text>
-                {phonemes.length > 0 && (
-                  <View style={styles.phRow}>
-                    {phonemes.map((p, i) => (
-                      <View key={i} style={styles.phChip}><Text style={[styles.phText, { color: col(p.score) }]}>/{toIPA(p.phoneme)}/</Text></View>
-                    ))}
+              <View style={[styles.result, pronValidated ? styles.resultOk : styles.resultKo]}>
+                <View style={styles.resultHead}>
+                  <View style={[styles.resultIcon, { backgroundColor: pronValidated ? L.success : L.accentDeep }]}>{pronValidated ? <Icon name="check" size={16} tint="#fff" /> : <Icon name="rejouer" size={16} tint="#fff" />}</View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.resultTitle, { color: pronValidated ? L.success : L.textPrimary }]}>{pronValidated ? "Prononciation validée" : score >= 60 ? "Presque !" : "On reprend doucement"}</Text>
+                    <Text style={styles.resultSub}>{pronValidated ? "Tu peux maintenant utiliser ce mot." : score >= 60 ? "Réécoute le modèle et réessaie." : "Suis le conseil ci-dessus et réessaie."}</Text>
                   </View>
+                  <View style={[styles.scorePill, { backgroundColor: pronValidated ? "#D5EEDF" : L.accentSoft }]}><Text style={[styles.scoreText, { color: scoreColor(score) }]}>{score} %</Text></View>
+                </View>
+                {phonemes.length > 0 && (
+                  <>
+                    <Pressable onPress={() => setShowDetail((v) => !v)} style={styles.detailRow} accessibilityRole="button">
+                      <Text style={styles.detailLabel}>Voir le détail</Text>
+                      <Icon name="chevron" size={14} style={{ transform: [{ rotate: showDetail ? "-90deg" : "90deg" }] }} />
+                    </Pressable>
+                    {showDetail && (
+                      <View style={styles.phRow}>
+                        {phonemes.map((p, i) => <View key={i} style={styles.phChip}><Text style={[styles.phText, { color: scoreColor(p.score) }]}>/{toIPA(p.phoneme)}/</Text></View>)}
+                      </View>
+                    )}
+                  </>
                 )}
-                <Text style={styles.verdict}>
-                  {score >= PASS_SCORE ? "Excellent — passe à l'étape suivante."
-                    : score >= 70 ? "Presque ! Réécoute le modèle et réessaie."
-                    : "Reprends doucement en suivant le conseil ci-dessus."}
-                </Text>
               </View>
             )}
           </>
         ) : (
-          // ===================== ÉTAPE 2 — À TOI DE L'UTILISER =====================
           <>
-            <View style={styles.wordCardSmall}>
+            {/* Rappel compact du mot */}
+            <View style={styles.wordRowCard}>
               <Text style={styles.wordSmall}>{word}</Text>
-              <Text style={styles.wordSmallSep}>|</Text>
-              <Text style={styles.wordSmallFr}>{coaching.meaning_fr}</Text>
-              <Pressable onPress={playModel} style={styles.listenBtnSmall} hitSlop={8}>
-                <Feather name="volume-2" size={18} color={T.night} />
-              </Pressable>
+              <View style={styles.vSep} />
+              <Text style={styles.wordSmallFr} numberOfLines={1}>{coaching.meaning_fr}</Text>
+              <Pressable onPress={playModel} style={styles.roundListen} hitSlop={8} accessibilityRole="button" accessibilityLabel="Écouter"><Icon name="ecouter" size={18} /></Pressable>
             </View>
 
-            <View style={styles.sitCard}>
-              {coaching.situation_title_fr ? (
-                <View style={styles.sitHead}>
-                  <Feather name="user" size={16} color={T.abricot} />
-                  <Text style={styles.sitTitle}>{coaching.situation_title_fr.toUpperCase()}</Text>
+            {!usage || !usageOk ? (
+              <>
+                {coaching.situation_title_fr ? <Text style={styles.sitTitle}>{coaching.situation_title_fr}</Text> : <Text style={styles.sitTitle}>À toi de l'utiliser</Text>}
+                <View style={styles.sitCard}>
+                  <Text style={styles.sitText}>{coaching.situation_fr ?? `Dis une phrase en anglais avec « ${word} ».`}</Text>
+                  <View style={styles.sitSep} />
+                  <Text style={styles.sitUse}>Utilise « {word} » dans ta phrase.</Text>
                 </View>
-              ) : null}
-              <Text style={styles.sitText}>{coaching.situation_fr ?? `Dis une phrase en anglais avec « ${word} ».`}</Text>
-            </View>
 
-            <Text style={styles.buildTitle}>Construis ta phrase</Text>
-            <Text style={styles.buildHint}>Une phrase courte suffit.</Text>
-
-            <Pressable style={styles.helpRow} onPress={() => setShowStarter((v) => !v)}>
-              <Feather name="message-circle" size={18} color={T.night} />
-              <Text style={styles.helpLabel}>Un début de phrase</Text>
-              <Feather name={showStarter ? "chevron-up" : "chevron-down"} size={18} color={T.inkSoft} style={{ marginLeft: "auto" }} />
-            </Pressable>
-            {showStarter && coaching.starter_en ? (
-              <View style={styles.helpBody}><Text style={styles.helpEn}>{coaching.starter_en}</Text></View>
-            ) : null}
-
-            <Pressable style={styles.helpRow} onPress={() => setShowExample((v) => !v)}>
-              <Feather name="zap" size={18} color={T.night} />
-              <Text style={styles.helpLabel}>Voir un exemple</Text>
-              <Feather name={showExample ? "chevron-up" : "chevron-down"} size={18} color={T.inkSoft} style={{ marginLeft: "auto" }} />
-            </Pressable>
-            {showExample && coaching.example_en ? (
-              <View style={styles.helpBody}>
-                <View style={styles.exampleRow}>
-                  <Text style={[styles.helpEn, { flex: 1 }]}>{coaching.example_en}</Text>
-                  <Pressable onPress={playExample} hitSlop={8} style={styles.exampleListen}>
-                    <Feather name="volume-2" size={16} color={T.night} />
-                  </Pressable>
+                <View style={styles.helpRow}>
+                  <Pressable onPress={() => setShowHint((v) => !v)} style={[styles.helpBtn, showHint && styles.helpBtnOn]} accessibilityRole="button"><Icon name="aide" size={18} /><Text style={styles.helpText}>Un indice</Text><Icon name="chevron" size={14} style={{ transform: [{ rotate: showHint ? "-90deg" : "90deg" }] }} /></Pressable>
+                  <Pressable onPress={() => setShowExample((v) => !v)} style={[styles.helpBtn, showExample && styles.helpBtnOn]} accessibilityRole="button"><Icon name="exemple" size={18} /><Text style={styles.helpText}>Un exemple</Text><Icon name="chevron" size={14} style={{ transform: [{ rotate: showExample ? "-90deg" : "90deg" }] }} /></Pressable>
                 </View>
-                {coaching.example_fr ? <Text style={styles.exampleFr}>{coaching.example_fr}</Text> : null}
-              </View>
-            ) : null}
+                {showHint && coaching.starter_en ? <View style={styles.helpBody}><Text style={styles.helpEn}>{coaching.starter_en}…</Text></View> : null}
+                {showExample && coaching.example_en ? (
+                  <View style={styles.helpBody}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Text style={[styles.helpEn, { flex: 1 }]}>{coaching.example_en}</Text>
+                      <Pressable onPress={() => speak(coaching.example_en!)} style={styles.roundListen} hitSlop={8}><Icon name="ecouter" size={16} /></Pressable>
+                    </View>
+                    {coaching.example_fr ? <Text style={styles.helpFr}>{coaching.example_fr}</Text> : null}
+                  </View>
+                ) : null}
 
-            {usage && (
-              <View style={{ marginTop: 18 }}>
-                {usage.pronScore !== null && (
-                  <View style={styles.pronPill}>
-                    <Feather name="mic" size={14} color={col(usage.pronScore)} />
-                    <Text style={[styles.pronPillText, { color: col(usage.pronScore) }]}>Prononciation {usage.pronScore}%</Text>
+                {usage && !usageOk && (
+                  <View style={{ marginTop: 14 }}>
+                    {!usage.wordUsed && <View style={[styles.tip, { backgroundColor: L.accentSoft }]}><Icon name="attention" size={18} /><Text style={styles.tipText}>Tu n'as pas utilisé « {word} » dans ta phrase — réessaie.</Text></View>}
+                    <CorrectionCard correction={(usage.correction as Correction) ?? { has_errors: false, original: [], corrected: [] }} feedback={usage.feedback_fr} />
                   </View>
                 )}
-                {!usage.wordUsed && (
-                  <Text style={styles.warnText}>Tu n'as pas utilisé « {word} » dans ta phrase — réessaie.</Text>
-                )}
-                <CorrectionCard
-                  correction={(usage.correction as Correction) ?? { has_errors: false, original: [], corrected: [] }}
-                  feedback={usage.feedback_fr}
-                />
-                {usage.wordUsed && usage.sentenceOk && (
-                  <Pressable onPress={onClose} style={styles.doneBtn}><Text style={styles.doneText}>Terminer</Text></Pressable>
-                )}
-              </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.okBanner}><View style={[styles.resultIcon, { backgroundColor: L.success }]}><Icon name="check" size={16} tint="#fff" /></View><Text style={styles.okBannerText}>Bien utilisé !</Text></View>
+                <View style={styles.phraseCard}>
+                  <Text style={styles.phraseK}>TA PHRASE</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <Highlighted text={usage.transcript} word={word} style={[styles.phrase, { flex: 1 }]} />
+                    <Pressable onPress={() => speak(usage.transcript)} style={styles.roundListen} hitSlop={8} accessibilityRole="button" accessibilityLabel="Écouter ma phrase"><Icon name="ecouter" size={16} /></Pressable>
+                  </View>
+                  {usage.feedback_fr ? <><View style={styles.sitSep} /><Text style={styles.phraseFeedback}>{usage.feedback_fr}</Text></> : null}
+                </View>
+                <View style={styles.checksRow}>
+                  <View style={[styles.check, usagePronOk ? styles.checkOk : styles.checkKo]}>
+                    <View style={[styles.miniCheck, { backgroundColor: usagePronOk ? L.success : L.accentDeep }]}>{usagePronOk ? <Icon name="check" size={12} tint="#fff" /> : <Icon name="rejouer" size={12} tint="#fff" />}</View>
+                    <Text style={styles.checkText}>Prononciation{usage.pronScore !== null && !usagePronOk ? ` ${usage.pronScore} %` : ""}</Text>
+                  </View>
+                  <View style={[styles.check, styles.checkOk]}><View style={[styles.miniCheck, { backgroundColor: L.success }]}><Icon name="check" size={12} tint="#fff" /></View><Text style={styles.checkText}>Mise en contexte</Text></View>
+                </View>
+              </>
             )}
           </>
         )}
       </ScrollView>
 
-      {/* Barre du bas : micro + navigation d'étape */}
-      <View style={[styles.bottomBar, { paddingBottom: 30 + insets.bottom }]}>
-        <View style={styles.micWrap}>
-          <Pressable onPressIn={startRec} onPressOut={stopRec} disabled={status === "processing" || !coaching} style={[styles.mic, status === "recording" && styles.micActive]}>
-            {status === "processing" ? <ActivityIndicator color="#fff" /> : <Feather name="mic" size={28} color={status === "recording" ? "#fff" : T.night} />}
-          </Pressable>
-          <Text style={styles.micLabel}>
-            {status === "recording" ? "Relâche quand tu as fini" : step === "discover" ? "Maintiens et prononce" : "Maintiens pour répondre"}
-          </Text>
-        </View>
-
-        {step === "discover" ? (
-          score !== null && score >= PASS_SCORE ? (
-          <Pressable onPress={() => setStep("use")} disabled={!coaching} style={styles.nextBtn}>
-            <Text style={styles.nextText}>Utiliser ce mot</Text>
-            <Feather name="arrow-right" size={18} color={T.abricotDeep} />
-          </Pressable>
-          ) : null
+      {/* Barre du bas */}
+      <View style={styles.bottom}>
+        {step === "pronounce" ? (
+          score === null ? (
+            <>
+              <Text style={styles.bottomCaption}>Écoute, puis prononce le mot.</Text>
+              {micButton}
+              <Text style={styles.bottomCaption}>{micCaption}</Text>
+            </>
+          ) : pronValidated ? (
+            <>
+              <Pressable onPress={() => setStep("context")} style={styles.cta} accessibilityRole="button"><View style={styles.ctaRow}><Text style={styles.ctaText}>Passer à la mise en situation</Text><Icon name="fleche" size={18} tint="#fff" /></View></Pressable>
+              <Pressable onPress={() => { setScore(null); setPhonemes([]); }} hitSlop={8}><Text style={styles.link}>Réessayer</Text></Pressable>
+            </>
+          ) : (
+            <>
+              {micButton}
+              {status === "idle" ? <Pressable onPress={() => setStep("context")} hitSlop={8}><Text style={styles.link}>Passer quand même</Text></Pressable> : <Text style={styles.bottomCaption}>{micCaption}</Text>}
+            </>
+          )
+        ) : usage && usageOk ? (
+          <>
+            <Pressable onPress={onClose} style={styles.cta} accessibilityRole="button"><Text style={styles.ctaText}>Revenir à mes mots</Text></Pressable>
+            <Pressable onPress={() => setUsage(null)} hitSlop={8}><Text style={styles.link}>M'entraîner encore</Text></Pressable>
+          </>
         ) : (
-          <Pressable onPress={onClose} hitSlop={8} style={{ paddingVertical: 8 }}>
-            <Text style={styles.skip}>Passer ce mot</Text>
-          </Pressable>
+          <>
+            <Text style={styles.bottomCaption}>Une phrase courte suffit.</Text>
+            {micButton}
+            <Text style={styles.bottomCaption}>{micCaption}</Text>
+          </>
         )}
       </View>
     </View>
@@ -289,82 +304,91 @@ export default function WordPracticeScreen({ word, heardAs, onClose }: { word: s
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.cream },
-  close: { position: "absolute", top: 52, right: 22, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: T.card, alignItems: "center", justifyContent: "center" },
-  head: { paddingTop: 60, paddingHorizontal: 26, paddingBottom: 6 },
-  k: { color: T.abricotDeep, fontSize: 12, fontWeight: "800", letterSpacing: 1 },
-  h1: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.6, marginTop: 4 },
+  container: { flex: 1, backgroundColor: L.background },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 52, paddingHorizontal: L.gutter, paddingBottom: 6 },
+  headerTitle: { color: L.textPrimary, fontSize: 17, fontWeight: "800" },
 
-  stepper: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 40, paddingVertical: 14 },
-  stepItem: { alignItems: "center", gap: 6 },
-  stepCircle: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
-  stepOn: { backgroundColor: T.abricot },
-  stepOff: { backgroundColor: "#E7DFD2" },
-  stepNum: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  stepNumOff: { color: T.inkSoft },
-  stepLabel: { fontSize: 12.5, fontWeight: "800", color: T.night },
-  stepLabelOff: { color: T.inkSoft },
-  stepLine: { flex: 1, height: 3, backgroundColor: T.abricot, marginHorizontal: 8, borderRadius: 2, maxWidth: 120, marginBottom: 22 },
+  stepper: { flexDirection: "row", alignItems: "flex-start", justifyContent: "center", paddingHorizontal: 60, paddingTop: 6, paddingBottom: 14 },
+  stepItem: { alignItems: "center", gap: 6, width: 100 },
+  stepDot: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  stepDotOn: { backgroundColor: L.accentDeep },
+  stepDotDone: { backgroundColor: "#F6B98A" },
+  stepDotOff: { backgroundColor: L.border },
+  stepNum: { color: "#fff", fontSize: 13.5, fontWeight: "800" },
+  stepLine: { flex: 1, height: 3, borderRadius: 2, marginTop: 14, marginHorizontal: -20 },
+  stepLabel: { color: L.textSecondary, fontSize: 12.5, fontWeight: "600" },
+  stepLabelOn: { color: L.textPrimary, fontWeight: "800" },
 
-  wordCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 18, marginTop: 6, gap: 12 },
-  word: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.6 },
-  ipaMeaning: { fontSize: 14, fontWeight: "700", color: T.inkSoft, marginTop: 4 },
-  listenBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },
+  wordCard: { backgroundColor: L.surface, borderRadius: 20, padding: 18, marginTop: 6 },
+  word: { color: L.textPrimary, fontSize: 36, fontWeight: "800", letterSpacing: -0.8 },
+  meaning: { color: L.textSecondary, fontSize: 16, marginTop: 4 },
+  listenRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 16 },
+  listenBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1.5, borderColor: L.textPrimary, borderRadius: 14, minHeight: 48 },
+  listenText: { color: L.textPrimary, fontSize: 15, fontWeight: "800" },
+  listenSep: { width: 1, height: 24, backgroundColor: L.border },
 
-  howCard: { backgroundColor: T.night, borderRadius: 22, padding: 20, marginTop: 16 },
-  howHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-  howTitle: { color: T.abricot, fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
-  howText: { color: "#EAF0FA", fontSize: 16, fontWeight: "600", lineHeight: 24 },
-  trapRow: { marginTop: 14, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 12 },
-  trapText: { color: "#C9D3E8", fontSize: 13.5, fontWeight: "700", lineHeight: 19 },
+  tip: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: L.lavender, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 14, marginTop: 12 },
+  tipText: { flex: 1, color: L.textPrimary, fontSize: 14, lineHeight: 19 },
 
-  slowBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "#FFFFFF", borderRadius: 16, paddingVertical: 15, marginTop: 14 },
-  slowText: { color: T.night, fontSize: 15, fontWeight: "800" },
+  collapse: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: L.surface, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16, marginTop: 12 },
+  collapseTitle: { color: L.textPrimary, fontSize: 15, fontWeight: "800" },
+  collapseBody: { backgroundColor: L.surface, borderRadius: 16, padding: 16, marginTop: 6 },
+  ipa: { color: L.textSecondary, fontSize: 15, marginBottom: 6 },
+  collapseText: { color: L.textPrimary, fontSize: 14.5, lineHeight: 21 },
+  heard: { color: L.danger, fontSize: 13.5, marginTop: 8 },
 
-  heard: { color: T.corail, fontSize: 13.5, fontWeight: "700", marginTop: 16 },
+  result: { borderRadius: 18, padding: 14, marginTop: 14 },
+  resultOk: { backgroundColor: L.successSoft },
+  resultKo: { backgroundColor: L.accentSoft },
+  resultHead: { flexDirection: "row", alignItems: "center", gap: 12 },
+  resultIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  resultTitle: { fontSize: 16, fontWeight: "800" },
+  resultSub: { color: L.textSecondary, fontSize: 13, marginTop: 2 },
+  scorePill: { borderRadius: 10, paddingVertical: 4, paddingHorizontal: 9 },
+  scoreText: { fontSize: 13, fontWeight: "800" },
+  detailRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.06)", marginTop: 12, paddingTop: 10 },
+  detailLabel: { color: L.textPrimary, fontSize: 14, fontWeight: "700" },
+  phRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
+  phChip: { backgroundColor: L.surface, borderRadius: 10, paddingVertical: 5, paddingHorizontal: 9 },
+  phText: { fontSize: 14, fontWeight: "800" },
 
-  resultCard: { backgroundColor: T.card, borderRadius: 22, padding: 20, marginTop: 18, alignItems: "center" },
-  scorePct: { fontSize: 46, fontWeight: "800", letterSpacing: -1.5 },
-  phRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12, justifyContent: "center" },
-  phChip: { backgroundColor: T.cream, borderRadius: 10, paddingVertical: 5, paddingHorizontal: 10 },
-  phText: { fontSize: 16, fontWeight: "800" },
-  verdict: { color: T.inkSoft, fontSize: 14, fontWeight: "700", textAlign: "center", lineHeight: 20, marginTop: 14 },
+  wordRowCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: L.surface, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, marginTop: 6 },
+  wordSmall: { color: L.textPrimary, fontSize: 20, fontWeight: "800" },
+  vSep: { width: 1, height: 22, backgroundColor: L.border },
+  wordSmallFr: { flex: 1, color: L.textSecondary, fontSize: 15 },
+  roundListen: { width: 40, height: 40, borderRadius: 20, backgroundColor: L.accentSoft, alignItems: "center", justifyContent: "center" },
 
-  // Étape 2
-  wordCardSmall: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF", borderRadius: 16, paddingVertical: 14, paddingHorizontal: 18, marginTop: 6 },
-  wordSmall: { fontSize: 22, fontWeight: "800", color: T.night },
-  wordSmallSep: { fontSize: 18, color: T.creamLine, fontWeight: "700" },
-  wordSmallFr: { fontSize: 15, fontWeight: "700", color: T.inkSoft, flex: 1 },
-  listenBtnSmall: { width: 42, height: 42, borderRadius: 21, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },
+  sitTitle: { color: L.textPrimary, fontSize: 22, fontWeight: "800", marginTop: 18, letterSpacing: -0.3 },
+  sitCard: { backgroundColor: L.surface, borderRadius: 18, padding: 16, marginTop: 10 },
+  sitText: { color: L.textPrimary, fontSize: 16, lineHeight: 23 },
+  sitSep: { height: 1, backgroundColor: L.border, marginVertical: 12 },
+  sitUse: { color: L.textSecondary, fontSize: 14 },
+  helpRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  helpBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: L.surface, borderRadius: 14, minHeight: 50, borderWidth: 1.5, borderColor: "transparent" },
+  helpBtnOn: { borderColor: L.accentDeep },
+  helpText: { color: L.textPrimary, fontSize: 14.5, fontWeight: "800" },
+  helpBody: { backgroundColor: L.surface, borderRadius: 14, padding: 14, marginTop: 8 },
+  helpEn: { color: L.textPrimary, fontSize: 16, fontWeight: "700", lineHeight: 23 },
+  helpFr: { color: L.textSecondary, fontSize: 13.5, fontStyle: "italic", marginTop: 6 },
 
-  sitCard: { backgroundColor: T.night, borderRadius: 22, padding: 20, marginTop: 16 },
-  sitHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  sitTitle: { color: T.abricot, fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
-  sitText: { color: "#EAF0FA", fontSize: 16.5, fontWeight: "700", lineHeight: 24 },
+  okBanner: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.successSoft, borderRadius: 16, padding: 14, marginTop: 14 },
+  okBannerText: { color: L.textPrimary, fontSize: 18, fontWeight: "800" },
+  phraseCard: { backgroundColor: L.surface, borderRadius: 18, padding: 16, marginTop: 12 },
+  phraseK: { color: L.textSecondary, fontSize: 11.5, fontWeight: "800", letterSpacing: 0.8, marginBottom: 6 },
+  phrase: { color: L.textPrimary, fontSize: 19, fontWeight: "800", lineHeight: 27 },
+  phraseFeedback: { color: L.textSecondary, fontSize: 14, lineHeight: 20 },
+  checksRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  check: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, minHeight: 46 },
+  checkOk: { backgroundColor: L.successSoft },
+  checkKo: { backgroundColor: L.accentSoft },
+  checkText: { color: L.textPrimary, fontSize: 13.5, fontWeight: "700" },
+  miniCheck: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
 
-  buildTitle: { fontSize: 19, fontWeight: "800", color: T.night, marginTop: 20 },
-  buildHint: { fontSize: 13.5, fontWeight: "600", color: T.inkSoft, marginTop: 2, marginBottom: 12 },
-
-  helpRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 16, marginBottom: 10 },
-  helpLabel: { fontSize: 15, fontWeight: "800", color: T.night },
-  helpBody: { backgroundColor: T.card, borderRadius: 14, padding: 14, marginTop: -4, marginBottom: 10 },
-  helpEn: { fontSize: 16, fontWeight: "700", color: T.night, lineHeight: 22 },
-  exampleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  exampleListen: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.chipAbricot, alignItems: "center", justifyContent: "center" },
-  exampleFr: { fontSize: 13.5, fontWeight: "600", color: T.inkSoft, marginTop: 6 },
-
-  pronPill: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", backgroundColor: T.card, borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 10 },
-  pronPillText: { fontSize: 13, fontWeight: "800" },
-  warnText: { color: T.corail, fontSize: 14, fontWeight: "700", marginBottom: 10 },
-  doneBtn: { backgroundColor: T.abricot, borderRadius: 16, paddingVertical: 15, alignItems: "center", marginTop: 8 },
-  doneText: { color: T.night, fontSize: 15, fontWeight: "800" },
-
-  bottomBar: { alignItems: "center", paddingBottom: 30, paddingTop: 10, backgroundColor: T.cream, paddingHorizontal: 26 },
-  micWrap: { alignItems: "center" },
-  mic: { width: 76, height: 76, borderRadius: 38, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
-  micActive: { backgroundColor: T.corail },
-  micLabel: { color: T.inkSoft, fontSize: 13, fontWeight: "700", marginTop: 9 },
-  nextBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1.5, borderColor: T.abricot, borderRadius: 16, paddingVertical: 15, alignSelf: "stretch", marginTop: 14 },
-  nextText: { color: T.abricotDeep, fontSize: 15, fontWeight: "800" },
-  skip: { color: T.inkSoft, fontSize: 14, fontWeight: "700", textDecorationLine: "underline", marginTop: 14 },
+  bottom: { paddingHorizontal: L.gutter, paddingTop: 10, paddingBottom: 22, alignItems: "center", gap: 10, backgroundColor: L.background },
+  bottomCaption: { color: L.textSecondary, fontSize: 13.5 },
+  cta: { backgroundColor: L.accentDeep, borderRadius: 18, minHeight: 56, alignItems: "center", justifyContent: "center", alignSelf: "stretch", paddingHorizontal: 20 },
+  ctaRec: { backgroundColor: L.danger },
+  ctaRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  ctaText: { color: "#fff", fontSize: 17, fontWeight: "800" },
+  link: { color: L.textSecondary, fontSize: 14, fontWeight: "700", textDecorationLine: "underline", paddingVertical: 4 },
 });

@@ -1,11 +1,11 @@
+// ScenariosScreen — maquette du 26/10 : liste verticale par catégorie (image à gauche, titre, sous-titre, cadenas),
+// carte « Crée ta propre scène », rappel en bas. Pas de barre de recherche. Logique (premium, scène perso, sélection) inchangée.
 import { useRef } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, Animated, Image } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { SCENARIOS, Scenario, ScenarioCategory } from "../lib/scenarios";
-import { T } from "../lib/theme";
+import { L, Icon, RoundButton } from "../components/lessonUi";
 
-// Illustrations (.png, nommées directement d'après l'id du scénario — Metro exige des chemins
-// statiques dans require(), donc chaque entrée est écrite explicitement, pas générée dynamiquement).
+// Illustrations (.png) — chemins statiques exigés par Metro
 const ILLUSTRATIONS: Record<string, any> = {
   // Pro
   "entretien-embauche": require("../assets/scenes/entretien-embauche.png"),
@@ -42,46 +42,35 @@ const ILLUSTRATIONS: Record<string, any> = {
   "mot-oublie": require("../assets/scenes/mot-oublie.png"),
 };
 
-const CATEGORIES: { key: ScenarioCategory; label: string }[] = [
-  { key: "pro", label: "Au travail" },
-  { key: "voyage", label: "En voyage" },
-  { key: "quotidien", label: "Au quotidien" },
+const CATEGORIES: { key: ScenarioCategory; label: string; emoji: string; bg: string }[] = [
+  { key: "voyage", label: "En voyage", emoji: "✈️", bg: L.lavender },
+  { key: "pro", label: "Au travail", emoji: "💼", bg: L.accentSoft },
+  { key: "quotidien", label: "Au quotidien", emoji: "🏠", bg: L.successSoft },
 ];
 
-// Carte avec un léger effet de pression (scale + fondu) — animation par défaut,
-// à ajuster si tu avais un autre effet en tête (ex. apparition échelonnée à l'ouverture).
-function Pressy({ onPress, style, children }: { onPress: () => void; style?: any; children: React.ReactNode }) {
+// Léger effet de pression
+function Pressy({ onPress, style, children, label }: { onPress: () => void; style?: any; children: React.ReactNode; label?: string }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const onPressIn = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  const onPressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
   const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   return (
-    <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
+    <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} accessibilityRole="button" accessibilityLabel={label}>
       <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
     </Pressable>
   );
 }
 
-function SceneCard({ s, width, imgHeight, locked }: { s: Scenario; width: number; imgHeight: number; locked?: boolean }) {
+function SceneRow({ s, premium, onPress }: { s: Scenario; premium: boolean; onPress: () => void }) {
   const source = ILLUSTRATIONS[s.id];
   return (
-    <View style={[styles.card, { width }]}>
-      <View style={[styles.cardImg, { height: imgHeight }]}>
-        {source ? (
-          <Image source={source} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
-        ) : (
-          <View style={styles.cardImgFallback} />
-        )}
-        {locked && (
-          <View style={styles.lockOverlay}>
-            <View style={styles.lockBadge}><Feather name="lock" size={13} color="#fff" /></View>
-          </View>
-        )}
+    <Pressy onPress={onPress} style={styles.row} label={s.title}>
+      <View style={styles.rowImg}>{source ? <Image source={source} style={styles.fill} resizeMode="cover" /> : <View style={[styles.fill, { backgroundColor: L.border }]} />}</View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowTitle} numberOfLines={1}>{s.title}</Text>
+        <Text style={styles.rowDesc} numberOfLines={2}>{s.description}</Text>
       </View>
-      <View style={styles.cardText}>
-        <Text style={styles.cardTitle} numberOfLines={1}>{s.title}</Text>
-        <Text style={styles.cardDesc} numberOfLines={2}>{s.description}</Text>
-      </View>
-    </View>
+      <View style={styles.rowBadge}>{premium ? <Icon name="chevron" size={16} /> : <Icon name="cadenas" size={16} />}</View>
+    </Pressy>
   );
 }
 
@@ -99,77 +88,74 @@ export default function ScenariosScreen({
   onLocked: () => void;
 }) {
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
       <View style={styles.head}>
-        <Pressable onPress={onBack} hitSlop={12} style={{ marginBottom: 12 }}>
-          <Feather name="chevron-left" size={26} color={T.inkSoft} />
-        </Pressable>
-        <Text style={styles.h1}>Choisis ta scène</Text>
-        <Text style={styles.sub}>Une situation réelle. Tu parles, on t'écoute, on te corrige avec douceur.</Text>
+        <RoundButton icon="retour" label="Retour" onPress={onBack} size={44} iconSize={20} style={{ marginBottom: 12 }} />
+        <Text style={styles.h1}>Une situation. À toi de parler.</Text>
+        <Text style={styles.sub}>Entraîne-toi pour les moments qui comptent.</Text>
       </View>
 
-      <Pressy onPress={premium ? onCreateCustom : onLocked} style={styles.customCard}>
-        <View style={styles.customIcon}>
-          <Feather name="plus" size={22} color={T.night} />
-        </View>
+      {/* Scène personnalisée */}
+      <Pressy onPress={premium ? onCreateCustom : onLocked} style={styles.customCard} label="Crée ta propre scène">
+        <View style={styles.customIcon}><Text style={styles.customPlus}>+</Text></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.customTitle}>Crée ta propre scène</Text>
-          <Text style={styles.customDesc}>Décris la situation que tu veux travailler</Text>
+          <Text style={styles.customDesc}>Une situation à toi, un échange sur mesure.</Text>
         </View>
-        {!premium && <View style={styles.customLockBadge}><Feather name="lock" size={13} color="#fff" /></View>}
+        <View style={[styles.rowBadge, { backgroundColor: "rgba(255,255,255,0.7)" }]}>{premium ? <Icon name="chevron" size={16} /> : <Icon name="cadenas" size={16} />}</View>
       </Pressy>
 
-      {CATEGORIES.map(({ key, label }) => {
+      {CATEGORIES.map(({ key, label, emoji, bg }) => {
         const items = SCENARIOS.filter((s) => s.category === key);
         if (items.length === 0) return null;
-
         return (
-          <View key={key}>
+          <View key={key} style={{ marginTop: 18 }}>
             <View style={styles.grpRow}>
-              <Text style={styles.grp}>{label.toUpperCase()}</Text>
+              <View style={[styles.grpIcon, { backgroundColor: bg }]}><Text style={styles.grpEmoji}>{emoji}</Text></View>
+              <Text style={styles.grp}>{label}</Text>
               <Text style={styles.grpCount}>{items.length} scène{items.length > 1 ? "s" : ""}</Text>
             </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingLeft: 26, paddingRight: 12, gap: 14 }}
-            >
-              {items.map((s) => (
-                <Pressy key={s.id} onPress={() => (premium ? onSelect(s) : onLocked())}>
-                  <SceneCard s={s} width={210} imgHeight={140} locked={!premium} />
-                </Pressy>
-              ))}
-            </ScrollView>
+            {items.map((s) => (
+              <SceneRow key={s.id} s={s} premium={premium} onPress={() => (premium ? onSelect(s) : onLocked())} />
+            ))}
           </View>
         );
       })}
+
+      <View style={styles.hint}>
+        <Text style={styles.hintEmoji}>💡</Text>
+        <Text style={styles.hintText}>Choisis une scène pour découvrir la situation.</Text>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.cream },
-  head: { paddingTop: 56, paddingHorizontal: 26, paddingBottom: 22 },
-  h1: { fontSize: 28, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
-  sub: { color: T.inkSoft, fontSize: 15, fontWeight: "600", lineHeight: 22, marginTop: 8 },
+  container: { flex: 1, backgroundColor: L.background },
+  head: { paddingTop: 52, paddingHorizontal: L.gutter, paddingBottom: 16 },
+  h1: { fontSize: 26, fontWeight: "800", color: L.textPrimary, letterSpacing: -0.4 },
+  sub: { color: L.textSecondary, fontSize: 15, lineHeight: 21, marginTop: 6 },
 
-  customCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: T.miel, borderRadius: 20, padding: 16, marginHorizontal: 26, marginBottom: 24 },
-  customIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(27,42,74,0.12)", alignItems: "center", justifyContent: "center" },
-  customTitle: { color: T.night, fontSize: 16, fontWeight: "800" },
-  customDesc: { color: "#7A4A17", fontSize: 13, fontWeight: "600", marginTop: 2 },
-  customLockBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(27,42,74,0.7)", alignItems: "center", justifyContent: "center" },
+  customCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.accentSoft, borderRadius: 18, padding: 12, marginHorizontal: L.gutter },
+  customIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: L.accentDeep, alignItems: "center", justifyContent: "center" },
+  customPlus: { color: "#fff", fontSize: 26, fontWeight: "700", lineHeight: 30 },
+  customTitle: { color: L.textPrimary, fontSize: 15.5, fontWeight: "800" },
+  customDesc: { color: L.textSecondary, fontSize: 12.5, marginTop: 2 },
 
-  grpRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginHorizontal: 26, marginBottom: 12, marginTop: 6 },
-  grp: { color: T.abricotDeep, fontSize: 12, fontWeight: "800", letterSpacing: 1.4 },
-  grpCount: { color: T.inkSoft, fontSize: 12.5, fontWeight: "600" },
+  grpRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: L.gutter, marginBottom: 10 },
+  grpIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  grpEmoji: { fontSize: 15 },
+  grp: { flex: 1, color: L.textPrimary, fontSize: 16, fontWeight: "800" },
+  grpCount: { color: L.textSecondary, fontSize: 12.5, fontWeight: "600" },
 
-  card: { backgroundColor: "#FFFFFF", borderRadius: 22, padding: 8, paddingBottom: 13, marginBottom: 12, shadowColor: "#86604C", shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
-  cardImg: { borderRadius: 16, overflow: "hidden", backgroundColor: T.creamLine },
-  cardImgFallback: { flex: 1, backgroundColor: T.creamLine },
-  lockOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(27,42,74,0.35)", alignItems: "flex-end", justifyContent: "flex-start", padding: 10 },
-  lockBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(27,42,74,0.75)", alignItems: "center", justifyContent: "center" },
-  cardText: { paddingHorizontal: 8, paddingTop: 9, gap: 3 },
-  cardTitle: { fontSize: 15.5, fontWeight: "700", color: T.night },
-  cardDesc: { fontSize: 12.5, lineHeight: 17, color: T.inkSoft },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.surface, borderRadius: 18, padding: 10, marginHorizontal: L.gutter, marginBottom: 10, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  rowImg: { width: 86, height: 68, borderRadius: 12, overflow: "hidden", backgroundColor: L.border },
+  fill: { width: "100%", height: "100%" },
+  rowTitle: { color: L.textPrimary, fontSize: 15.5, fontWeight: "800" },
+  rowDesc: { color: L.textSecondary, fontSize: 12.5, lineHeight: 17, marginTop: 2 },
+  rowBadge: { width: 32, height: 32, borderRadius: 10, backgroundColor: L.background, alignItems: "center", justifyContent: "center" },
+
+  hint: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: L.lavender, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, marginHorizontal: L.gutter, marginTop: 10 },
+  hintEmoji: { fontSize: 14 },
+  hintText: { flex: 1, color: L.textPrimary, fontSize: 13, fontWeight: "600" },
 });
