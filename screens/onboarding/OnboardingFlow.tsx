@@ -1,27 +1,35 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, ActivityIndicator, Animated, Easing, Image, useWindowDimensions } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, Animated, Easing, Image, Switch, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } from "expo-audio";
-import * as FileSystem from "expo-file-system/legacy";
 import { T } from "../../lib/theme";
-import { Goal, AgeRange, Gender, VoiceKey, saveProfile } from "../../lib/profile";
-import { logOnboardingTestSkipped } from "../../lib/analytics";
+import { L, Icon } from "../../components/lessonUi";
+import { Goal, AgeRange, Gender, VoiceKey, FeedbackStyle, saveProfile } from "../../lib/profile";
 import { GOALS, GENDERS, INTERESTS } from "../../lib/onboardingData";
-import { Level, LEVEL_OPTIONS, calibrateLevel } from "../../lib/level";
-import { assessDrill } from "../../lib/labo";
+import { Level, LEVEL_OPTIONS } from "../../lib/level";
 import TimeWheel from "../../components/TimeWheel";
 import PaywallScreen from "../PaywallScreen";
 import { requestNotifPermission, scheduleDailyReminder } from "../../lib/notifications";
+import { coachForVoice, LessonCoach } from "../../lib/learningPath/coaches";
+import { LESSONS, getChapter, lessonsOfChapter } from "../../lib/learningPath/catalog";
 
-// Écrans (steps) : q = question, v = validation
-// 0 accroche · 1 objectifs · 2 ressenti · 3 auto-éval · 4 test · 5 VALIDATION
-// 6 diagnostic(+courbe) · 7 prénom · 8 genre · 9 intérêts · 10 VALIDATION finale
-// 6 diagnostic(+courbe) · 7 prénom · 8 genre · 9 intérêts · 10 rappel · 11 VALIDATION finale
-type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
-const TOTAL = 12;
+// Écrans (steps) : 0 accueil + carrousel · 1 objectifs · 2 âge · 3 auto-éval · 4 diagnostic(+courbe) · 5 prénom · 6 métier/genre/voix
+// 7 intérêts · 8 accompagnement (style de coaching) · 9 rappel · 10 première leçon (ou préparation + paywall hors parcours)
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+const TOTAL = 11;
+const STEP_STYLE = 8;
+const STEP_REMINDER = 9;
+const STEP_PREP = 10;
+const QUESTION_STEPS = TOTAL - 2; // segments de la barre de progression (étapes 1 à 9)
 
-// Écran final : préparation du coach (0 → 100 %)
+// Accompagnement (maquette 04) : rythme des corrections, envoyé au serveur via le profil
+const FEEDBACK_STYLES: { key: FeedbackStyle; title: string; desc: string }[] = [
+  { key: "soft", title: "En douceur", desc: "L'essentiel, un point à la fois." },
+  { key: "balanced", title: "Équilibré", desc: "Des corrections ciblées et des conseils." },
+  { key: "strict", title: "Approfondi", desc: "Plus de détails pour affiner tes phrases." },
+];
+
+// Écran de préparation (hors parcours) : anneau 0 → 100 %
 const PREP_DURATION = 6000;
 const PREP_RING = 190;
 const PREP_STROKE = 14;
@@ -41,8 +49,8 @@ const COACH_VOICES: { key: VoiceKey; label: string }[] = [
   { key: "uk-male", label: "James · UK" },
 ];
 
-// Écran d'accueil : deux bandes de scènes qui défilent lentement
 const BRAND_ICON = require("../../assets/icon.png");
+// Écran d'accueil : deux bandes de scènes qui défilent lentement
 const HERO_TOP = [
   { img: require("../../assets/scenes/entretien-embauche.png"), label: "Entretien d'embauche" },
   { img: require("../../assets/scenes/cafe-ami.png"), label: "Commander un café" },
@@ -57,33 +65,15 @@ const HERO_BOTTOM = [
   { img: require("../../assets/scenes/trajet-taxi.png"), label: "Prendre un taxi" },
   { img: require("../../assets/scenes/se-presenter.png"), label: "Se présenter" },
 ];
-// Écran 2 : carrousel des bénéfices (captures d'écran de l'app dans un cadre de téléphone)
-const BENEFIT_SHOTS = {
-  conversation: require("../../assets/onboarding/benefit-conversation.png"),
-  correction: require("../../assets/onboarding/benefit-correction.png"),
-  daily: require("../../assets/onboarding/benefit-daily.png"),
-};
-const BENEFIT_SCENES = [
-  { img: require("../../assets/scenes/entretien-embauche.png"), tag: "Travail", label: "Entretien" },
-  { img: require("../../assets/scenes/point-hebdo-teams.png"), tag: "Travail", label: "Réunion d'équipe" },
-  { img: require("../../assets/scenes/trajet-taxi.png"), tag: "Voyage", label: "Prendre un taxi" },
-  { img: require("../../assets/scenes/restaurant-commande.png"), tag: "Voyage", label: "Au restaurant" },
-  { img: require("../../assets/scenes/se-presenter.png"), tag: "Quotidien", label: "Se présenter" },
-  { img: require("../../assets/scenes/cafe-ami.png"), tag: "Quotidien", label: "Commander un café" },
-];
-const BENEFITS = [
-  { key: "conversation", title: "Parle à voix haute,", accent: "on t'écoute", text: "Ton coach IA te répond comme dans un vrai échange. Zéro jugement." },
-  { key: "correction", title: "Corrigé à", accent: "chaque phrase", text: "La bonne version à écouter, et l'explication en français, sans jargon." },
-  { key: "scenes", title: "Les situations de", accent: "ta vraie vie", text: "Entretien, réunion, voyage, café entre amis... ou ta propre scène." },
-  { key: "daily", title: "Un peu chaque jour,", accent: "beaucoup de progrès", text: "3 mini-défis quotidiens, un labo pour tes mots difficiles et ton dictionnaire perso." },
-] as const;
-const BENEFIT_INTERVAL = 3000;
-
 const HERO_CARD_W = 168;
 const HERO_CARD_GAP = 14;
 
-const TEST_SENTENCE = "I think this is worth thirty-three dollars";
-const MIN_REC_MS = 700;
+
+// Première leçon du parcours (accueil + écran final)
+const FIRST_LESSON = LESSONS[0] ?? null;
+const FIRST_CHAPTER = FIRST_LESSON ? getChapter(FIRST_LESSON.chapterId) : null;
+const FIRST_CHAPTER_LESSONS = FIRST_LESSON ? lessonsOfChapter(FIRST_LESSON.chapterId).slice(0, 3) : [];
+
 const CECRL: Level[] = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 // Niveau visé = deux crans au-dessus du niveau actuel (plafonné à C2)
@@ -92,9 +82,7 @@ function targetLevel(current: Level): Level {
   return CECRL[Math.min(CECRL.length - 1, i + 2)];
 }
 
-// skipPaywall : cohorte « parcours » (learning_path_v1) — un seul paywall, après la première leçon, donc aucun ici.
 export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false }: { onLaunch: (goals: Goal[]) => void; onLogin?: () => void; skipPaywall?: boolean }) {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [step, setStep] = useState<Step>(0);
   const [launching, setLaunching] = useState(false);
   const [showBenefits, setShowBenefits] = useState(false);
@@ -102,71 +90,28 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [ageRange, setAgeRange] = useState<AgeRange | null>(null);
   const [declaredLevel, setDeclaredLevel] = useState<Level | null>(null);
-  const [testScore, setTestScore] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
   const [gender, setGender] = useState<Gender | null>(null);
   const [voice, setVoice] = useState<VoiceKey>("us-male");
   const [interests, setInterests] = useState<string[]>([]);
-  const [testStatus, setTestStatus] = useState<"idle" | "recording" | "processing" | "done">("idle");
+  const [feedbackStyle, setFeedbackStyle] = useState<FeedbackStyle>("balanced");
+  const [challenge, setChallenge] = useState(true);
+  const [challengeOpen, setChallengeOpen] = useState(true);
   const [saving, setSaving] = useState(false);
-  const recStartRef = useRef(0);
-  const [remHour, setRemHour] = useState(() => new Date().getHours());
-  const [remMinute, setRemMinute] = useState(() => new Date().getMinutes());
-  const finalLevel: Level = declaredLevel ? calibrateLevel(declaredLevel, testScore) : "B1";
+  const [remHour, setRemHour] = useState(() => { const d = new Date(); const m = Math.ceil(d.getMinutes() / 30) * 30; return (d.getHours() + Math.floor(m / 60)) % 24; });
+  const [remMinute, setRemMinute] = useState(() => (Math.ceil(new Date().getMinutes() / 30) * 30) % 60);
+  const finalLevel: Level = declaredLevel ?? "B1";
   const goalTarget = targetLevel(finalLevel);
 
   const toggleGoal = (k: Goal) => setGoals((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
   const toggleInterest = (i: string) =>
     setInterests((p) => (p.includes(i) ? p.filter((x) => x !== i) : p.length < 5 ? [...p, i] : p));
 
-  // L'écran 5 (« C'est déjà un bon départ ») n'a de sens que si le test a été fait
-  const next = () =>
-    setStep((s) => Math.min(TOTAL - 1, s + 1 === 5 && testStatus !== "done" ? 6 : s + 1) as Step);
-  const back = () =>
-    setStep((s) => Math.max(0, s - 1 === 5 && testStatus !== "done" ? 4 : s - 1) as Step);
-  const skipTest = () => { logOnboardingTestSkipped(); next(); };
+  const next = () => setStep((s) => Math.min(TOTAL - 1, s + 1) as Step);
+  const back = () => setStep((s) => Math.max(0, s - 1) as Step);
 
-  const startTest = async () => {
-    if (testStatus !== "idle" && testStatus !== "done") return;
-    try {
-      const perm = await AudioModule.requestRecordingPermissionsAsync();
-      if (!perm.granted) {
-        console.warn("Permission micro refusée");
-        return;
-      }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      recStartRef.current = Date.now();
-      setTestStatus("recording");
-    } catch (e) {
-      console.warn("Test record error:", e);
-    }
-  };
-  const stopTest = async () => {
-    if (testStatus !== "recording") return;
-    setTestStatus("processing");
-    try {
-      await recorder.stop();
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      if (Date.now() - recStartRef.current < MIN_REC_MS) {
-        setTestStatus("idle");
-        return;
-      }
-      const uri = recorder.uri;
-      if (!uri) throw new Error("no uri");
-      const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const r = await assessDrill(TEST_SENTENCE, audioBase64);
-      setTestScore(Math.round(r.pronScore));
-      setTestStatus("done");
-    } catch (e) {
-      console.warn("Test assess error:", e);
-      setTestStatus("idle");
-    }
-  };
-
-  // Étape 10 : la permission de notification est demandée ici, au moment où l'heure est choisie
+  // Étape 9 : la permission de notification est demandée ici, au moment où l'heure est choisie
   const confirmReminder = async () => {
     try {
       const granted = await requestNotifPermission();
@@ -188,8 +133,10 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
         gender: gender ?? undefined,
         interests,
         level: finalLevel,
-        testScore,
+        testScore: null,
         voice,
+        feedbackStyle,
+        challenge,
       });
     } catch (e) {
       console.warn("Sauvegarde onboarding échouée:", e);
@@ -201,7 +148,7 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   // Filet de sécurité : le profil est enregistré dès l'arrivée sur l'écran de préparation.
   // Si l'app est fermée à ce moment-là, l'utilisateur ne refait pas tout l'onboarding.
   useEffect(() => {
-    if (step === 11) persistProfile();
+    if (step === STEP_PREP) persistProfile();
   }, [step]);
 
   // Le paywall s'affiche tout de suite (le profil est déjà sauvegardé) — sauf pour la cohorte « parcours »
@@ -216,16 +163,14 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
     (step === 2 && !!ageRange) ||
     (step === 3 && !!declaredLevel) ||
     step === 4 ||
-    step === 5 ||
-    step === 6 ||
-    (step === 7 && name.trim().length > 0) ||
-    (step === 8 && !!gender) ||
-    step === 9 ||
-    step === 10 ||
-    step === 11;
+    (step === 5 && name.trim().length > 0) ||
+    (step === 6 && !!gender) ||
+    step === 7 ||
+    step === STEP_STYLE ||
+    step === STEP_REMINDER ||
+    step === STEP_PREP;
 
-  // Progression continue (0 → 1)
-  const progress = step / (TOTAL - 1);
+  const coach = coachForVoice(voice);
 
   // Paywall après la préparation du coach : fermeture possible au bout de 7 s, puis écran « Bienvenue »
   if (showPaywall) {
@@ -272,32 +217,29 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   // 0 bis — Carrousel des bénéfices, juste après l'accueil
   if (step === 0) {
     return showBenefits ? (
-      <BenefitsCarousel onDone={next} />
+      <BenefitsCarousel coach={coachForVoice(null)} onDone={next} onBack={() => setShowBenefits(false)} />
     ) : (
       <WelcomeHero onStart={() => setShowBenefits(true)} onLogin={onLogin} />
     );
   }
 
-  // 11 — Préparation du coach (plein écran)
-  if (step === 11) {
+  // 10 — Première leçon (parcours) ou préparation du coach + paywall (hors parcours)
+  if (step === STEP_PREP) {
+    if (skipPaywall) return <FirstLessonScreen coach={coach} saving={saving} onStart={() => onLaunch(goals)} onBack={back} />;
     const picked = interests.slice(0, 2).map((i) => i.toLowerCase()).join(", ");
     return <PrepScreen sceneHint={picked} saving={saving} onDone={finishToLaunch} lessonMode={skipPaywall} />;
   }
 
-  const isValidation = step === 5;
-
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        {step > 0 ? (
-          <Pressable onPress={back} hitSlop={12}>
-            <Feather name="chevron-left" size={26} color={T.inkSoft} />
-          </Pressable>
-        ) : (
-          <View style={{ width: 26 }} />
-        )}
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${Math.max(6, progress * 100)}%` }]} />
+        <Pressable onPress={back} hitSlop={12} accessibilityRole="button" accessibilityLabel="Retour">
+          <Feather name="chevron-left" size={24} color={T.night} />
+        </Pressable>
+        <View style={styles.segments} accessibilityLabel={`Étape ${step} sur ${QUESTION_STEPS}`}>
+          {Array.from({ length: QUESTION_STEPS }).map((_, i) => (
+            <View key={i} style={[styles.segment, i + 1 < step && styles.segmentDone, i + 1 === step && styles.segmentOn]} />
+          ))}
         </View>
       </View>
 
@@ -360,59 +302,8 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 4 — Test de prononciation */}
+        {/* 4 — Diagnostic + courbe projetée */}
         {step === 4 && (
-          <View>
-            <Text style={styles.title}>Un test, juste pour voir.</Text>
-            <Text style={styles.sub}>Lis cette phrase à voix haute. On mesure, sans juger.</Text>
-            <View style={styles.testCard}>
-              <Text style={styles.testSentence}>“{TEST_SENTENCE}”</Text>
-              <Text style={styles.testHint}>Oui, il y a quelques pièges dedans.</Text>
-            </View>
-            {testStatus === "done" && testScore !== null && (
-              <View style={styles.testResult}>
-                <Text style={styles.testScoreNum}>{testScore}<Text style={styles.testScoreOut}>/100</Text></Text>
-                <Text style={styles.testVerdict}>
-                  {testScore < 60
-                    ? "Ton accent te trahit sur plusieurs sons — c'est exactement ce qu'on va corriger."
-                    : testScore < 80
-                    ? "Pas mal ! Quelques sons à polir, et tu passeras pour un vrai bilingue."
-                    : "Solide. On va peaufiner les derniers détails ensemble."}
-                </Text>
-              </View>
-            )}
-            {testStatus === "processing" && <ActivityIndicator size="large" color={T.abricotDeep} style={{ marginTop: 16 }} />}
-            <View style={styles.testMicZone}>
-              <Pressable onPressIn={startTest} onPressOut={stopTest} disabled={testStatus === "processing"} style={[styles.testMic, testStatus === "recording" && styles.testMicActive]}>
-                <Feather name="mic" size={28} color={testStatus === "recording" ? "#fff" : T.night} />
-              </Pressable>
-              <Text style={styles.testMicLabel}>
-                {testStatus === "recording" ? "Relâche quand tu as fini" : testStatus === "done" ? "Réessayer" : "Maintiens et lis la phrase"}
-              </Text>
-              {testStatus !== "done" && testStatus !== "recording" && (
-                <Pressable onPress={skipTest} hitSlop={10} style={{ marginTop: 14 }}>
-                  <Text style={styles.testSkipLink}>Passer ce test</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* 5 — VALIDATION après le test */}
-        {step === 5 && (
-          <View style={styles.validWrap}>
-            <View style={styles.validIcon}>
-              <Feather name="check" size={40} color="#fff" />
-            </View>
-            <Text style={styles.validTitle}>C'est déjà un bon départ.</Text>
-            <Text style={styles.validLead}>
-              À chaque phrase que tu diras, on te montrera précisément quel son améliorer — en français, sans jargon.
-            </Text>
-          </View>
-        )}
-
-        {/* 6 — Diagnostic + courbe projetée */}
-        {step === 6 && (
           <View>
             <Text style={styles.title}>Voilà ton plan.</Text>
             <Text style={styles.sub}>De là où tu es, jusqu'où on veut t'emmener.</Text>
@@ -448,8 +339,8 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 7 — Prénom */}
-        {step === 7 && (
+        {/* 5 — Prénom */}
+        {step === 5 && (
           <View>
             <Text style={styles.title}>Comment on t'appelle ?</Text>
             <Text style={styles.sub}>Prénom ou pseudo — pour que tout te soit adressé personnellement.</Text>
@@ -457,8 +348,8 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 8 — Métier + genre */}
-        {step === 8 && (
+        {/* 6 — Métier + genre + voix */}
+        {step === 6 && (
           <View>
             <Text style={styles.title}>Parle-nous un peu de toi.</Text>
             <Text style={styles.sub}>Pour inventer des scènes qui te ressemblent.</Text>
@@ -483,8 +374,8 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 9 — Intérêts */}
-        {step === 9 && (
+        {/* 7 — Intérêts */}
+        {step === 7 && (
           <View>
             <Text style={styles.title}>Tes centres d'intérêt.</Text>
             <Text style={styles.sub}>Choisis-en jusqu'à 5 — on en parlera en anglais.</Text>
@@ -498,8 +389,41 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-      {/* 10 — Rappel quotidien */}
-      {step === 10 && (
+        {/* 8 — Accompagnement (maquette 04) */}
+        {step === STEP_STYLE && (
+          <View>
+            <Text style={styles.title}>Comment veux-tu{"\n"}être accompagné ?</Text>
+            <Text style={styles.sub}>Choisis le rythme des corrections.</Text>
+            {FEEDBACK_STYLES.map((s) => {
+              const on = feedbackStyle === s.key;
+              return (
+                <Pressable key={s.key} onPress={() => setFeedbackStyle(s.key)} style={[styles.radioCard, on && styles.radioCardOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                  <View style={[styles.radio, on && styles.radioOn]}>{on && <View style={styles.radioDot} />}</View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.radioTitle}>{s.title}</Text>
+                    <Text style={styles.radioDesc}>{s.desc}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+            <Text style={styles.styleNote}>Tu pourras modifier ce choix plus tard.</Text>
+
+            <View style={styles.divider} />
+            <Pressable onPress={() => setChallengeOpen((v) => !v)} style={styles.collapseRow} accessibilityRole="button" accessibilityState={{ expanded: challengeOpen }}>
+              <Text style={styles.collapseTitle}>Quand cela devient facile</Text>
+              <Feather name={challengeOpen ? "chevron-up" : "chevron-down"} size={22} color={T.night} />
+            </Pressable>
+            {challengeOpen && (
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Me proposer un peu plus de défi</Text>
+                <Switch value={challenge} onValueChange={setChallenge} trackColor={{ true: T.abricot, false: T.creamLine }} thumbColor="#fff" />
+              </View>
+            )}
+          </View>
+        )}
+
+      {/* 9 — Rappel quotidien */}
+      {step === STEP_REMINDER && (
         <View>
           <Text style={styles.title}>Ton rendez-vous quotidien.</Text>
           <Text style={styles.sub}>Choisis l'heure de ton rappel — dix minutes par jour, à ton moment à toi.</Text>
@@ -509,13 +433,237 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
 
       </ScrollView>
 
-      <Pressable onPress={step === 4 && testStatus !== "done" ? skipTest : step === 10 ? confirmReminder : next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
-        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>
-            {step === 4 && testStatus !== "done" ? "Passer ce test"
-            : isValidation ? "Continuer"
-            : "Continuer"}
-        </Text>
+      <Pressable onPress={step === STEP_REMINDER ? confirmReminder : next} disabled={!canContinue} style={[styles.cta, !canContinue && styles.ctaOff]}>
+        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Continuer</Text>
       </Pressable>
+    </View>
+  );
+}
+
+
+// Première leçon (maquette 05) : « Ta première leçon t'attend », carte de la leçon avec le coach choisi
+function FirstLessonScreen({ coach, saving, onStart, onBack }: { coach: LessonCoach; saving: boolean; onStart: () => void; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  const lessonTitle = FIRST_LESSON?.titleFr ?? "Se présenter";
+  const chapterTitle = FIRST_CHAPTER?.titleFr ?? "Faire connaissance";
+  return (
+    <View style={[styles.container, { paddingBottom: insets.bottom + 8 }]}>
+      <View style={styles.topBar}>
+        <Pressable onPress={onBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Retour">
+          <Feather name="chevron-left" size={24} color={T.night} />
+        </Pressable>
+        <View style={styles.segments}>
+          {Array.from({ length: QUESTION_STEPS }).map((_, i) => <View key={i} style={[styles.segment, styles.segmentDone, i === QUESTION_STEPS - 1 && styles.segmentOn]} />)}
+        </View>
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={{ alignItems: "center" }}>
+          <View style={styles.readyCheck}><Feather name="check" size={22} color={T.night} /></View>
+          <Text style={[styles.title, { textAlign: "center", fontSize: 30, lineHeight: 36 }]}>Ta première leçon{"\n"}t'attend</Text>
+          <Text style={[styles.sub, { textAlign: "center" }]}>Commence par un échange simple{"\n"}avec ton coach.</Text>
+        </View>
+
+        <View style={styles.lessonCard}>
+          <Text style={styles.lessonK}>CHAPITRE 1 · {chapterTitle.toUpperCase()}</Text>
+          <Text style={styles.lessonTitle}>{lessonTitle}</Text>
+          <Text style={styles.lessonSub}>Fais connaissance avec {coach.displayName}.</Text>
+          <View style={styles.lessonCoachRow}>
+            <Image source={coach.poster} style={styles.lessonCoachImg} resizeMode="cover" />
+            <View>
+              <Text style={styles.lessonCoachName}>{coach.displayName} · Coach IA</Text>
+              <Text style={styles.lessonCoachAccent}>{coach.accent === "en-GB" ? "Anglais britannique" : "Anglais américain"}</Text>
+            </View>
+          </View>
+          <View style={styles.lessonDivider} />
+          <Text style={styles.lessonDuring}>Pendant cette leçon</Text>
+          {["Tu parles à ton rythme", `${coach.displayName} te guide et t'explique`].map((t) => (
+            <View key={t} style={styles.lessonCheckRow}>
+              <View style={styles.lessonCheck}><Feather name="check" size={14} color={T.night} /></View>
+              <Text style={styles.lessonCheckText}>{t}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={styles.readyNote}>Les échanges s'adaptent au niveau{"\n"}que tu as indiqué.</Text>
+      </ScrollView>
+
+      <Pressable onPress={onStart} disabled={saving} style={[styles.cta, { marginBottom: 10 }, saving && styles.ctaOff]} accessibilityRole="button">
+        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>{saving ? "…" : "Commencer ma première leçon"}</Text>
+      </Pressable>
+      <Text style={styles.readyFoot}>Tu vas parler avec {coach.displayName}.</Text>
+    </View>
+  );
+}
+
+// Écran d'accueil : logo, deux bandes de scènes en défilement lent, bulles flottantes
+function WelcomeHero({ onStart, onLogin }: { onStart: () => void; onLogin?: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const marqueeH = Math.min(330, Math.max(220, height * 0.38));
+  return (
+    <View style={[styles.heroScreen, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }]}>
+      <View style={styles.brandRow}>
+        <Image source={BRAND_ICON} style={styles.brandIcon} />
+        <View>
+          <Text style={styles.brandName}>
+            d<Text style={{ color: T.abricotDeep }}>é</Text>clic
+          </Text>
+          <Text style={styles.brandSub}>ANGLAIS</Text>
+        </View>
+      </View>
+
+      <View style={[styles.marquee, { height: marqueeH }]}>
+        <View style={styles.marqueeBand}>
+          <MarqueeRow items={HERO_TOP} direction="left" duration={70000} />
+          <MarqueeRow items={HERO_BOTTOM} direction="right" duration={80000} />
+        </View>
+
+        <FloatBubble delay={0} style={[styles.bubbleDark, { top: 14, left: 22 }]}>
+          <Text style={styles.bubbleDarkText}>Hi! Nice to meet you</Text>
+        </FloatBubble>
+        <FloatBubble delay={900} style={{ top: 150, right: 14 }}>
+          <Text style={styles.bubbleText}>
+            I would like <Text style={styles.bubbleWrong}>an</Text> <Text style={styles.bubbleRight}>a</Text> coffee
+          </Text>
+        </FloatBubble>
+        <FloatBubble delay={1800} style={[styles.bubbleRow, { top: 262, left: 40 }]}>
+          <View style={styles.bubbleCheck}>
+            <Feather name="check" size={12} color="#fff" />
+          </View>
+          <Text style={styles.bubbleOk}>Prononciation claire</Text>
+        </FloatBubble>
+      </View>
+
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} showsVerticalScrollIndicator={false}>
+        <View style={styles.heroText}>
+          <Text style={styles.big}>Parle anglais</Text>
+          <Text style={styles.bigAccent}>sans bloquer.</Text>
+          <Text style={styles.lead}>
+            Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent.
+          </Text>
+        </View>
+
+        <Pressable onPress={onStart} style={[styles.cta, { marginBottom: onLogin ? 16 : 0 }]}>
+          <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Commencer</Text>
+        </Pressable>
+        {onLogin ? (
+          <Pressable onPress={onLogin} hitSlop={10} style={{ alignSelf: "center", paddingVertical: 4 }}>
+            <Text style={styles.heroLogin}>J'ai déjà un compte</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+// Carrousel (maquettes 02 et 03) : deux écrans qui montrent l'app elle-même, reconstitués en composants
+const BENEFITS = [
+  { key: "talk", title: "Parle avec", accent: "ton coach IA", text: "Des échanges courts, avec un objectif clair." },
+  { key: "fix", title: "Comprends,", accent: "puis réessaie", text: "Une correction utile, expliquée simplement en français." },
+] as const;
+
+function BenefitsCarousel({ coach, onDone, onBack }: { coach: LessonCoach; onDone: () => void; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+  const [index, setIndex] = useState(0);
+  const goTo = (i: number) => { scrollRef.current?.scrollTo({ x: i * width, animated: true }); setIndex(i); };
+  const onContinue = () => (index < BENEFITS.length - 1 ? goTo(index + 1) : onDone());
+
+  return (
+    <View style={[styles.heroScreen, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 12 }]}>
+      <View style={styles.carouselBar}>
+        <Pressable onPress={index === 0 ? onBack : () => goTo(index - 1)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Retour">
+          <Feather name="chevron-left" size={24} color={T.night} />
+        </Pressable>
+        <Pressable onPress={onDone} hitSlop={10} accessibilityRole="button"><Text style={styles.skipText}>Passer</Text></Pressable>
+      </View>
+
+      <ScrollView ref={scrollRef} horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ flex: 1 }} onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}>
+        {BENEFITS.map((b) => (
+          <ScrollView key={b.key} style={{ width }} contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+            <Text style={styles.benefitTitle}>{b.title}</Text>
+            <Text style={[styles.benefitTitle, { color: T.abricotDeep }]}>{b.accent}</Text>
+            <Text style={styles.benefitLead}>{b.text}</Text>
+            <MockChat coach={coach} variant={b.key} />
+          </ScrollView>
+        ))}
+      </ScrollView>
+
+      <View style={styles.dots}>
+        {BENEFITS.map((b, i) => <View key={b.key} style={i === index ? styles.dotActive : styles.dot} />)}
+      </View>
+      <Pressable onPress={onContinue} style={styles.cta} accessibilityRole="button">
+        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Continuer</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// Reconstitution de l'écran de leçon (non interactive)
+function MockChat({ coach, variant }: { coach: LessonCoach; variant: "talk" | "fix" }) {
+  const name = coach.displayName;
+  const actions = (
+    <View style={styles.mockActions}>
+      <View style={styles.mockAction}><Icon name="ecouter" size={15} /><Text style={styles.mockActionText}>Écouter</Text></View>
+      <Text style={styles.mockActionText}>·</Text>
+      <View style={styles.mockAction}><Icon name="traduire" size={15} /><Text style={styles.mockActionText}>Traduire</Text></View>
+    </View>
+  );
+  const coachBubble = (text: string) => (
+    <View style={styles.mockCoach}>
+      <Text style={styles.mockCoachText}>{text}</Text>
+      <View style={styles.mockSpeaker}><Icon name="ecouter" size={16} /></View>
+    </View>
+  );
+  return (
+    <View style={styles.mockCard} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={styles.mockHead}>
+        <Image source={coach.poster} style={styles.mockAvatar} resizeMode="cover" />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.mockName}>{name} · Coach IA</Text>
+          <Text style={styles.mockRole}>Se présenter</Text>
+        </View>
+        <View style={styles.mockObjective}><Icon name="fleche" size={14} tint={L.lavenderText} /><Text style={styles.mockObjectiveText}>Dire où tu habites</Text></View>
+      </View>
+
+      {variant === "talk" ? (
+        <>
+          {coachBubble("Hi! Where do you live?")}
+          {actions}
+          <View style={styles.mockUser}><Text style={styles.mockUserText}>I live in Lyon.</Text></View>
+          {coachBubble("Nice! What do you like about Lyon?")}
+          {actions}
+          <View style={styles.mockHelpRow}>
+            <View style={[styles.mockHelp, { backgroundColor: L.accentSoft }]}><Icon name="aide" size={15} tint={L.accentDeep} /><Text style={[styles.mockHelpText, { color: L.accentDeep }]}>Un indice</Text></View>
+            <View style={[styles.mockHelp, { backgroundColor: L.lavender }]}><Icon name="exemple" size={15} tint={L.lavenderText} /><Text style={[styles.mockHelpText, { color: L.lavenderText }]}>Un exemple</Text></View>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={styles.mockUser}><Text style={styles.mockUserText}>I am live in Lyon.</Text></View>
+          <View style={styles.mockFix}>
+            <View style={styles.mockFixHead}><View style={styles.mockFixIcon}><Feather name="edit-2" size={12} color={L.lavenderText} /></View><Text style={styles.mockFixTitle}>Petite correction</Text></View>
+            <View style={styles.mockFixInner}>
+              <Text style={styles.mockFixPhrase}>I <Text style={styles.mockFixWord}> live </Text> in Lyon.</Text>
+              <Text style={styles.mockFixExpl}>Avec « live », pas besoin de « am ».</Text>
+              <View style={styles.mockFixActions}>
+                <View style={styles.mockAction}><Icon name="ecouter" size={15} /><Text style={styles.mockFixActionText}>Écouter</Text></View>
+                <View style={styles.mockRetry}><Icon name="rejouer" size={14} tint={L.lavenderText} /><Text style={styles.mockRetryText}>Réessayer</Text></View>
+              </View>
+            </View>
+          </View>
+          {coachBubble("Great! What do you like about Lyon?")}
+        </>
+      )}
+
+      <View style={styles.mockComposer}>
+        <View style={styles.mockKeyboard}><Icon name="clavier" size={18} /></View>
+        <View style={{ alignItems: "center" }}>
+          <View style={styles.mockMic}><Icon name="micro" size={26} tint="#fff" /></View>
+          <Text style={styles.mockMicLabel}>Maintiens pour parler</Text>
+        </View>
+        <View style={{ width: 44 }} />
+      </View>
     </View>
   );
 }
@@ -593,187 +741,6 @@ function PrepScreen({ sceneHint, saving, onDone, lessonMode }: { sceneHint: stri
 }
 
 // Écran d'accueil : logo, deux bandes de scènes en défilement lent, bulles flottantes
-function WelcomeHero({ onStart, onLogin }: { onStart: () => void; onLogin?: () => void }) {
-  const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
-  const marqueeH = Math.min(330, Math.max(220, height * 0.38));
-  return (
-    <View style={[styles.heroScreen, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }]}>
-      <View style={styles.brandRow}>
-        <Image source={BRAND_ICON} style={styles.brandIcon} />
-        <View>
-          <Text style={styles.brandName}>
-            d<Text style={{ color: T.abricotDeep }}>é</Text>clic
-          </Text>
-          <Text style={styles.brandSub}>ANGLAIS</Text>
-        </View>
-      </View>
-
-      <View style={[styles.marquee, { height: marqueeH }]}>
-        <View style={styles.marqueeBand}>
-          <MarqueeRow items={HERO_TOP} direction="left" duration={70000} />
-          <MarqueeRow items={HERO_BOTTOM} direction="right" duration={80000} />
-        </View>
-
-        <FloatBubble delay={0} style={[styles.bubbleDark, { top: 14, left: 22 }]}>
-          <Text style={styles.bubbleDarkText}>Hi! Nice to meet you</Text>
-        </FloatBubble>
-        <FloatBubble delay={900} style={{ top: 150, right: 14 }}>
-          <Text style={styles.bubbleText}>
-            I would like <Text style={styles.bubbleWrong}>an</Text> <Text style={styles.bubbleRight}>a</Text> coffee
-          </Text>
-        </FloatBubble>
-        <FloatBubble delay={1800} style={[styles.bubbleRow, { top: 262, left: 40 }]}>
-          <View style={styles.bubbleCheck}>
-            <Feather name="check" size={12} color="#fff" />
-          </View>
-          <Text style={styles.bubbleOk}>Prononciation claire</Text>
-        </FloatBubble>
-      </View>
-
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} showsVerticalScrollIndicator={false}>
-        <View style={styles.heroText}>
-          <Text style={styles.big}>Parle anglais</Text>
-          <Text style={styles.bigAccent}>sans bloquer.</Text>
-          <Text style={styles.lead}>
-            Ton coach vocal t'écoute, te répond et te corrige avec douceur. Dix minutes par jour suffisent.
-          </Text>
-        </View>
-
-        <Pressable onPress={onStart} style={[styles.cta, { marginBottom: onLogin ? 16 : 0 }]}>
-          <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Commencer</Text>
-        </Pressable>
-        {onLogin ? (
-          <Pressable onPress={onLogin} hitSlop={10} style={{ alignSelf: "center", paddingVertical: 4 }}>
-            <Text style={styles.heroLogin}>J'ai déjà un compte</Text>
-          </Pressable>
-        ) : null}
-      </ScrollView>
-    </View>
-  );
-}
-
-// Carrousel des bénéfices : défilement auto toutes les 3 s, swipe possible
-function BenefitsCarousel({ onDone }: { onDone: () => void }) {
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
-  const scrollRef = useRef<ScrollView>(null);
-  const [index, setIndex] = useState(0);
-  // Hauteur réellement disponible pour le visuel (mesurée) : le téléphone n'est jamais coupé
-  const [visualH, setVisualH] = useState(0);
-  const phoneH = Math.max(220, Math.min(440, height * 0.5, visualH > 0 ? visualH - 24 : Infinity));
-
-  const goTo = (i: number) => {
-    scrollRef.current?.scrollTo({ x: i * width, animated: true });
-    setIndex(i);
-  };
-
-  // Relancé à chaque changement de slide : un swipe manuel remet le compteur à zéro
-  useEffect(() => {
-    const t = setTimeout(() => goTo((index + 1) % BENEFITS.length), BENEFIT_INTERVAL);
-    return () => clearTimeout(t);
-  }, [index, width]);
-
-  const onContinue = () => {
-    if (index < BENEFITS.length - 1) goTo(index + 1);
-    else onDone();
-  };
-
-  return (
-    <View style={[styles.heroScreen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
-      <Pressable onPress={onDone} hitSlop={10} style={styles.skipBtn}>
-        <Text style={styles.skipText}>Passer</Text>
-      </Pressable>
-
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        style={{ flex: 1 }}
-        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
-      >
-        {BENEFITS.map((b) => (
-          <ScrollView key={b.key} style={{ width }} contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-            <View style={styles.benefitVisual} onLayout={(e) => setVisualH(e.nativeEvent.layout.height)}>
-              {b.key === "scenes" ? <SceneGrid width={width} maxHeight={visualH} /> : <PhoneShot source={BENEFIT_SHOTS[b.key]} height={phoneH} />}
-
-              {b.key === "conversation" && (
-                <FloatBubble delay={0} style={[styles.bubbleRow, { top: "58%", left: 22 }]}>
-                  <View style={styles.bubbleDot} />
-                  <Text style={styles.bubbleOk}>Prononciation claire</Text>
-                </FloatBubble>
-              )}
-              {b.key === "correction" && (
-                <FloatBubble delay={0} style={[styles.bubbleRow, { top: "22%", right: 26 }]}>
-                  <Text style={styles.chipWrong}>an</Text>
-                  <Feather name="arrow-right" size={14} color={T.night} />
-                  <Text style={styles.chipRight}>a</Text>
-                </FloatBubble>
-              )}
-              {b.key === "scenes" && (
-                <FloatBubble delay={0} style={[styles.bubbleDark, { top: -6, right: 30 }]}>
-                  <Text style={styles.bubbleDarkText}>+ ta propre scène</Text>
-                </FloatBubble>
-              )}
-              {b.key === "daily" && (
-                <FloatBubble delay={0} style={[styles.bubbleRow, { top: "14%", right: 26 }]}>
-                  <MaterialCommunityIcons name="fire" size={17} color={T.abricotDeep} />
-                  <Text style={styles.bubbleText}>Ta série continue</Text>
-                </FloatBubble>
-              )}
-            </View>
-
-            <View style={styles.benefitText}>
-              <Text style={styles.benefitTitle}>{b.title}</Text>
-              <Text style={[styles.benefitTitle, { color: T.abricotDeep }]}>{b.accent}</Text>
-              <Text style={styles.benefitLead}>{b.text}</Text>
-            </View>
-          </ScrollView>
-        ))}
-      </ScrollView>
-
-      <View style={styles.dots}>
-        {BENEFITS.map((b, i) => (
-          <View key={b.key} style={i === index ? styles.dotActive : styles.dot} />
-        ))}
-      </View>
-
-      <Pressable onPress={onContinue} style={styles.cta}>
-        <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Continuer</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-// Capture d'écran de l'app dans un cadre de téléphone
-function PhoneShot({ source, height }: { source: any; height: number }) {
-  return (
-    <View style={[styles.phone, { height, width: height * 0.48 }]}>
-      <Image source={source} style={styles.phoneScreen} resizeMode="cover" />
-    </View>
-  );
-}
-
-// Grille 2 x 3 de scènes
-function SceneGrid({ width, maxHeight }: { width: number; maxHeight: number }) {
-  const cardW = Math.min(150, (width - 52 - 12) / 2);
-  // 3 rangées (image + libellé + marges) : on réduit les images si la place manque
-  const imgH = maxHeight > 0 ? Math.max(50, Math.min(88, (maxHeight - 24 - 138) / 3)) : 88;
-  return (
-    <View style={[styles.sceneGrid, { width: cardW * 2 + 12 }]}>
-      {BENEFIT_SCENES.map((sc) => (
-        <View key={sc.label} style={[styles.sceneCard, { width: cardW }]}>
-          <View>
-            <Image source={sc.img} style={[styles.sceneImg, { height: imgH }]} />
-            <Text style={styles.sceneTag}>{sc.tag}</Text>
-          </View>
-          <Text style={styles.sceneLabel} numberOfLines={1}>{sc.label}</Text>
-        </View>
-      ))}
-    </View>
-  );
-}
 
 // Bande de cartes en boucle infinie (la liste est dupliquée pour un raccord invisible)
 function MarqueeRow({ items, direction, duration }: { items: { img: any; label: string }[]; direction: "left" | "right"; duration: number }) {
@@ -840,6 +807,7 @@ function ProgressCurve() {
   );
 }
 
+
 function SelectCard({ icon, title, desc, active, onPress }: { icon: string; title: string; desc: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.selectCard, active && styles.selectCardOn]}>
@@ -857,18 +825,26 @@ function SelectCard({ icon, title, desc, active, onPress }: { icon: string; titl
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.cream, paddingTop: 52 },
-  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, marginBottom: 20, gap: 12 },
-  progressTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: T.creamLine, overflow: "hidden" },
-  progressFill: { height: 8, borderRadius: 4, backgroundColor: T.abricot },
+  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, marginBottom: 20, gap: 14 },
+  segments: { flex: 1, flexDirection: "row", gap: 6 },
+  segment: { flex: 1, height: 7, borderRadius: 4, backgroundColor: T.creamLine },
+  segmentDone: { backgroundColor: "#F6D9BF" },
+  segmentOn: { backgroundColor: T.abricot },
   scroll: { paddingHorizontal: 26, paddingBottom: 20 },
 
-  hero: { paddingTop: 20 },
 
   heroScreen: { flex: 1, backgroundColor: T.cream },
   brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 22 },
   brandIcon: { width: 56, height: 56, borderRadius: 16 },
   brandName: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.8, lineHeight: 32 },
   brandSub: { fontSize: 11, fontWeight: "800", color: T.inkSoft, letterSpacing: 4, marginTop: 2 },
+  skipText: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
+  benefitTitle: { fontSize: 28, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.6, lineHeight: 33 },
+  benefitLead: { fontSize: 15, color: T.inkSoft, textAlign: "center", lineHeight: 22, marginTop: 10 },
+  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, marginVertical: 18 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.creamLine },
+  dotActive: { width: 12, height: 12, borderRadius: 6, backgroundColor: T.abricot, borderWidth: 2, borderColor: T.chipAbricot },
+  heroLogin: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
   marquee: { height: 330, overflow: "hidden" },
   marqueeBand: { marginHorizontal: -60, marginTop: 22, transform: [{ rotate: "-4deg" }] },
   marqueeRow: { flexDirection: "row", paddingVertical: 8 },
@@ -885,29 +861,6 @@ const styles = StyleSheet.create({
   bubbleCheck: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#2E9E6B", alignItems: "center", justifyContent: "center" },
   bubbleOk: { color: "#1F7A52", fontSize: 13.5, fontWeight: "800" },
   heroText: { paddingHorizontal: 26, marginBottom: 22 },
-  skipBtn: { alignSelf: "flex-end", paddingHorizontal: 26, paddingVertical: 6 },
-  skipText: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
-  benefitVisual: { flex: 1, alignItems: "center", justifyContent: "center" },
-  benefitText: { paddingHorizontal: 30, paddingTop: 28, paddingBottom: 8, alignItems: "center" },
-  benefitTitle: { fontSize: 28, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.6, lineHeight: 33 },
-  benefitLead: { fontSize: 15, color: T.inkSoft, textAlign: "center", lineHeight: 22, marginTop: 10 },
-  phone: { backgroundColor: T.night, borderRadius: 34, padding: 7, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
-  phoneScreen: { flex: 1, width: "100%", borderRadius: 27 },
-  bubbleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#2E9E6B" },
-  chipWrong: { color: T.corail, fontWeight: "800", fontSize: 14, textDecorationLine: "line-through", backgroundColor: "#FDE3E0", borderRadius: 7, paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" },
-  chipRight: { color: "#1F7A52", fontWeight: "800", fontSize: 14, backgroundColor: "#DDF3E7", borderRadius: 7, paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" },
-  sceneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  sceneCard: { backgroundColor: T.card, borderRadius: 18, padding: 5, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
-  sceneImg: { width: "100%", height: 88, borderRadius: 14 },
-  sceneTag: { position: "absolute", top: 6, left: 6, backgroundColor: T.card, color: T.abricotDeep, fontSize: 11, fontWeight: "800", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, overflow: "hidden" },
-  sceneLabel: { fontSize: 13, fontWeight: "800", color: T.night, marginTop: 7, marginBottom: 4, marginHorizontal: 4 },
-  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, marginVertical: 18 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.creamLine },
-  dotActive: { width: 12, height: 12, borderRadius: 6, backgroundColor: T.abricot, borderWidth: 2, borderColor: T.chipAbricot },
-  heroLogin: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
-  blobWrap: { height: 120, marginBottom: 20, alignItems: "center", justifyContent: "center" },
-  blob1: { position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: T.abricot, opacity: 0.9, transform: [{ scaleX: 1.15 }] },
-  blob2: { position: "absolute", width: 80, height: 80, borderRadius: 40, backgroundColor: T.miel, right: 60, top: 10 },
   big: { fontSize: 32, fontWeight: "800", color: T.night, lineHeight: 38, letterSpacing: -0.5 },
   bigAccent: { fontSize: 32, fontWeight: "800", color: T.abricotDeep, lineHeight: 38, letterSpacing: -0.5, marginBottom: 16 },
   lead: { fontSize: 16, fontWeight: "600", color: T.inkSoft, lineHeight: 24 },
@@ -934,24 +887,6 @@ const styles = StyleSheet.create({
   levelBadgeText: { color: T.abricotDeep, fontSize: 14, fontWeight: "800" },
   levelTitle: { fontSize: 16, fontWeight: "800", color: T.night },
   levelDesc: { fontSize: 13, fontWeight: "600", color: T.inkSoft, marginTop: 2 },
-
-  testCard: { backgroundColor: T.card, borderRadius: 22, padding: 22, alignItems: "center" },
-  testSentence: { fontSize: 21, fontWeight: "800", color: T.night, textAlign: "center", lineHeight: 29, letterSpacing: -0.3 },
-  testHint: { fontSize: 12, fontWeight: "600", color: T.inkSoft, marginTop: 10 },
-  testResult: { marginTop: 16, backgroundColor: T.card, borderRadius: 18, padding: 18, alignItems: "center" },
-  testScoreNum: { fontSize: 44, fontWeight: "800", color: T.abricotDeep, letterSpacing: -1 },
-  testScoreOut: { fontSize: 18, fontWeight: "700", color: T.inkSoft },
-  testVerdict: { fontSize: 14, fontWeight: "600", color: T.night, textAlign: "center", lineHeight: 21, marginTop: 6 },
-  testMicZone: { alignItems: "center", marginTop: 24 },
-  testMic: { width: 72, height: 72, borderRadius: 36, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
-  testMicActive: { backgroundColor: T.corail },
-  testMicLabel: { color: T.inkSoft, fontSize: 13, fontWeight: "600", marginTop: 9 },
-  testSkipLink: { color: T.abricotDeep, fontSize: 13.5, fontWeight: "800", textDecorationLine: "underline" },
-
-  validWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
-  validIcon: { width: 88, height: 88, borderRadius: 44, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center", marginBottom: 24 },
-  validTitle: { fontSize: 26, fontWeight: "800", color: T.night, letterSpacing: -0.4, textAlign: "center" },
-  validLead: { fontSize: 16, fontWeight: "600", color: T.inkSoft, lineHeight: 24, textAlign: "center", marginTop: 12 },
 
   diagCard: { backgroundColor: T.night, borderRadius: 22, padding: 22 },
   diagLevelsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -1006,11 +941,87 @@ const styles = StyleSheet.create({
   prepLabelOn: { color: T.night },
   prepTip: { flexDirection: "row", gap: 10, backgroundColor: T.chipAbricot, borderRadius: 18, padding: 16, marginHorizontal: 20, marginTop: 18 },
   prepTipText: { flex: 1, fontSize: 13.5, fontWeight: "600", color: T.inkSoft, lineHeight: 20 },
+
+
+  // Carrousel (02 / 03)
+  carouselBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22, marginBottom: 10 },
+  mockCard: { backgroundColor: T.card, borderRadius: 24, padding: 14, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  mockHead: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  mockAvatar: { width: 46, height: 46, borderRadius: 12 },
+  mockName: { color: T.night, fontSize: 14, fontWeight: "800" },
+  mockRole: { color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 1 },
+  mockObjective: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: L.lavender, borderRadius: 14, paddingVertical: 7, paddingHorizontal: 10 },
+  mockObjectiveText: { color: L.lavenderText, fontSize: 12, fontWeight: "800" },
+  mockCoach: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: T.cream, borderRadius: 16, borderWidth: 1, borderColor: "#EFE8DF", padding: 12, marginRight: 24 },
+  mockCoachText: { flex: 1, color: T.night, fontSize: 15.5, lineHeight: 22 },
+  mockSpeaker: { width: 32, height: 32, borderRadius: 16, backgroundColor: T.card, borderWidth: 1, borderColor: "#EFE8DF", alignItems: "center", justifyContent: "center" },
+  mockActions: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6, marginBottom: 12, paddingLeft: 4 },
+  mockAction: { flexDirection: "row", alignItems: "center", gap: 5 },
+  mockActionText: { color: T.inkSoft, fontSize: 12.5, fontWeight: "700" },
+  mockUser: { alignSelf: "flex-end", backgroundColor: L.accentSoft, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, maxWidth: "80%" },
+  mockUserText: { color: T.night, fontSize: 15.5, fontWeight: "600" },
+  mockHelpRow: { flexDirection: "row", gap: 10, marginTop: 2, marginBottom: 12 },
+  mockHelp: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 16, paddingVertical: 11 },
+  mockHelpText: { fontSize: 13.5, fontWeight: "800" },
+  mockFix: { backgroundColor: L.lavender, borderRadius: 18, padding: 10, marginBottom: 12 },
+  mockFixHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, paddingHorizontal: 4 },
+  mockFixIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: "#DCD9F8", alignItems: "center", justifyContent: "center" },
+  mockFixTitle: { color: L.lavenderText, fontSize: 14, fontWeight: "800" },
+  mockFixInner: { backgroundColor: T.card, borderRadius: 14, padding: 12 },
+  mockFixPhrase: { color: T.night, fontSize: 17, fontWeight: "700", lineHeight: 26 },
+  mockFixWord: { backgroundColor: "#DDF3E7", color: "#1F7A52", borderRadius: 6, overflow: "hidden" },
+  mockFixExpl: { color: T.inkSoft, fontSize: 13, fontWeight: "600", marginTop: 6 },
+  mockFixActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12 },
+  mockFixActionText: { color: T.night, fontSize: 13, fontWeight: "700" },
+  mockRetry: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: L.lavender, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 12 },
+  mockRetryText: { color: L.lavenderText, fontSize: 13, fontWeight: "800" },
+  mockComposer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: "#EFE8DF", borderRadius: 40, paddingVertical: 8, paddingHorizontal: 10, marginTop: 4 },
+  mockKeyboard: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.cream, borderWidth: 1, borderColor: "#EFE8DF", alignItems: "center", justifyContent: "center" },
+  mockMic: { width: 62, height: 62, borderRadius: 31, backgroundColor: L.accentDeep, alignItems: "center", justifyContent: "center", marginTop: -26, borderWidth: 4, borderColor: T.card },
+  mockMicLabel: { color: T.inkSoft, fontSize: 11.5, fontWeight: "600", marginTop: 4 },
+
+  // Accompagnement (04)
+  radioCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, borderWidth: 2, borderColor: "transparent" },
+  radioCardOn: { borderColor: T.abricot, backgroundColor: "#FFF4EA" },
+  radio: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#CFC8BE", alignItems: "center", justifyContent: "center" },
+  radioOn: { borderColor: T.abricotDeep },
+  radioDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: T.abricotDeep },
+  radioTitle: { color: T.night, fontSize: 17, fontWeight: "800" },
+  radioDesc: { color: T.inkSoft, fontSize: 14, fontWeight: "600", lineHeight: 20, marginTop: 2 },
+  styleNote: { color: T.inkSoft, fontSize: 13.5, fontWeight: "600", textAlign: "center", marginTop: 8 },
+  divider: { height: 1, backgroundColor: T.creamLine, marginVertical: 22 },
+  collapseRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 36 },
+  collapseTitle: { color: T.night, fontSize: 18, fontWeight: "800" },
+  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12 },
+  switchLabel: { flex: 1, color: T.night, fontSize: 15.5, fontWeight: "600", paddingRight: 12 },
+
+  // Première leçon (05)
+  readyCheck: { width: 48, height: 48, borderRadius: 24, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  lessonCard: { backgroundColor: T.card, borderRadius: 22, padding: 18, marginTop: 20, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  lessonK: { color: T.abricotDeep, fontSize: 11.5, fontWeight: "800", letterSpacing: 1 },
+  lessonTitle: { color: T.night, fontSize: 26, fontWeight: "800", letterSpacing: -0.4, marginTop: 6 },
+  lessonSub: { color: T.inkSoft, fontSize: 15, fontWeight: "600", marginTop: 4 },
+  lessonCoachRow: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 16 },
+  lessonCoachImg: { width: 150, aspectRatio: 0.95, borderRadius: 16, backgroundColor: "#FDDCBE" },
+  lessonCoachName: { color: T.night, fontSize: 16, fontWeight: "800" },
+  lessonCoachAccent: { color: T.inkSoft, fontSize: 14, fontWeight: "600", marginTop: 3 },
+  lessonDivider: { height: 1, backgroundColor: T.creamLine, marginVertical: 18 },
+  lessonDuring: { color: T.night, fontSize: 17, fontWeight: "800", marginBottom: 10 },
+  lessonCheckRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
+  lessonCheck: { width: 30, height: 30, borderRadius: 15, backgroundColor: T.menthe, alignItems: "center", justifyContent: "center" },
+  lessonCheckText: { color: T.night, fontSize: 15.5, fontWeight: "600" },
+  readyNote: { color: T.inkSoft, fontSize: 13.5, fontWeight: "600", textAlign: "center", marginTop: 16, lineHeight: 19 },
+  readyFoot: { color: T.inkSoft, fontSize: 13.5, fontWeight: "600", textAlign: "center", marginBottom: 6 },
+
+  // Écran « Bienvenue » (hors parcours, après le paywall)
+  blobWrap: { height: 120, marginBottom: 20, alignItems: "center", justifyContent: "center" },
+  blob1: { position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: T.abricot, opacity: 0.9, transform: [{ scaleX: 1.15 }] },
+  blob2: { position: "absolute", width: 80, height: 80, borderRadius: 40, backgroundColor: T.miel, right: 60, top: 10 },
   launchWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 26 },
   launchTitle: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.5, marginBottom: 12 },
   launchLead: { fontSize: 16, fontWeight: "600", color: T.inkSoft, lineHeight: 24 },
 
-  cta: { backgroundColor: T.abricot, borderRadius: 16, padding: 17, alignItems: "center", marginHorizontal: 26, marginBottom: 28 },
+  cta: { backgroundColor: T.abricot, borderRadius: 18, padding: 18, alignItems: "center", marginHorizontal: 22, marginBottom: 18 },
   ctaOff: { opacity: 0.4 },
-  ctaText: { color: T.night, fontSize: 16, fontWeight: "800" },
+  ctaText: { color: T.night, fontSize: 17, fontWeight: "800" },
 });

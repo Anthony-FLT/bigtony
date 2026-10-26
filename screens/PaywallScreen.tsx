@@ -1,8 +1,9 @@
 // PaywallScreen — maquette du 23/10 : « Débloque la suite de ton parcours », visuel du coach, prochaine leçon,
 // 3 arguments, offres Annuel / Mensuel, CTA. La logique RevenueCat (offres, essai, offre cadeau, achat, restauration) est inchangée.
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Alert, Animated, Image, Linking } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Alert, Animated, Image, Linking, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Notifications from "expo-notifications";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { configurePurchases } from "../lib/purchases";
@@ -34,6 +35,24 @@ const BENEFITS: { icon: IconName; bg: string; title: string; desc: string }[] = 
 ];
 
 const GREEN = "#2E9E6B";
+// Point de comparaison : un cours particulier d'anglais, ~30 €/h, 1 h par semaine
+const PRIVATE_LESSON_PER_MONTH = 120;
+
+// Rappel local avant la fin de l'essai (J-2), si l'utilisateur l'a demandé
+async function scheduleTrialReminder(trialDays: number) {
+  try {
+    const perm = await Notifications.requestPermissionsAsync();
+    if (!perm.granted) return;
+    const inDays = Math.max(1, trialDays - 2);
+    const date = new Date(Date.now() + inDays * 24 * 60 * 60 * 1000);
+    date.setHours(10, 0, 0, 0);
+    await Notifications.scheduleNotificationAsync({
+      identifier: "trial-reminder",
+      content: { title: "Ton essai se termine dans 2 jours", body: "Tu peux continuer, ou résilier depuis Google Play avant la facturation." },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date },
+    });
+  } catch (e) { console.warn("Rappel d'essai non programmé:", e); }
+}
 
 // — Détection de l'essai gratuit, sans rien écrire en dur —
 function periodUnitToDays(n: any, unit: any): number | null {
@@ -125,12 +144,13 @@ export default function PaywallScreen({
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const [coach, setCoach] = useState<LessonCoach | null>(null); // rendu seulement une fois le profil lu
+  const [coach, setCoach] = useState<LessonCoach>(() => coachForVoice(null));
   const [nextLesson, setNextLesson] = useState<{ title: string; sub: string } | null>(null);
+  const [remindTrial, setRemindTrial] = useState(true);
 
   // Coach du profil + prochaine leçon réservée à l'abonnement
   useEffect(() => {
-    loadProfile().then((p) => setCoach(coachForVoice(p?.voice))).catch(() => setCoach(coachForVoice(null)));
+    loadProfile().then((p) => setCoach(coachForVoice(p?.voice))).catch(() => {});
     getLearningPath(false).then((view) => {
       const n = view.nodes.find((x) => x.access === "subscription_required" && x.pedagogical !== "hidden_preview" && x.pedagogical !== "validated");
       if (n) setNextLesson({ title: n.lesson.titleFr, sub: n.variant ? `${n.variant.titleFr} · ${n.variant.targetMinutes} min` : "" });
@@ -210,7 +230,12 @@ export default function PaywallScreen({
     try {
       const { customerInfo } = isGift ? await Purchases.purchaseSubscriptionOption(giftOption) : await Purchases.purchasePackage(pkg);
       const ent = customerInfo.entitlements.active[ENTITLEMENT_ID];
-      if (ent) { logPurchaseComplete(selected, { ...base, sandbox: !!(ent as any).isSandbox }); onPurchased(); }
+      if (ent) {
+        logPurchaseComplete(selected, { ...base, sandbox: !!(ent as any).isSandbox });
+        const trial = selected === "yearly" ? yearTrial : monthTrial;
+        if (!isGift && trial && remindTrial) scheduleTrialReminder(trial);
+        onPurchased();
+      }
       else logPurchaseFailed(selected, "entitlement_inactive", base);
     } catch (e: any) {
       logPurchaseFailed(selected, e.userCancelled ? "user_cancelled" : (e.message ?? String(e)), {
@@ -232,6 +257,10 @@ export default function PaywallScreen({
 
   const yearSel = isGift || selected === "yearly";
   const monthSel = selected === "monthly";
+  // Ancre : combien de fois moins cher qu'un cours particulier (sur la base du prix mensualisé de l'annuel)
+  const perMonth = yearlyValue / 12;
+  const cheaperFactor = perMonth > 0 ? Math.floor(PRIVATE_LESSON_PER_MONTH / perMonth) : 0;
+  const activeTrial = !isGift ? (selected === "yearly" ? yearTrial : monthTrial) : null;
 
   const ctaLabel = isGift
     ? `Profiter de -${giftDiscount} %`
@@ -251,7 +280,7 @@ export default function PaywallScreen({
 
   return (
     <View style={styles.container}>
-      {!loaded || !coach ? (
+      {!loaded ? (
         <View style={styles.loading}><ActivityIndicator color={L.primary} size="large" /></View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 20 }} showsVerticalScrollIndicator={false}>
@@ -282,6 +311,9 @@ export default function PaywallScreen({
             <View style={{ flex: 1, paddingRight: 8 }}>
               <Text style={styles.h1}>{isGift ? `Ton cadeau : -${giftDiscount} % sur ta 1re année` : "Débloque la suite de ton parcours"}</Text>
               <Text style={styles.sub}>Progresse à ton rythme, avec {coach.displayName}.</Text>
+              {!isGift && cheaperFactor >= 2 && (
+                <Text style={styles.anchor}>{money(perMonth)}/mois, soit {cheaperFactor} fois moins cher qu'un cours particulier.</Text>
+              )}
             </View>
             <Image source={coach.paywall} style={styles.hero} resizeMode="contain" />
           </View>
@@ -333,6 +365,32 @@ export default function PaywallScreen({
               <Text style={styles.planPrice}>{price("monthly")}<Text style={styles.planPer}>/mois</Text></Text>
             </Pressable>
           )}
+
+          {/* Essai gratuit : comment ça se passe + rappel avant la fin */}
+          {activeTrial ? (
+            <View style={styles.trialCard}>
+              {[
+                { icon: "check" as IconName, bg: L.successSoft, title: "Aujourd'hui", desc: `Accès complet, 0 € prélevé.` },
+                { icon: "attention" as IconName, bg: L.accentSoft, title: `Jour ${Math.max(1, activeTrial - 2)}`, desc: remindTrial ? "On te prévient par notification." : "Fin d'essai dans 2 jours." },
+                { icon: "etoile" as IconName, bg: L.lavender, title: `Jour ${activeTrial}`, desc: `${selected === "yearly" ? price("yearly") + "/an" : price("monthly") + "/mois"}, sauf si tu résilies avant.` },
+              ].map((s, i, arr) => (
+                <View key={s.title} style={styles.trialRow}>
+                  <View style={{ alignItems: "center" }}>
+                    <View style={[styles.trialIcon, { backgroundColor: s.bg }]}><Icon name={s.icon} size={16} /></View>
+                    {i < arr.length - 1 && <View style={styles.trialLine} />}
+                  </View>
+                  <View style={{ flex: 1, paddingBottom: i < arr.length - 1 ? 12 : 0 }}>
+                    <Text style={styles.trialTitle}>{s.title}</Text>
+                    <Text style={styles.trialDesc}>{s.desc}</Text>
+                  </View>
+                </View>
+              ))}
+              <View style={styles.remindRow}>
+                <Text style={styles.remindText}>M'avertir avant la fin de l'essai</Text>
+                <Switch value={remindTrial} onValueChange={setRemindTrial} trackColor={{ true: L.accentDeep, false: L.border }} thumbColor="#fff" />
+              </View>
+            </View>
+          ) : null}
 
           <Text style={styles.legal}>{legalText}</Text>
 
@@ -395,6 +453,15 @@ const styles = StyleSheet.create({
   checkIcon: { width: 24, height: 24 },
   radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: L.border },
 
+  anchor: { color: L.accentDeep, fontSize: 13.5, fontWeight: "800", lineHeight: 19, marginTop: 8 },
+  trialCard: { backgroundColor: L.surface, borderRadius: 18, padding: 14, marginTop: 12 },
+  trialRow: { flexDirection: "row", gap: 12 },
+  trialIcon: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  trialLine: { width: 2, flex: 1, minHeight: 10, backgroundColor: L.border, marginVertical: 3 },
+  trialTitle: { color: L.textPrimary, fontSize: 14.5, fontWeight: "800" },
+  trialDesc: { color: L.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 1 },
+  remindRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: L.border, marginTop: 12, paddingTop: 10 },
+  remindText: { color: L.textPrimary, fontSize: 14.5, fontWeight: "700" },
   legal: { color: L.textSecondary, fontSize: 11.5, lineHeight: 16, textAlign: "center", marginTop: 14 },
   cta: { backgroundColor: L.accentDeep, borderRadius: 18, padding: 18, alignItems: "center", minHeight: 56, justifyContent: "center", marginTop: 12 },
   ctaRow: { flexDirection: "row", alignItems: "center", gap: 10 },

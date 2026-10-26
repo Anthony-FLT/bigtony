@@ -195,7 +195,7 @@ export default function HomeScreen({
       <View style={styles.banner}>
         <View style={styles.top}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.hello}>Salut {profile?.name ?? ""} </Text>
+            <Text style={styles.hello}>Hi {profile?.name ?? ""} </Text>
             <Text style={styles.helloSub}>Prêt à parler anglais aujourd'hui ?</Text>
             <WeekStrip days={week} goal={profile?.weeklyGoal ?? 3} dark />
           </View>

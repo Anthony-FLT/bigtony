@@ -24,6 +24,7 @@ export default function DailyTalkScreen({ onExit, onLocked }: { onExit: () => vo
   const [session, setSession] = useState<DailyTalkSession | null>(null);
   const [result, setResult] = useState<DailyTalkResult | null>(null);
   const [voice, setVoice] = useState("us-male");
+  const [voiceReady, setVoiceReady] = useState(false); // le coach ne s'affiche qu'une fois le profil lu (sinon Sam apparaît 1 s)
   const [speechRate, setSpeechRate] = useState(0.95);
   const [busy, setBusy] = useState(false);
   const player = useAudioPlayer();
@@ -49,7 +50,7 @@ export default function DailyTalkScreen({ onExit, onLocked }: { onExit: () => vo
         const p = await loadProfile();
         if (cancelled) return;
         const v = p?.voice || "us-male";
-        setVoice(v); if (p?.speechRate) setSpeechRate(p.speechRate);
+        setVoice(v); setVoiceReady(true); if (p?.speechRate) setSpeechRate(p.speechRate);
         warmDailyTalk();
         const s = await dailyTalkStart(v);
         if (cancelled) return;
@@ -104,9 +105,9 @@ export default function DailyTalkScreen({ onExit, onLocked }: { onExit: () => vo
     return (
       <View style={styles.center}>
         <StatusBar style="dark" />
-        <Image source={coach.poster} style={styles.loadingPoster} resizeMode="cover" />
+        {voiceReady ? <Image source={coach.poster} style={styles.loadingPoster} resizeMode="cover" /> : <View style={styles.loadingPoster} />}
         <ActivityIndicator color={L.primary} style={{ marginTop: 18 }} />
-        <Text style={styles.loadingText}>{phase === "loading" ? `${coach.displayName} arrive…` : "On note ta phrase du jour…"}</Text>
+        <Text style={styles.loadingText}>{phase === "ending" ? "On note ta phrase du jour…" : voiceReady ? `${coach.displayName} arrive…` : "Un instant…"}</Text>
       </View>
     );
   }

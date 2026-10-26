@@ -312,6 +312,7 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets:
     practiceLevel,
     briefingEn: briefing.en, // ouverture parlée (bonjour + direction de la leçon + première question)
     briefingFr: briefing.fr,
+    coachStyle: coachStyleOf(user), // ton du coach choisi à l'onboarding (doux / équilibré / exigeant + défi)
     state: "briefing",
     active: true,
     modalityUsed: [],
@@ -679,7 +680,25 @@ function writeReviewCards(batchOrTx, uid, cards) {
 const MIN_TURNS_BEFORE_CLOSING = 5;
 const minTurnsOf = (variant) => Number(variant.minUsefulTurns) || MIN_TURNS_BEFORE_CLOSING;
 
-function buildLessonSystemPrompt(variant, state, isText, voice = "us-male") {
+// Style de coaching choisi à l'onboarding (profil users/{uid}) : feedbackStyle soft|balanced|strict, challenge true|false
+function coachStyleOf(user) {
+  const feedback = ["soft", "balanced", "strict"].includes(user?.feedbackStyle) ? user.feedbackStyle : "balanced";
+  const challenge = user?.challenge !== false;
+  return { feedback, challenge };
+}
+function coachStyleRules(style) {
+  const s = style || { feedback: "balanced", challenge: true };
+  const feedback =
+    s.feedback === "soft" ? "COACHING STYLE: gentle. Encourage first. Only give a \"coaching\" card for an error that blocks understanding; let small slips go. Never more than one correction per reply, and prefer requires_retry=false."
+    : s.feedback === "strict" ? "COACHING STYLE: demanding (the learner asked for it). Point out every error that matters (grammar, word choice, missing words), one per reply, with a precise correction. Use the coaching retry whenever a useful error appears. Stay kind, but do not let mistakes slide."
+    : "COACHING STYLE: balanced. Correct what matters for being understood or sounding natural; ignore tiny slips. One point per reply.";
+  const challenge = s.challenge
+    ? "When the learner answers comfortably, you may ask one slightly harder follow-up (one notch above their level) to stretch them."
+    : "Stay strictly at the learner's level: never raise the difficulty, consolidate instead.";
+  return `${feedback} ${challenge}`;
+}
+
+function buildLessonSystemPrompt(variant, state, isText, voice = "us-male", style = null) {
   const criteriaLines = variant.requiredCriteria
     .map((c) => `  - ${c.id} [${state.covered.includes(c.id) ? "COVERED" : "remaining"}]: ${c.descriptionFr} (e.g. "${c.exampleEn}")`)
     .join("\n");
@@ -687,6 +706,7 @@ function buildLessonSystemPrompt(variant, state, isText, voice = "us-male") {
   const followUps = variant.followUpsEn.filter((q) => !state.askedQuestions.includes(q)).map((q) => `  - "${q}"`).join("\n") || "  (all used — write a new, different one)";
   const who = coachIdentity(voice);
   return `You are ${who.name}, a warm English coach who speaks ${who.english}. In the conversation you play: ${variant.coachRole}. The learner plays: ${variant.userRole}. Learner level: ${variant.practiceLevel} — keep your English simple and natural for that level, 1 to 2 short sentences per reply, ONE question at a time. The learner is French and hesitant: be kind, never condescending. You already said hello and introduced yourself when the lesson started: never introduce yourself again, never restart with "Hi".
+${coachStyleRules(style)}
 ${isText ? "The learner TYPED their answer (do not comment on pronunciation)." : "The learner's answer is in the attached audio. First transcribe it verbatim in \"transcript\" (keep their mistakes). If the audio has no intelligible speech, set transcript to \"\" exactly and never invent words."}
 
 LESSON OBJECTIVES (the only thing that matters — each question you ask must serve a REMAINING objective):
@@ -762,7 +782,7 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
       model: "gemini-3.6-flash",
       contents: [{ role: "user", parts }],
       config: {
-        systemInstruction: buildLessonSystemPrompt(variant, state, isText, voice),
+        systemInstruction: buildLessonSystemPrompt(variant, state, isText, voice, a.coachStyle || null),
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,

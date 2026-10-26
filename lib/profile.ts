@@ -11,6 +11,7 @@ export type Gender = "homme" | "femme" | "non-precise";
 // Voix du coach (choix utilisateur)
 export type VoiceKey = "us-male" | "us-female" | "uk-male" | "uk-female";
 export type AgeRange = "18-24" | "25-34" | "35-44" | "45-54" | "55+";
+export type FeedbackStyle = "soft" | "balanced" | "strict";
 
 export type Profile = {
   onboarded: boolean;
@@ -37,6 +38,8 @@ export type Profile = {
   appRating?: number; // note in-app de 1 à 5
   hubCelebrated?: boolean; // félicitations « 3 défis terminés » déjà affichées
   flowVersion?: "legacy" | "learning_path_v1";
+  feedbackStyle?: FeedbackStyle; // ton du coach : doux / équilibré / exigeant
+  challenge?: boolean;    
 };
 
 export async function loadProfile(): Promise<Profile | null> {

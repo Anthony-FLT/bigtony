@@ -194,7 +194,7 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
       {/* En-tête */}
       <View style={styles.top}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.hello}>Salut {name}</Text>
+          <Text style={styles.hello}>Hi {name}</Text>
           <Text style={styles.helloSub}>Une étape de plus vers un anglais plus fluide.</Text>
         </View>
 

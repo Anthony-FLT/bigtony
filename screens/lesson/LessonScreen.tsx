@@ -22,11 +22,14 @@ import {
 import { useAvatarSession } from "../../lib/liveAvatar/useAvatarSession";
 import { coachForVoice } from "../../lib/learningPath/coaches";
 import { coachIntroEn } from "../../lib/learningPath/intro";
+import { GOALS } from "../../lib/onboardingData";
 type AttemptResultLike = Awaited<ReturnType<typeof finalizeAttempt>>;
 
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 
-type Phase = "loading" | "error" | "mission" | "conversation" | "validating" | "success";
+// « plan » : après la 1re leçon (non abonné), synthèse personnalisée avant le paywall
+type Phase = "loading" | "error" | "mission" | "conversation" | "validating" | "success" | "plan";
+const PLAN_BUILD_MS = 2600;
 export type LessonExit = { reason: "back" } | { reason: "next_lesson"; nextLessonId: string } | { reason: "done" };
 
 function nextLessonOf(lessonId: string): LessonDefinition | null {
@@ -80,6 +83,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   const [speechRate, setSpeechRate] = useState(0.95);
   const [level, setLevel] = useState("B1");
   const [flowVersion, setFlowVersion] = useState("legacy");
+  const [profileBits, setProfileBits] = useState<{ name: string; goals: string[]; interests: string[] }>({ name: "", goals: [], interests: [] });
   const [streak, setStreak] = useState(0);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const startedAtRef = useRef(0);
@@ -126,6 +130,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
           if (p?.speechRate) setSpeechRate(p.speechRate);
           if (p?.level) setLevel(p.level);
           if (p?.flowVersion) setFlowVersion(p.flowVersion);
+          setProfileBits({ name: (p?.name ?? "").trim(), goals: Array.isArray(p?.goals) ? p!.goals : [], interests: Array.isArray(p?.interests) ? p!.interests : [] });
         } catch {}
         let r;
         const startOpts = { voice: profileVoice, isFirstLesson: LESSONS[0]?.id === lessonId };
@@ -331,11 +336,39 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   const validated = result.kind !== "needs_practice";
   const nextPublished = !!next && next.published && !!getChapter(next.chapterId)?.published;
   const nextAccessible = !!next && (next.isFreeDiscovery || premium);
+  const isFirstLesson = LESSONS[0]?.id === lessonId;
   const goNext = () => {
     if (!next || !nextPublished) { onExit({ reason: "done" }); return; }
     if (nextAccessible) { logLessonNextClick(ctx(), "lesson"); onExit({ reason: "next_lesson", nextLessonId: next.id }); }
-    else { logLessonNextClick(ctx(), "paywall"); onLocked("subscription_required"); }
+    else {
+      logLessonNextClick(ctx(), "paywall");
+      // Première leçon : on montre d'abord « ton plan est prêt » (synthèse personnalisée), puis l'offre
+      if (isFirstLesson) setPhase("plan"); else onLocked("subscription_required");
+    }
   };
+
+  // ---------------- Plan personnalisé (1re leçon → paywall) ----------------
+  if (phase === "plan") {
+    const upcoming = [...chapterLessons.filter((l) => l.order > lesson.order), ...LESSONS.filter((l) => l.chapterId !== lesson.chapterId)].slice(0, 3);
+    const goalTitles = profileBits.goals.map((g) => GOALS.find((x) => x.key === g)?.title).filter((x): x is string => !!x).slice(0, 2);
+    const achievedCount = result.criteria.filter((c) => c.status === "achieved").length;
+    return (
+      <PlanReady
+        name={profileBits.name}
+        coachName={coach.displayName}
+        coachImage={coach.poster}
+        level={variant.practiceLevel}
+        achievedCount={achievedCount}
+        totalCount={result.criteria.length}
+        goals={goalTitles}
+        interests={profileBits.interests.slice(0, 3)}
+        upcoming={upcoming.map((l) => l.titleFr)}
+        focusFr={result.nextFocusFr ?? ""}
+        onContinue={() => onLocked("subscription_required")}
+        onBack={() => setPhase("success")}
+      />
+    );
+  }
   const ctaLabel = !validated ? "Revoir cette leçon plus tard" : !next || !nextPublished ? "Retour au parcours" : nextAccessible ? "Commencer la prochaine leçon" : "Débloquer ma prochaine leçon";
   const achieved = result.criteria.filter((c) => c.status === "achieved");
   const remaining = result.criteria.filter((c) => c.status !== "achieved");
@@ -409,8 +442,132 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   );
 }
 
+// « Ton plan est prêt » : courte construction animée (étapes qui se cochent), puis la synthèse personnalisée.
+function PlanReady({ name, coachName, coachImage, level, achievedCount, totalCount, goals, interests, upcoming, focusFr, onContinue, onBack }: {
+  name: string; coachName: string; coachImage: any; level: string; achievedCount: number; totalCount: number;
+  goals: string[]; interests: string[]; upcoming: string[]; focusFr: string; onContinue: () => void; onBack: () => void;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const reveal = useRef(new Animated.Value(0)).current;
+  const [pct, setPct] = useState(0);
+  const [built, setBuilt] = useState(false);
+  useEffect(() => {
+    const id = progress.addListener(({ value }) => setPct(Math.round(value * 100)));
+    Animated.timing(progress, { toValue: 1, duration: PLAN_BUILD_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }).start(() => {
+      setBuilt(true);
+      Animated.timing(reveal, { toValue: 1, duration: 450, useNativeDriver: true }).start();
+    });
+    return () => progress.removeListener(id);
+  }, []);
+  const steps = [
+    { label: "Analyse de ta conversation", at: 25 },
+    { label: `Niveau ${level} confirmé`, at: 50 },
+    { label: "Sélection de tes prochaines leçons", at: 75 },
+    { label: `Réglage de ${coachName}`, at: 100 },
+  ];
+  const first = name ? `${name}, ton plan est prêt` : "Ton plan est prêt";
+
+  if (!built) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="dark" />
+        <View style={styles.planBuildWrap}>
+          <Text style={styles.planPct}>{pct}%</Text>
+          <Text style={styles.planBuildTitle}>On prépare ton plan…</Text>
+          <View style={[styles.card, { alignSelf: "stretch", marginTop: 22 }]}>
+            {steps.map((s) => {
+              const done = pct >= s.at;
+              return (
+                <View key={s.at} style={styles.planStepRow}>
+                  <View style={[styles.doneIcon, { backgroundColor: done ? L.successFill : L.border }]}>{done ? <Icon name="check" size={16} tint="#fff" /> : null}</View>
+                  <Text style={[styles.doneText, !done && { color: L.textSecondary }]}>{s.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <StatusBar style="dark" />
+      <View style={styles.header}>
+        <RoundButton icon="retour" label="Retour" onPress={onBack} />
+        <View style={{ flex: 1 }} />
+        <Pill icon="check" bg={L.successSoft}>Leçon 1 réussie</Pill>
+      </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity: reveal, transform: [{ translateY: reveal.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+          <View style={styles.planHero}>
+            <Image source={coachImage} style={styles.planCoach} resizeMode="cover" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.planTitle}>{first}</Text>
+              <Text style={styles.planSub}>Construit à partir de ce que tu viens de dire à {coachName}.</Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <SectionLabel style={{ marginBottom: 10 }}>TON NIVEAU DE DÉPART</SectionLabel>
+            <View style={styles.planLevelRow}>
+              <View style={styles.planLevelBadge}><Text style={styles.planLevelText}>{level}</Text></View>
+              <Text style={styles.planBody}>{achievedCount}/{totalCount} objectif{totalCount > 1 ? "s" : ""} réussi{achievedCount > 1 ? "s" : ""} à la première leçon. {coachName} ajuste ses phrases sur ce niveau.</Text>
+            </View>
+          </View>
+
+          {(goals.length > 0 || interests.length > 0) && (
+            <View style={styles.card}>
+              <SectionLabel style={{ marginBottom: 10 }}>TON OBJECTIF</SectionLabel>
+              {goals.length > 0 ? <Text style={styles.planBody}>{goals.join(" et ")}.</Text> : null}
+              {interests.length > 0 ? <Text style={[styles.planBody, { color: L.textSecondary, marginTop: 6 }]}>On en parlera à travers {interests.map((i) => i.toLowerCase()).join(", ")}.</Text> : null}
+            </View>
+          )}
+
+          {focusFr ? (
+            <View style={[styles.card, { backgroundColor: L.lavender }]}>
+              <View style={styles.coachingHead}><Icon name="etoile" size={20} /><Text style={styles.coachingTitle}>Ton premier axe de travail</Text></View>
+              <Text style={styles.coachingText}>{focusFr}</Text>
+            </View>
+          ) : null}
+
+          {upcoming.length > 0 && (
+            <View style={styles.card}>
+              <SectionLabel style={{ marginBottom: 14 }}>TES PROCHAINES LEÇONS</SectionLabel>
+              {upcoming.map((t, i) => (
+                <View key={t} style={styles.missionRow}>
+                  <View style={styles.missionNumCol}>
+                    <View style={styles.missionNum}><Text style={styles.missionNumText}>{i + 2}</Text></View>
+                    {i < upcoming.length - 1 && <View style={styles.missionDash} />}
+                  </View>
+                  <Text style={[styles.missionText, { fontSize: 16, paddingBottom: 14 }]}>{t}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <PrimaryButton label="Voir mon offre" onPress={onContinue} />
+          <Text style={styles.ctaNote}>Ton plan est conservé, quoi que tu décides.</Text>
+        </Animated.View>
+      </ScrollView>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: L.background, paddingHorizontal: L.gutter, paddingTop: 52 },
+  planBuildWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 60 },
+  planPct: { color: L.accentDeep, fontSize: 64, fontWeight: "800", letterSpacing: -2 },
+  planBuildTitle: { color: L.textPrimary, fontSize: 22, fontWeight: "700", marginTop: 4 },
+  planStepRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 12 },
+  planHero: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16 },
+  planCoach: { width: 72, height: 72, borderRadius: 36 },
+  planTitle: { color: L.textPrimary, fontSize: 26, fontWeight: "700", lineHeight: 31, letterSpacing: -0.4 },
+  planSub: { color: L.textSecondary, fontSize: 14.5, lineHeight: 20, marginTop: 4 },
+  planLevelRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  planLevelBadge: { width: 56, height: 56, borderRadius: 16, backgroundColor: L.accentSoft, alignItems: "center", justifyContent: "center" },
+  planLevelText: { color: L.accentDeep, fontSize: 20, fontWeight: "800" },
+  planBody: { flex: 1, color: L.textPrimary, fontSize: 16, lineHeight: 23 },
   header: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
   headerTitle: { flex: 1, color: L.textSecondary, fontSize: 17, fontWeight: "700" },
   scrollContent: { paddingBottom: 32 },
