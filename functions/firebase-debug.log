@@ -1,0 +1,48 @@
+[debug] [2026-10-27T14:12:57.243Z] ----------------------------------------------------------------------
+[debug] [2026-10-27T14:12:57.247Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\aflattot\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions:lessonTurn functions:dailyTalkTurn functions:startOrResumeLesson functions:finalizeAttempt
+[debug] [2026-10-27T14:12:57.248Z] CLI Version:   15.22.2
+[debug] [2026-10-27T14:12:57.248Z] Platform:      win32
+[debug] [2026-10-27T14:12:57.248Z] Node Version:  v26.12.1
+[debug] [2026-10-27T14:12:57.248Z] Detected Agent: unknown
+[debug] [2026-10-27T14:12:57.248Z] Time:          Tue Oct 27 2026 15:12:57 GMT+0100 (heure normale d’Europe centrale)
+[debug] [2026-10-27T14:12:57.248Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-10-27T14:13:00.009Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"react-native"}
+[debug] [2026-10-27T14:13:00.017Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-10-27T14:13:00.018Z] > authorizing via signed-in user (aflattot.erbol@gmail.com)
+[debug] [2026-10-27T14:13:00.018Z] [iam] checking project erbol-1307 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2026-10-27T14:13:00.021Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:00.021Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:00.023Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307:testIamPermissions [none]
+[debug] [2026-10-27T14:13:00.024Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307:testIamPermissions  x-goog-user-project=erbol-1307
+[debug] [2026-10-27T14:13:00.024Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2026-10-27T14:13:00.290Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307:testIamPermissions 200
+[debug] [2026-10-27T14:13:00.290Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2026-10-27T14:13:00.290Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:00.290Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:00.291Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/erbol-1307/serviceAccounts/erbol-1307@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-10-27T14:13:00.291Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/erbol-1307/serviceAccounts/erbol-1307@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-10-27T14:13:01.069Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/erbol-1307/serviceAccounts/erbol-1307@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2026-10-27T14:13:01.069Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/erbol-1307/serviceAccounts/erbol-1307@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[info] 
+[info] === Deploying to 'erbol-1307'...
+[info] 
+[info] i  deploying functions 
+[info] +  functions: Finished running predeploy script. 
+[debug] [2026-10-27T14:13:01.074Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:01.074Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:01.074Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307 [none]
+[debug] [2026-10-27T14:13:01.274Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307 200
+[debug] [2026-10-27T14:13:01.274Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/erbol-1307 {"projectNumber":"920576203413","projectId":"erbol-1307","lifecycleState":"ACTIVE","name":"bigtony-spike","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2016-05-10T19:21:26.068Z"}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2026-10-27T14:13:01.285Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:01.285Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:01.285Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/erbol-1307/adminSdkConfig [none]
+[debug] [2026-10-27T14:13:01.660Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/erbol-1307/adminSdkConfig 200
+[debug] [2026-10-27T14:13:01.660Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/erbol-1307/adminSdkConfig {"projectId":"erbol-1307","storageBucket":"erbol-1307.firebasestorage.app"}
+[debug] [2026-10-27T14:13:01.661Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:01.661Z] Checked if tokens are valid: true, expires at: 1793112844482
+[debug] [2026-10-27T14:13:01.661Z] >>> [apiv2][query] GET https://runtimeconfig.googleapis.com/v1beta1/projects/erbol-1307/configs [none]

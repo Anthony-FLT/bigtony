@@ -402,25 +402,38 @@ exports.updateAttemptState = onCall({ region: REGION, maxInstances: 5 }, async (
 // ===============================================================
 const XP_REWARD = { validated: 50, validated_with_support: 35, needs_practice: 10 };
 
+// Délai maximum d'UN appel Gemini : au-delà on annule et on réessaie une fois (un appel qui pend bloquait le tour
+// jusqu'au timeout de 60 s de la fonction, sans réponse du coach ni message d'erreur)
+const GEMINI_ATTEMPT_TIMEOUT_MS = 22_000;
 async function genWithRetry(ai, config) {
   const delays = [500, 1000];
   for (let attempt = 0; ; attempt++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), GEMINI_ATTEMPT_TIMEOUT_MS);
     try {
-      return await ai.models.generateContent(config);
+      const call = ai.models.generateContent({ ...config, config: { ...(config.config || {}), abortSignal: ac.signal } });
+      // Ceinture et bretelles : si le SDK ignorait abortSignal, la course garantit quand même la sortie
+      const guard = new Promise((_, reject) => ac.signal.addEventListener("abort", () => reject(new Error("gemini_timeout")), { once: true }));
+      return await Promise.race([call, guard]);
     } catch (e) {
       const msg = String(e?.message ?? e);
+      const timedOut = ac.signal.aborted || /gemini_timeout|aborted|AbortError/i.test(msg);
       // Niveau de raisonnement refusé par l'API (valeur inconnue pour ce modèle) → on retombe sur "low" plutôt que d'échouer le tour
       const lvl = config?.config?.thinkingConfig?.thinkingLevel;
-      if (lvl && lvl !== "low" && /thinking/i.test(msg)) {
+      if (!timedOut && lvl && lvl !== "low" && /thinking/i.test(msg)) {
         console.warn(`thinkingLevel "${lvl}" refusé, repli sur low:`, msg.slice(0, 160));
         config = { ...config, config: { ...config.config, thinkingConfig: { thinkingLevel: "low" } } };
         continue;
       }
-      if (/\b503\b|UNAVAILABLE|high demand|overloaded|try again later/i.test(msg) && attempt < delays.length) {
+      if (timedOut && attempt < 1) { console.warn(`Gemini sans réponse après ${GEMINI_ATTEMPT_TIMEOUT_MS} ms, nouvel essai`); continue; }
+      if (!timedOut && /\b503\b|UNAVAILABLE|high demand|overloaded|try again later/i.test(msg) && attempt < delays.length) {
         await new Promise((r) => setTimeout(r, delays[attempt]));
         continue;
       }
+      if (timedOut) throw new HttpsError("unavailable", "coach_unavailable");
       throw e;
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
