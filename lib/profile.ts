@@ -12,6 +12,11 @@ export type Gender = "homme" | "femme" | "non-precise";
 export type VoiceKey = "us-male" | "us-female" | "uk-male" | "uk-female";
 export type AgeRange = "18-24" | "25-34" | "35-44" | "45-54" | "55+";
 export type FeedbackStyle = "soft" | "balanced" | "strict";
+// Onboarding : blocages à l'oral, échéance, canal d'acquisition
+export type Blocker = "words" | "mistakes" | "dare" | "accent" | "natives";
+export type DeadlineKind = "interview" | "trip" | "job" | "exam" | "none";
+export type DeadlineHorizon = "1m" | "3m" | "6m" | "none";
+export type AcquisitionSource = "instagram" | "tiktok" | "youtube" | "play_store" | "word_of_mouth" | "facebook" | "other";
 
 export type Profile = {
   onboarded: boolean;
@@ -39,7 +44,11 @@ export type Profile = {
   hubCelebrated?: boolean; // félicitations « 3 défis terminés » déjà affichées
   flowVersion?: "legacy" | "learning_path_v1";
   feedbackStyle?: FeedbackStyle; // ton du coach : doux / équilibré / exigeant
-  challenge?: boolean;    
+  challenge?: boolean; // accepte des questions un cran au-dessus
+  blockers?: Blocker[]; // ce qui le bloque le plus à l'oral
+  confidence?: number; // aisance déclarée à l'oral, 1 à 5
+  deadline?: { kind: DeadlineKind; horizon: DeadlineHorizon }; // échéance (entretien, voyage…)
+  acquisition?: AcquisitionSource; // où il a connu l'app
 };
 
 export async function loadProfile(): Promise<Profile | null> {
@@ -53,6 +62,7 @@ export async function loadProfile(): Promise<Profile | null> {
       onboarded: !!data.onboarded,
       goals: data.goals,
       feeling: data.feeling,
+      ageRange: data.ageRange,
       job: data.job,
       gender: data.gender,
       interests: data.interests,
@@ -77,6 +87,12 @@ export async function loadProfile(): Promise<Profile | null> {
       appRating: data.appRating,
       hubCelebrated: data.hubCelebrated ?? false,
       flowVersion: data.flowVersion === "learning_path_v1" ? "learning_path_v1" : "legacy",
+      feedbackStyle: data.feedbackStyle,
+      challenge: data.challenge,
+      blockers: Array.isArray(data.blockers) ? data.blockers : undefined,
+      confidence: typeof data.confidence === "number" ? data.confidence : undefined,
+      deadline: data.deadline?.kind ? { kind: data.deadline.kind, horizon: data.deadline.horizon ?? "none" } : undefined,
+      acquisition: data.acquisition,
     };
   } catch (e) {
     console.warn("loadProfile échoué:", e);
@@ -219,4 +235,4 @@ export async function saveMilestone(n: number): Promise<void> {
   } catch (e) {
     console.warn("saveMilestone échoué:", e);
   }
-}
+}

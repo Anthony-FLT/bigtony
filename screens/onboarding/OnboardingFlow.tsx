@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, Animated, Easing, Image, Switch, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
 import { T } from "../../lib/theme";
 import { L, Icon } from "../../components/lessonUi";
-import { Goal, AgeRange, Gender, VoiceKey, FeedbackStyle, saveProfile } from "../../lib/profile";
+import { Goal, AgeRange, Gender, VoiceKey, FeedbackStyle, Blocker, DeadlineKind, DeadlineHorizon, AcquisitionSource, saveProfile } from "../../lib/profile";
 import { GOALS, GENDERS, INTERESTS } from "../../lib/onboardingData";
 import { Level, LEVEL_OPTIONS } from "../../lib/level";
 import TimeWheel from "../../components/TimeWheel";
@@ -13,14 +13,64 @@ import { requestNotifPermission, scheduleDailyReminder } from "../../lib/notific
 import { coachForVoice, LessonCoach } from "../../lib/learningPath/coaches";
 import { LESSONS, getChapter, lessonsOfChapter } from "../../lib/learningPath/catalog";
 
-// Écrans (steps) : 0 accueil + carrousel · 1 objectifs · 2 âge · 3 auto-éval · 4 diagnostic(+courbe) · 5 prénom · 6 métier/genre/voix
-// 7 intérêts · 8 accompagnement (style de coaching) · 9 rappel · 10 première leçon (ou préparation + paywall hors parcours)
-type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
-const TOTAL = 11;
-const STEP_STYLE = 8;
-const STEP_REMINDER = 9;
-const STEP_PREP = 10;
-const QUESTION_STEPS = TOTAL - 2; // segments de la barre de progression (étapes 1 à 9)
+// Écrans (steps) : 0 accueil + carrousel · 1 objectifs · 2 blocages · 3 auto-éval · 4 confiance + échéance · 5 plan
+// 6 prénom · 7 métier/genre/voix/âge · 8 intérêts · 9 accompagnement · 10 où tu nous as connu · 11 rappel · 12 première leçon
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+const TOTAL = 13;
+const STEP_BLOCKERS = 2;
+const STEP_CONFIDENCE = 4;
+const STEP_PLAN = 5;
+const STEP_NAME = 6;
+const STEP_ABOUT = 7;
+const STEP_INTERESTS = 8;
+const STEP_STYLE = 9;
+const STEP_SOURCE = 10;
+const STEP_REMINDER = 11;
+const STEP_PREP = 12;
+const QUESTION_STEPS = TOTAL - 2; // segments de la barre de progression (étapes 1 à 11)
+
+// Blocages à l'oral (multi) + carte « miroir » affichée dès qu'un blocage est coché (le 1er coché donne le texte)
+const BLOCKERS: { key: Blocker; icon: string; title: string; mirror: string }[] = [
+  { key: "words", icon: "search", title: "Je cherche mes mots", mirror: "Chercher ses mots, c'est le blocage n°1 des francophones. Ici, « Aide-moi à dire » te donne la phrase en anglais à chaque fois que tu bloques." },
+  { key: "mistakes", icon: "alert-circle", title: "J'ai peur de faire des fautes", mirror: "La peur des fautes fait taire la plupart des gens. Avec ton coach, l'erreur est attendue : il la corrige en une phrase, en français, et on continue." },
+  { key: "dare", icon: "eye-off", title: "Je comprends, mais je n'ose pas", mirror: "Comprendre sans oser, c'est le signe que le niveau est là. Il manque les kilomètres de parole, et c'est exactement ce qu'on fait ici, sans personne pour te regarder." },
+  { key: "accent", icon: "volume-2", title: "Mon accent me gêne", mirror: "Ton accent n'empêche personne de te comprendre. On travaille d'abord la fluidité, l'accent suit naturellement." },
+  { key: "natives", icon: "users", title: "Je panique face à un natif", mirror: "Face à un natif, tout le monde accélère. Ton coach parle à la vitesse que tu choisis, et tu peux le réécouter autant que tu veux." },
+];
+const CONFIDENCE: { v: number; emoji: string; label: string }[] = [
+  { v: 1, emoji: "😰", label: "Pas du tout" },
+  { v: 2, emoji: "😕", label: "Peu" },
+  { v: 3, emoji: "😐", label: "Moyennement" },
+  { v: 4, emoji: "🙂", label: "Plutôt" },
+  { v: 5, emoji: "😎", label: "Très" },
+];
+const confidenceMirror = (v: number) =>
+  v <= 2 ? "On part de là, et c'est très bien : les premières leçons sont faites pour parler sans enjeu, à ton rythme."
+  : v === 3 ? "Tu as des bases. On va les transformer en réflexes, pour que ça sorte sans réfléchir."
+  : "Tu as déjà de l'aisance. On va la rendre plus naturelle et plus précise.";
+const DEADLINES: { key: DeadlineKind; icon: string; label: string }[] = [
+  { key: "interview", icon: "briefcase", label: "Un entretien" },
+  { key: "trip", icon: "map", label: "Un voyage" },
+  { key: "job", icon: "award", label: "Une prise de poste" },
+  { key: "exam", icon: "file-text", label: "Un examen" },
+  { key: "none", icon: "sun", label: "Rien de précis" },
+];
+const HORIZONS: { key: DeadlineHorizon; label: string }[] = [
+  { key: "1m", label: "Moins d'un mois" },
+  { key: "3m", label: "1 à 3 mois" },
+  { key: "6m", label: "3 à 6 mois" },
+  { key: "none", label: "Pas de date" },
+];
+// Icônes de marque (FontAwesome5 brands) pour les réseaux, Feather pour le reste
+const SOURCES: { key: AcquisitionSource; icon: string; brand: boolean; label: string }[] = [
+  { key: "instagram", icon: "instagram", brand: true, label: "Instagram" },
+  { key: "tiktok", icon: "tiktok", brand: true, label: "TikTok" },
+  { key: "youtube", icon: "youtube", brand: true, label: "YouTube" },
+  { key: "play_store", icon: "google-play", brand: true, label: "Google Play" },
+  { key: "word_of_mouth", icon: "message-circle", brand: false, label: "Bouche à oreille" },
+  { key: "facebook", icon: "facebook", brand: true, label: "Facebook" },
+  { key: "other", icon: "more-horizontal", brand: false, label: "Autre" },
+];
 
 // Accompagnement (maquette 04) : rythme des corrections, envoyé au serveur via le profil
 const FEEDBACK_STYLES: { key: FeedbackStyle; title: string; desc: string }[] = [
@@ -89,6 +139,11 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   const [showPaywall, setShowPaywall] = useState(false);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [ageRange, setAgeRange] = useState<AgeRange | null>(null);
+  const [blockers, setBlockers] = useState<Blocker[]>([]);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [deadlineKind, setDeadlineKind] = useState<DeadlineKind | null>(null);
+  const [deadlineHorizon, setDeadlineHorizon] = useState<DeadlineHorizon | null>(null);
+  const [source, setSource] = useState<AcquisitionSource | null>(null);
   const [declaredLevel, setDeclaredLevel] = useState<Level | null>(null);
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
@@ -99,11 +154,13 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   const [challenge, setChallenge] = useState(true);
   const [challengeOpen, setChallengeOpen] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Heure proposée : la prochaine demi-heure ronde (11h17 → 11h30, 11h35 → 12h00)
   const [remHour, setRemHour] = useState(() => { const d = new Date(); const m = Math.ceil(d.getMinutes() / 30) * 30; return (d.getHours() + Math.floor(m / 60)) % 24; });
   const [remMinute, setRemMinute] = useState(() => (Math.ceil(new Date().getMinutes() / 30) * 30) % 60);
   const finalLevel: Level = declaredLevel ?? "B1";
   const goalTarget = targetLevel(finalLevel);
 
+  const toggleBlocker = (k: Blocker) => setBlockers((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
   const toggleGoal = (k: Goal) => setGoals((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
   const toggleInterest = (i: string) =>
     setInterests((p) => (p.includes(i) ? p.filter((x) => x !== i) : p.length < 5 ? [...p, i] : p));
@@ -137,6 +194,10 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
         voice,
         feedbackStyle,
         challenge,
+        blockers,
+        confidence: confidence ?? undefined,
+        deadline: deadlineKind ? { kind: deadlineKind, horizon: deadlineHorizon ?? "none" } : undefined,
+        acquisition: source ?? undefined,
       });
     } catch (e) {
       console.warn("Sauvegarde onboarding échouée:", e);
@@ -160,17 +221,27 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   const canContinue =
     step === 0 ||
     (step === 1 && goals.length > 0) ||
-    (step === 2 && !!ageRange) ||
+    (step === STEP_BLOCKERS && blockers.length > 0) ||
     (step === 3 && !!declaredLevel) ||
-    step === 4 ||
-    (step === 5 && name.trim().length > 0) ||
-    (step === 6 && !!gender) ||
-    step === 7 ||
+    (step === STEP_CONFIDENCE && confidence !== null && !!deadlineKind && (deadlineKind === "none" || !!deadlineHorizon)) ||
+    step === STEP_PLAN ||
+    (step === STEP_NAME && name.trim().length > 0) ||
+    (step === STEP_ABOUT && !!gender) ||
+    step === STEP_INTERESTS ||
     step === STEP_STYLE ||
+    (step === STEP_SOURCE && !!source) ||
     step === STEP_REMINDER ||
     step === STEP_PREP;
 
   const coach = coachForVoice(voice);
+  // Lignes du plan : ses propres réponses, en clair
+  const planLines: { k: string; v: string }[] = [
+    { k: "Ton objectif", v: goals.map((g) => GOALS.find((x) => x.key === g)?.title).filter(Boolean).slice(0, 2).join(" · ") || "Parler avec plus d'aisance" },
+    { k: "Ton blocage", v: blockers.map((b) => BLOCKERS.find((x) => x.key === b)?.title.toLowerCase()).filter(Boolean).slice(0, 2).join(", ") || "—" },
+    ...(deadlineKind && deadlineKind !== "none"
+      ? [{ k: "Ton échéance", v: `${DEADLINES.find((d) => d.key === deadlineKind)?.label ?? ""}${deadlineHorizon && deadlineHorizon !== "none" ? ` · ${HORIZONS.find((h) => h.key === deadlineHorizon)?.label.toLowerCase()}` : ""}` }]
+      : []),
+  ];
 
   // Paywall après la préparation du coach : fermeture possible au bout de 7 s, puis écran « Bienvenue »
   if (showPaywall) {
@@ -255,32 +326,22 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 2 — Tranche d'âge */}
-        {step === 2 && (
+        {/* 2 — Blocages à l'oral + carte miroir */}
+        {step === STEP_BLOCKERS && (
           <View>
-            <Text style={styles.title}>Quel âge as-tu ?</Text>
-            <Text style={styles.sub}>Pour te proposer des scènes qui collent à ta vie.</Text>
-            <View style={styles.ageGrid}>
-              {AGE_OPTIONS.map((a) => {
-                const on = ageRange === a.key;
-                return (
-                  <Pressable key={a.key} onPress={() => setAgeRange(a.key)} style={[styles.ageChip, on && styles.ageChipOn]}>
-                    {on && <Feather name="check" size={15} color={T.abricot} />}
-                    <Text style={[styles.ageText, on && styles.ageTextOn]}>{a.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Pressable
-              onPress={() => {
-                setAgeRange(null);
-                next();
-              }}
-              hitSlop={10}
-              style={{ alignSelf: "center", marginTop: 22 }}
-            >
-              <Text style={styles.ageSkip}>Je préfère ne pas répondre</Text>
-            </Pressable>
+            <Text style={styles.title}>Qu'est-ce qui te bloque{"\n"}le plus à l'oral ?</Text>
+            <Text style={styles.sub}>Coche tout ce qui te parle. C'est là-dessus qu'on va travailler.</Text>
+            {BLOCKERS.map((b) => {
+              const on = blockers.includes(b.key);
+              return (
+                <Pressable key={b.key} onPress={() => toggleBlocker(b.key)} style={[styles.selectCard, on && styles.selectCardOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                  <View style={[styles.selectIcon, on && styles.selectIconOn]}><Feather name={b.icon as any} size={20} color={on ? T.night : T.abricotDeep} /></View>
+                  <Text style={[styles.selectTitle, { flex: 1 }]}>{b.title}</Text>
+                  {on && <Feather name="check-circle" size={20} color={T.abricotDeep} />}
+                </Pressable>
+              );
+            })}
+            {blockers.length > 0 && <MirrorCard text={BLOCKERS.find((b) => b.key === blockers[0])!.mirror} />}
           </View>
         )}
 
@@ -302,11 +363,74 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 4 — Diagnostic + courbe projetée */}
-        {step === 4 && (
+        {/* 4 — Confiance + échéance + carte miroir */}
+        {step === STEP_CONFIDENCE && (
+          <View>
+            <Text style={styles.title}>À quel point tu te sens{"\n"}à l'aise pour parler ?</Text>
+            <Text style={styles.sub}>Aujourd'hui, sans tricher. On mesurera le chemin parcouru.</Text>
+            <View style={styles.confRow}>
+              {CONFIDENCE.map((c) => {
+                const on = confidence === c.v;
+                return (
+                  <Pressable key={c.v} onPress={() => setConfidence(c.v)} style={[styles.confChip, on && styles.confChipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={`${c.label} à l'aise`}>
+                    <Text style={styles.confEmoji}>{c.emoji}</Text>
+                    <Text style={[styles.confLabel, on && styles.confLabelOn]}>{c.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {confidence !== null && <MirrorCard text={confidenceMirror(confidence)} />}
+
+            <Text style={styles.fieldLabel}>TU AS UNE ÉCHÉANCE ?</Text>
+            <View style={styles.chipWrap}>
+              {DEADLINES.map((d) => {
+                const on = deadlineKind === d.key;
+                return (
+                  <Pressable key={d.key} onPress={() => { setDeadlineKind(d.key); if (d.key === "none") setDeadlineHorizon("none"); }} style={[styles.chip, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                    <Feather name={d.icon as any} size={15} color={on ? T.night : T.inkSoft} />
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{d.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {deadlineKind && deadlineKind !== "none" && (
+              <>
+                <Text style={styles.fieldLabel}>C'EST POUR QUAND ?</Text>
+                <View style={styles.chipWrap}>
+                  {HORIZONS.map((h) => {
+                    const on = deadlineHorizon === h.key;
+                    return (
+                      <Pressable key={h.key} onPress={() => setDeadlineHorizon(h.key)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                        <Text style={[styles.chipText, on && styles.chipTextOn]}>{h.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+          </View>
+        )}
+
+        {/* 5 — Plan : reprend ses mots (blocage, objectif, échéance, confiance) */}
+        {step === STEP_PLAN && (
           <View>
             <Text style={styles.title}>Voilà ton plan.</Text>
             <Text style={styles.sub}>De là où tu es, jusqu'où on veut t'emmener.</Text>
+
+            <View style={styles.planCard}>
+              {planLines.map((l) => (
+                <View key={l.k} style={styles.planRow}>
+                  <Text style={styles.planK}>{l.k}</Text>
+                  <Text style={styles.planV}>{l.v}</Text>
+                </View>
+              ))}
+              {confidence !== null && (
+                <View style={[styles.planRow, { borderBottomWidth: 0 }]}>
+                  <Text style={styles.planK}>Aisance</Text>
+                  <Text style={styles.planV}>{confidence}/5 aujourd'hui → <Text style={{ color: T.abricotDeep }}>{Math.min(5, confidence + 2)}/5</Text> visé</Text>
+                </View>
+              )}
+            </View>
 
             <View style={styles.diagCard}>
               <View style={styles.diagLevelsRow}>
@@ -339,8 +463,8 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 5 — Prénom */}
-        {step === 5 && (
+        {/* 6 — Prénom */}
+        {step === STEP_NAME && (
           <View>
             <Text style={styles.title}>Comment on t'appelle ?</Text>
             <Text style={styles.sub}>Prénom ou pseudo — pour que tout te soit adressé personnellement.</Text>
@@ -348,8 +472,8 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 6 — Métier + genre + voix */}
-        {step === 6 && (
+        {/* 7 — Métier + genre + voix + âge (optionnel) */}
+        {step === STEP_ABOUT && (
           <View>
             <Text style={styles.title}>Parle-nous un peu de toi.</Text>
             <Text style={styles.sub}>Pour inventer des scènes qui te ressemblent.</Text>
@@ -371,11 +495,22 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
                 </Pressable>
               ))}
             </View>
+            <Text style={styles.fieldLabel}>TON ÂGE (OPTIONNEL)</Text>
+            <View style={styles.chipWrap}>
+              {AGE_OPTIONS.map((a) => {
+                const on = ageRange === a.key;
+                return (
+                  <Pressable key={a.key} onPress={() => setAgeRange(on ? null : a.key)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{a.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         )}
 
-        {/* 7 — Intérêts */}
-        {step === 7 && (
+        {/* 8 — Intérêts */}
+        {step === STEP_INTERESTS && (
           <View>
             <Text style={styles.title}>Tes centres d'intérêt.</Text>
             <Text style={styles.sub}>Choisis-en jusqu'à 5 — on en parlera en anglais.</Text>
@@ -389,7 +524,7 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-        {/* 8 — Accompagnement (maquette 04) */}
+        {/* 9 — Accompagnement (maquette 04) */}
         {step === STEP_STYLE && (
           <View>
             <Text style={styles.title}>Comment veux-tu{"\n"}être accompagné ?</Text>
@@ -422,7 +557,28 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
           </View>
         )}
 
-      {/* 9 — Rappel quotidien */}
+        {/* 10 — Où tu nous as connu */}
+        {step === STEP_SOURCE && (
+          <View>
+            <Text style={styles.title}>Où as-tu entendu parler{"\n"}de Déclic Anglais ?</Text>
+            <Text style={styles.sub}>Ça nous aide à savoir où aller chercher les prochains élèves.</Text>
+            <View style={styles.chipWrap}>
+              {SOURCES.map((o) => {
+                const on = source === o.key;
+                return (
+                  <Pressable key={o.key} onPress={() => setSource(o.key)} style={[styles.chip, styles.chipBig, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                    {o.brand
+                      ? <FontAwesome5 name={o.icon} brand size={15} color={on ? T.night : T.inkSoft} />
+                      : <Feather name={o.icon as any} size={16} color={on ? T.night : T.inkSoft} />}
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{o.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+      {/* 11 — Rappel quotidien */}
       {step === STEP_REMINDER && (
         <View>
           <Text style={styles.title}>Ton rendez-vous quotidien.</Text>
@@ -440,6 +596,18 @@ export default function OnboardingFlow({ onLaunch, onLogin, skipPaywall = false 
   );
 }
 
+
+// Carte « miroir » : on reformule ce que l'utilisateur vient de dire et on lui répond
+function MirrorCard({ text }: { text: string }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => { a.setValue(0); Animated.timing(a, { toValue: 1, duration: 320, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(); }, [text]);
+  return (
+    <Animated.View style={[styles.mirror, { opacity: a, transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]} accessibilityLiveRegion="polite">
+      <View style={styles.mirrorIcon}><Feather name="message-circle" size={16} color={T.night} /></View>
+      <Text style={styles.mirrorText}>{text}</Text>
+    </Animated.View>
+  );
+}
 
 // Première leçon (maquette 05) : « Ta première leçon t'attend », carte de la leçon avec le coach choisi
 function FirstLessonScreen({ coach, saving, onStart, onBack }: { coach: LessonCoach; saving: boolean; onStart: () => void; onBack: () => void }) {
@@ -839,8 +1007,6 @@ const styles = StyleSheet.create({
   brandName: { fontSize: 30, fontWeight: "800", color: T.night, letterSpacing: -0.8, lineHeight: 32 },
   brandSub: { fontSize: 11, fontWeight: "800", color: T.inkSoft, letterSpacing: 4, marginTop: 2 },
   skipText: { color: T.inkSoft, fontSize: 14.5, fontWeight: "800" },
-  benefitTitle: { fontSize: 28, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.6, lineHeight: 33 },
-  benefitLead: { fontSize: 15, color: T.inkSoft, textAlign: "center", lineHeight: 22, marginTop: 10 },
   dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, marginVertical: 18 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.creamLine },
   dotActive: { width: 12, height: 12, borderRadius: 6, backgroundColor: T.abricot, borderWidth: 2, borderColor: T.chipAbricot },
@@ -866,12 +1032,6 @@ const styles = StyleSheet.create({
   lead: { fontSize: 16, fontWeight: "600", color: T.inkSoft, lineHeight: 24 },
 
   title: { fontSize: 25, fontWeight: "800", color: T.night, letterSpacing: -0.4 },
-  ageGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12 },
-  ageChip: { width: "48%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: T.card, borderRadius: 18, paddingVertical: 20, borderWidth: 1.5, borderColor: T.card },
-  ageChipOn: { backgroundColor: T.night, borderColor: T.night, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
-  ageText: { fontSize: 15.5, fontWeight: "800", color: T.night },
-  ageTextOn: { color: "#fff" },
-  ageSkip: { fontSize: 14, fontWeight: "800", color: T.inkSoft, textDecorationLine: "underline" },
   sub: { fontSize: 15, fontWeight: "600", color: T.inkSoft, lineHeight: 22, marginTop: 6, marginBottom: 20 },
 
   selectCard: { backgroundColor: T.card, borderRadius: 20, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 10, borderWidth: 2, borderColor: "transparent" },
@@ -945,6 +1105,8 @@ const styles = StyleSheet.create({
 
   // Carrousel (02 / 03)
   carouselBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22, marginBottom: 10 },
+  benefitTitle: { fontSize: 30, fontWeight: "800", color: T.night, textAlign: "center", letterSpacing: -0.6, lineHeight: 36 },
+  benefitLead: { fontSize: 15.5, color: T.inkSoft, textAlign: "center", lineHeight: 22, marginTop: 8, marginBottom: 16 },
   mockCard: { backgroundColor: T.card, borderRadius: 24, padding: 14, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   mockHead: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
   mockAvatar: { width: 46, height: 46, borderRadius: 12 },
@@ -979,6 +1141,27 @@ const styles = StyleSheet.create({
   mockKeyboard: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.cream, borderWidth: 1, borderColor: "#EFE8DF", alignItems: "center", justifyContent: "center" },
   mockMic: { width: 62, height: 62, borderRadius: 31, backgroundColor: L.accentDeep, alignItems: "center", justifyContent: "center", marginTop: -26, borderWidth: 4, borderColor: T.card },
   mockMicLabel: { color: T.inkSoft, fontSize: 11.5, fontWeight: "600", marginTop: 4 },
+
+  // Blocages / confiance / échéance / source
+  mirror: { flexDirection: "row", gap: 12, backgroundColor: T.night, borderRadius: 18, padding: 16, marginTop: 8 },
+  mirrorIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: T.abricot, alignItems: "center", justifyContent: "center" },
+  mirrorText: { flex: 1, color: "#fff", fontSize: 14.5, fontWeight: "600", lineHeight: 21 },
+  confRow: { flexDirection: "row", gap: 6 },
+  confChip: { flex: 1, alignItems: "center", backgroundColor: T.card, borderRadius: 16, paddingVertical: 12, borderWidth: 2, borderColor: "transparent" },
+  confChipOn: { borderColor: T.abricot, backgroundColor: "#FFF4EA" },
+  confEmoji: { fontSize: 26 },
+  confLabel: { color: T.inkSoft, fontSize: 10.5, fontWeight: "800", marginTop: 6, textAlign: "center" },
+  confLabelOn: { color: T.night },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: T.card, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 14, borderWidth: 2, borderColor: "transparent" },
+  chipBig: { flexBasis: "47%", flexGrow: 1, paddingVertical: 14 },
+  chipOn: { borderColor: T.abricot, backgroundColor: "#FFF4EA" },
+  chipText: { color: T.inkSoft, fontSize: 14, fontWeight: "700" },
+  chipTextOn: { color: T.night },
+  planCard: { backgroundColor: T.card, borderRadius: 18, paddingHorizontal: 16, marginBottom: 14 },
+  planRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.creamLine },
+  planK: { width: 104, color: T.inkSoft, fontSize: 13, fontWeight: "800" },
+  planV: { flex: 1, color: T.night, fontSize: 14.5, fontWeight: "700", lineHeight: 20 },
 
   // Accompagnement (04)
   radioCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, borderWidth: 2, borderColor: "transparent" },

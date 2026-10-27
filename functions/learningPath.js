@@ -232,7 +232,7 @@ function sanitizeTurn(turn, variant) {
 // ---------------------------------------------------------------
 // Ouverture parlée de la leçon : bonjour + plan de ce qu'on va travailler + première question (verbatim).
 // Générée une fois à la création de la tentative, stockée dessus (briefingEn / briefingFr). Repli : modèle simple.
-async function makeLessonBriefing({ variant, lesson, coachVoice, learnerName, isFirstLesson }) {
+async function makeLessonBriefing({ variant, lesson, coachVoice, learnerName, isFirstLesson, learner = null }) {
   const who = coachIdentity(coachVoice);
   const name = learnerName ? ` ${learnerName}` : "";
   const fallback = {
@@ -251,8 +251,9 @@ Lesson: "${lesson.titleFr}" — ${variant.objectiveFr || ""}. In the conversatio
 What the learner must manage to do today (in French, translate into simple English):
 ${objectives}
 ${isFirstLesson ? `This is their very first lesson: say who you are in one short sentence ("I'm ${who.name}, your English coach").` : "You already know each other: no self-introduction."}
+${isFirstLesson && learner?.blockers?.length ? `They told us their main blocker: ${learner.blockers.map((b) => BLOCKER_EN[b]).join(", ")}. Add ONE short reassuring sentence about it, in simple English, right after the hello (e.g. "Mistakes are welcome here, that's how we learn.").` : ""}
 Write what you SAY, in this order: (1) hello with their first name; (2) ONE or TWO short sentences giving the direction of the lesson, as a plan ("Today we'll practise… First…, then…, and finally…"), in simple English for ${variant.practiceLevel}; (3) ONE short transition that hands over to the first question WITHOUT asking it ("Let's start.", "Ready? Let's go."). The first question ("${variant.openingEn}") will be said right after as a separate message: do NOT include it, do not ask any question.
-Rules: 4 sentences maximum. Never say "objective", "criteria", "lesson plan". Warm, natural, no emoji.
+Rules: 5 sentences maximum. Never say "objective", "criteria", "lesson plan". Warm, natural, no emoji.
 Respond ONLY with JSON {"opening_en": "...", "opening_fr": "<French translation>"}.`,
         responseMimeType: "application/json",
         responseSchema: { type: Type.OBJECT, properties: { opening_en: { type: Type.STRING }, opening_fr: { type: Type.STRING } }, required: ["opening_en", "opening_fr"] },
@@ -299,7 +300,7 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets:
 
   const now = Date.now();
   const ref = attemptsCol.doc();
-  const briefing = await makeLessonBriefing({ variant, lesson, coachVoice: voice, learnerName: typeof user.name === "string" ? user.name.trim().slice(0, 40) : "", isFirstLesson: isFirstLesson === true });
+  const briefing = await makeLessonBriefing({ variant, lesson, coachVoice: voice, learnerName: typeof user.name === "string" ? user.name.trim().slice(0, 40) : "", isFirstLesson: isFirstLesson === true, learner: learnerContextOf(user) });
   const attempt = {
     id: ref.id,
     lessonId,
@@ -309,6 +310,7 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets:
     briefingEn: briefing.en, // ouverture parlée (bonjour + direction de la leçon + première question)
     briefingFr: briefing.fr,
     coachStyle: coachStyleOf(user), // ton du coach choisi à l'onboarding (doux / équilibré / exigeant + défi)
+    learnerContext: learnerContextOf(user), // blocages, aisance, échéance déclarés à l'onboarding
     state: "briefing",
     active: true,
     modalityUsed: [],
@@ -682,6 +684,28 @@ function coachStyleOf(user) {
   const challenge = user?.challenge !== false;
   return { feedback, challenge };
 }
+// Ce que l'apprenant a dit de lui à l'onboarding (blocages, aisance, échéance) : contexte pour le briefing et les leçons
+const BLOCKER_EN = { words: "struggles to find words", mistakes: "is afraid of making mistakes", dare: "understands but does not dare to speak", accent: "feels self-conscious about their accent", natives: "panics when talking to native speakers" };
+const DEADLINE_EN = { interview: "a job interview", trip: "a trip", job: "starting a new job", exam: "an exam" };
+const HORIZON_EN = { "1m": "in less than a month", "3m": "in 1 to 3 months", "6m": "in 3 to 6 months" };
+function learnerContextOf(user) {
+  const blockers = Array.isArray(user?.blockers) ? user.blockers.filter((b) => BLOCKER_EN[b]).slice(0, 3) : [];
+  const confidence = Number.isInteger(user?.confidence) && user.confidence >= 1 && user.confidence <= 5 ? user.confidence : null;
+  const kind = user?.deadline?.kind && DEADLINE_EN[user.deadline.kind] ? user.deadline.kind : null;
+  const horizon = kind && HORIZON_EN[user?.deadline?.horizon] ? user.deadline.horizon : null;
+  return { blockers, confidence, deadline: kind ? { kind, horizon } : null };
+}
+function learnerContextLines(ctx) {
+  if (!ctx) return "";
+  const lines = [];
+  if (ctx.blockers?.length) lines.push(`- Main blockers they named: ${ctx.blockers.map((b) => BLOCKER_EN[b]).join("; ")}.`);
+  if (ctx.confidence) lines.push(`- Self-rated speaking confidence: ${ctx.confidence}/5${ctx.confidence <= 2 ? " (very nervous: reassure, slow down, celebrate every attempt)" : ctx.confidence >= 4 ? " (comfortable: you can be a bit more demanding)" : ""}.`);
+  if (ctx.deadline) lines.push(`- They are preparing ${DEADLINE_EN[ctx.deadline.kind]}${ctx.deadline.horizon ? ` ${HORIZON_EN[ctx.deadline.horizon]}` : ""}: when natural, connect the lesson to it.`);
+  return lines.length ? `WHAT THE LEARNER TOLD YOU ABOUT THEMSELVES (use it with tact, never recite it back as a list):
+${lines.join("\n")}
+` : "";
+}
+
 function coachStyleRules(style) {
   const s = style || { feedback: "balanced", challenge: true };
   const feedback =
@@ -694,7 +718,7 @@ function coachStyleRules(style) {
   return `${feedback} ${challenge}`;
 }
 
-function buildLessonSystemPrompt(variant, state, isText, voice = "us-male", style = null) {
+function buildLessonSystemPrompt(variant, state, isText, voice = "us-male", style = null, learner = null) {
   const criteriaLines = variant.requiredCriteria
     .map((c) => `  - ${c.id} [${state.covered.includes(c.id) ? "COVERED" : "remaining"}]: ${c.descriptionFr} (e.g. "${c.exampleEn}")`)
     .join("\n");
@@ -703,7 +727,7 @@ function buildLessonSystemPrompt(variant, state, isText, voice = "us-male", styl
   const who = coachIdentity(voice);
   return `You are ${who.name}, a warm English coach who speaks ${who.english}. In the conversation you play: ${variant.coachRole}. The learner plays: ${variant.userRole}. Learner level: ${variant.practiceLevel} — keep your English simple and natural for that level, 1 to 2 short sentences per reply, ONE question at a time. The learner is French and hesitant: be kind, never condescending. You already said hello and introduced yourself when the lesson started: never introduce yourself again, never restart with "Hi".
 ${coachStyleRules(style)}
-${isText ? "The learner TYPED their answer (do not comment on pronunciation)." : "The learner's answer is in the attached audio. First transcribe it verbatim in \"transcript\" (keep their mistakes). If the audio has no intelligible speech, set transcript to \"\" exactly and never invent words."}
+${learnerContextLines(learner)}${isText ? "The learner TYPED their answer (do not comment on pronunciation)." : "The learner's answer is in the attached audio. First transcribe it verbatim in \"transcript\" (keep their mistakes). If the audio has no intelligible speech, set transcript to \"\" exactly and never invent words."}
 
 LESSON OBJECTIVES (the only thing that matters — each question you ask must serve a REMAINING objective):
 ${criteriaLines}
@@ -778,7 +802,7 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
       model: "gemini-3.6-flash",
       contents: [{ role: "user", parts }],
       config: {
-        systemInstruction: buildLessonSystemPrompt(variant, state, isText, voice, a.coachStyle || null),
+        systemInstruction: buildLessonSystemPrompt(variant, state, isText, voice, a.coachStyle || null, a.learnerContext || null),
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,

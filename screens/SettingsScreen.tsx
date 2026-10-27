@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Switch, Linking, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Switch, Linking, Alert, Platform } from "react-native";
+import Constants from "expo-constants";
+import { auth } from "../lib/firebase";
 import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { loadProfile, Profile, saveVoice, VoiceKey, saveSpeechRate } from "../lib/profile";
@@ -12,11 +14,16 @@ import TimeWheel from "../components/TimeWheel";
 import { SkeletonHeader, SkeletonBox } from "../components/Skeleton";
 
 const COACH_VOICES: { key: VoiceKey; label: string }[] = [
-  { key: "us-female", label: "Femme · US" },
-  { key: "us-male", label: "Homme · US" },
-  { key: "uk-female", label: "Femme · UK" },
-  { key: "uk-male", label: "Homme · UK" },
+  { key: "us-female", label: "Emma · US" },
+  { key: "us-male", label: "Sam · US" },
+  { key: "uk-female", label: "Alice · UK" },
+  { key: "uk-male", label: "James · UK" },
 ];
+
+// Aide : adresse de contact (à renseigner) et fiche Play Store
+const SUPPORT_EMAIL = "contact@declic-anglais.fr";
+const PLAY_PACKAGE = "fr.elanapp.english";
+const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
 
 export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditProfile: () => void; onDeleted: () => void }) {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -91,6 +98,21 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
       if (ok) setPremium(true);
     } catch (e: any) { Alert.alert("Erreur", e.message ?? String(e)); }
     finally { setBusy(false); }
+  };
+
+  // — Aide : nous contacter (e-mail pré-rempli) et donner son avis (Play Store) —
+  const contactUs = async () => {
+    const subject = encodeURIComponent("Déclic Anglais — question");
+    const body = encodeURIComponent(`Bonjour,\n\n\n\n—\nApp ${APP_VERSION} · ${Platform.OS} ${Platform.Version}\nIdentifiant : ${auth.currentUser?.uid ?? "non connecté"}`);
+    try { await Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`); }
+    catch { Alert.alert("Nous contacter", `Écris-nous à ${SUPPORT_EMAIL}`); }
+  };
+  const leaveReview = async () => {
+    try {
+      const deep = `market://details?id=${PLAY_PACKAGE}`;
+      if (Platform.OS === "android" && (await Linking.canOpenURL(deep))) { await Linking.openURL(deep); return; }
+      await Linking.openURL(`https://play.google.com/store/apps/details?id=${PLAY_PACKAGE}`);
+    } catch { Alert.alert("Donner mon avis", "Impossible d'ouvrir le Play Store pour l'instant."); }
   };
 
   // — Suppression du compte —
@@ -210,6 +232,13 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
           <Row icon="refresh-cw" label="Restaurer mes achats" onPress={restore} />
         </View>
 
+        <Text style={styles.section}>AIDE</Text>
+        <View style={styles.card}>
+          <Row icon="mail" label="Nous contacter" sub="Une question, un bug, une idée ? On répond vite." onPress={contactUs} />
+          <View style={styles.sep} />
+          <Row icon="star" label="Donner mon avis" sub="Une note sur le Play Store nous aide énormément." onPress={leaveReview} />
+        </View>
+
         <Text style={styles.section}>À PROPOS</Text>
         <View style={styles.card}>
           <Row icon="file-text" label="Conditions d'utilisation" onPress={() => Linking.openURL("https://erbol-1307.web.app/cgu.html")} />
@@ -222,7 +251,7 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
           <Row icon="trash-2" label="Supprimer mon compte" danger onPress={confirmDelete} />
         </View>
 
-        <Text style={styles.version}>Déclic Anglais · v1.0.0</Text>
+        <Text style={styles.version}>Déclic Anglais · v{APP_VERSION}</Text>
       </ScrollView>
 
       {busy && (
@@ -252,4 +281,4 @@ const styles = StyleSheet.create({
   wheelWrap: { alignItems: "center", paddingVertical: 8 },
   version: { textAlign: "center", color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 28 },
   overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(250,247,242,0.7)", alignItems: "center", justifyContent: "center" },
-});
+});
