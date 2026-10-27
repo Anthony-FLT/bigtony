@@ -15,14 +15,8 @@ const REGION = "europe-west1";
 const LIVEAVATAR_API_KEY = defineSecret("LIVEAVATAR_API_KEY");
 const API = "https://api.liveavatar.com";
 
-// Voix Google TTS par coach (mêmes identifiants que l'app)
-const VOICES = {
-  "us-male":   { languageCode: "en-US", name: "en-US-Neural2-D" },
-  "us-female": { languageCode: "en-US", name: "en-US-Neural2-F" },
-  "uk-male":   { languageCode: "en-GB", name: "en-GB-Neural2-B" },
-  "uk-female": { languageCode: "en-GB", name: "en-GB-Neural2-A" },
-};
-const FR_VOICE = { languageCode: "fr-FR", name: "fr-FR-Neural2-B" };
+// Voix TTS : table par défaut + surcharge à chaud via config/voices (voir voices.js)
+const { VOICES, FR_VOICE, refreshVoices } = require("./voices");
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
 // ---------------------------------------------------------------
@@ -226,6 +220,7 @@ exports.stopAvatarSession = onCall({ region: REGION, maxInstances: 5, secrets: [
 // Étape A (écran de test). En étape B, lessonTurn renverra ces segments à la place du MP3 quand l'avatar est actif.
 // ---------------------------------------------------------------
 async function synthesizePcmChunks(text, voice, rate) {
+  await refreshVoices(); // objets voix mis à jour en place
   const [res] = await ttsClient.synthesizeSpeech({
     input: { text },
     voice,

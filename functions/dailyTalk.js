@@ -38,7 +38,15 @@ function isValidDateKey(k) { return typeof k === "string" && /^\d{4}-\d{2}-\d{2}
 async function readLevel(uid) {
   const [stateSnap, userSnap] = await Promise.all([db.doc(`users/${uid}/learning/state`).get(), db.doc(`users/${uid}`).get()]);
   const level = stateSnap.data()?.practiceLevel || userSnap.data()?.level || "B1";
-  return { level, name: str(userSnap.data()?.name, 40), goals: Array.isArray(userSnap.data()?.goals) ? userSnap.data().goals.slice(0, 4) : [] };
+  const u = userSnap.data() || {};
+  // Style de coaching choisi à l'onboarding (même règle que les leçons) : soft | balanced | strict, + défi
+  const style = { feedback: ["soft", "balanced", "strict"].includes(u.feedbackStyle) ? u.feedbackStyle : "balanced", challenge: u.challenge !== false };
+  return { level, name: str(u.name, 40), goals: Array.isArray(u.goals) ? u.goals.slice(0, 4) : [], style };
+}
+
+// Nombre maximum de cartes « conseil » par discussion selon le style (exigeant : une par tour possible)
+function maxCoachingFor(style) {
+  return style?.feedback === "strict" ? 99 : style?.feedback === "soft" ? 1 : 2;
 }
 
 // Cartes dues : acquired == false (un seul champ → pas d'index composite), tri mémoire
@@ -140,14 +148,24 @@ exports.dailyTalkStart = onCall({ region: REGION, maxInstances: 5, secrets: [GEM
 const publicTurn = (t) => ({ index: t.index, user: t.user, coach: t.coach, coachFr: t.coachFr, coaching: t.coaching || null, modality: t.modality });
 
 // ---------------------------------------------------------------
-function buildPrompt(s, who, name, turnNumber) {
+function buildPrompt(s, who, name, turnNumber, style) {
   const facts = (s.memorySnapshot || []).length ? s.memorySnapshot.map((f) => `- ${f}`).join("\n") : "(nothing yet)";
   const pending = (s.picked || []).filter((c) => !c.ok);
   const cards = pending.length
     ? pending.map((c) => `- id "${c.id}": "${c.phraseEn}"`).join("\n")
     : "(none today — just have a good chat)";
   const isLast = turnNumber >= s.maxTurns;
-  const coachingUsed = (s.turns || []).some((t) => t.coaching);
+  const coachingCount = (s.turns || []).filter((t) => t.coaching).length;
+  const coachingLeft = maxCoachingFor(style) - coachingCount;
+  const feedback = style?.feedback || "balanced";
+  const coachingRule = coachingLeft <= 0
+    ? "no more cards in this chat — set coaching to null and recast the corrected form naturally inside your reply."
+    : feedback === "strict"
+      ? "the learner asked for demanding coaching: give a card for ANY real error (grammar, tense, word choice, missing words), one per reply, with a precise correction. Only skip it when the sentence is fully correct."
+      : feedback === "soft"
+        ? "at most ONE per chat, only for an error that blocks understanding or that they repeat. Otherwise null and recast silently."
+        : "give a card for the FIRST clear error that matters (wrong tense, wrong structure, wrong word) even if the meaning is understandable; ignore tiny slips. At most 2 cards per chat, never two turns in a row.";
+  const challengeRule = style?.challenge === false ? "Stay strictly at their level." : "If they answer comfortably, you may ask one slightly richer question (one notch above their level).";
   return `You are ${who.name}, a warm English coach (${who.english}). This is a short daily chat with ${name || "the learner"} (level ${s.level}) about THEIR life: their day, work, plans, weekend. You already said hello. Never introduce yourself, never say "let's review" or "let's practise", never list objectives or name grammar points. One short reaction to what they said + ONE question per reply, 1–2 sentences, simple natural English for ${s.level}.
 WHAT YOU KNOW ABOUT THEM (use it naturally, never recite it):
 ${facts}
@@ -164,7 +182,8 @@ ${isLast
     ? `- This is the LAST turn: react briefly to what they just said, then close warmly in one sentence. NO question. "is_closing": true.`
     : `- React + one question. ${turnNumber >= 2 && pending.length ? "This is a good moment to create a reuse opportunity if you haven't yet." : ""} "is_closing": false.`}
 
-CORRECTION CARD ("coaching"): ${coachingUsed ? "already used in this chat — set coaching to null, recast silently if needed." : `at most ONE per chat, only for an error that blocks understanding or that they repeat. Otherwise null and recast silently. Card = {"explanation_fr": one short French sentence (tutoiement), "target_phrase_en": their sentence corrected, same meaning}.`}
+CORRECTION CARD ("coaching"): ${coachingRule} Card = {"explanation_fr": one short French sentence (tutoiement) explaining the point, "target_phrase_en": their sentence corrected, natural, same meaning}. When the learner's sentence has an error and you give NO card, your reply MUST echo the corrected form naturally in its first sentence (recast), e.g. learner "I did take my breakfast" → you "Nice, you had breakfast!" — never ignore the error completely.
+${challengeRule}
 
 ALWAYS fill "phrase_of_the_day_candidate_en": the learner's best sentence so far in this chat, corrected if needed, same meaning (never a sentence with an error), and its French translation in "phrase_of_the_day_candidate_fr".
 "memory_notes": 0–2 short durable facts you learned about them in THIS answer (job, hobby, family, project), in English, 3–8 words each. Empty array if nothing new.
@@ -200,7 +219,7 @@ exports.dailyTalkTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMI
   const tStart = Date.now();
 
   const ref = sessionRef(uid, sessionId);
-  const [snap, { name }, genCfg] = await Promise.all([ref.get(), readLevel(uid), readLessonConfig()]);
+  const [snap, { name, style }, genCfg] = await Promise.all([ref.get(), readLevel(uid), readLessonConfig()]);
   const s = snap.data();
   if (!s || s.state !== "active") throw new HttpsError("failed-precondition", "session_not_active");
   const turns = s.turns || [];
@@ -220,7 +239,7 @@ exports.dailyTalkTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMI
     const res = await genWithRetry(ai, {
       model: "gemini-3.6-flash",
       contents: [{ role: "user", parts }],
-      config: { systemInstruction: buildPrompt({ ...s, isText }, who, name, turnNumber), responseMimeType: "application/json", responseSchema: TURN_SCHEMA, temperature: 0.8, thinkingConfig: { thinkingLevel: genCfg.thinkingLevel } },
+      config: { systemInstruction: buildPrompt({ ...s, isText }, who, name, turnNumber, style), responseMimeType: "application/json", responseSchema: TURN_SCHEMA, temperature: 0.8, thinkingConfig: { thinkingLevel: genCfg.thinkingLevel } },
     });
     parsed = JSON.parse(res.text);
   } catch (e) {
@@ -234,7 +253,7 @@ exports.dailyTalkTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMI
 
   const isLast = turnNumber >= s.maxTurns; // le serveur décide, pas le modèle
   const replyEn = str(parsed.reply_en, 500);
-  const coachingUsed = turns.some((t) => t.coaching);
+  const coachingUsed = turns.filter((t) => t.coaching).length >= maxCoachingFor(style);
   const coaching = !coachingUsed && parsed.coaching && str(parsed.coaching.target_phrase_en)
     ? { explanationFr: str(parsed.coaching.explanation_fr, 300), targetPhraseEn: str(parsed.coaching.target_phrase_en, 300) } : null;
   const pendingIds = new Set((s.picked || []).filter((c) => !c.ok).map((c) => c.id));

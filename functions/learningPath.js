@@ -19,14 +19,9 @@ const REVENUECAT_WEBHOOK_AUTH = defineSecret("REVENUECAT_WEBHOOK_AUTH"); // vale
 const RC_ENTITLEMENT_ID = "Elan Pro";
 
 // Voix TTS (mêmes identifiants que index.js) + une voix française pour les conseils de Sam
-const VOICES = {
-  "us-male":   { languageCode: "en-US", name: "en-US-Neural2-D" },
-  "us-female": { languageCode: "en-US", name: "en-US-Neural2-F" },
-  "uk-male":   { languageCode: "en-GB", name: "en-GB-Neural2-B" },
-  "uk-female": { languageCode: "en-GB", name: "en-GB-Neural2-A" },
-};
-const FR_VOICE = { languageCode: "fr-FR", name: "fr-FR-Neural2-B" };
-// Identité du coach selon la voix choisie (mêmes prénoms que lib/learningPath/coaches.ts)
+// Voix TTS : table par défaut + surcharge à chaud via config/voices (voir voices.js)
+const { VOICES, FR_VOICE, refreshVoices } = require("./voices");
+
 const COACH_IDENTITY = {
   "us-male":   { name: "Sam",   english: "American English" },
   "us-female": { name: "Emma",  english: "American English" },
@@ -36,6 +31,7 @@ const COACH_IDENTITY = {
 const coachIdentity = (voice) => COACH_IDENTITY[voice] || COACH_IDENTITY["us-male"];
 const ttsClient = new textToSpeech.TextToSpeechClient();
 async function synthesize(text, voice, rate) {
+  await refreshVoices(); // les objets voix sont mis à jour en place : la référence reçue est déjà la bonne
   const [res] = await ttsClient.synthesizeSpeech({
     input: { text },
     voice,
@@ -1054,6 +1050,6 @@ exports.purgeLearningData = onCall({ region: REGION, maxInstances: 5, timeoutSec
 Object.defineProperty(module.exports, "_internal", {
   value: { db, LESSONS, CHAPTERS, VARIANTS, getVariant, isPublished, readFlags, requireAuth, hasEntitlement,
     // partagé avec dailyTalk.js
-    VOICES, FR_VOICE, synthesize, coachIdentity, genWithRetry, MAX_AUDIO_BASE64_LENGTH, REVIEW_INTERVALS_DAYS, DAY_MS, readLessonConfig },
+    VOICES, FR_VOICE, refreshVoices, synthesize, coachIdentity, genWithRetry, MAX_AUDIO_BASE64_LENGTH, REVIEW_INTERVALS_DAYS, DAY_MS, readLessonConfig },
   enumerable: false,
 });

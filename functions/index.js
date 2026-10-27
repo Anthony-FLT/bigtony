@@ -19,15 +19,8 @@ const AZURE_REGION = "francecentral";
 const MAX_AUDIO_BASE64_LENGTH = 2_500_000;
 const MAX_HISTORY_TURNS = 12;
 
-const VOICES = {
-  "us-male":   { languageCode: "en-US", name: "en-US-Neural2-D" },
-  "us-female": { languageCode: "en-US", name: "en-US-Neural2-F" },
-  "uk-male":   { languageCode: "en-GB", name: "en-GB-Neural2-B" },
-  "uk-female": { languageCode: "en-GB", name: "en-GB-Neural2-A" },
-};
-function resolveVoice(key) {
-  return VOICES[key] || VOICES["us-male"];
-}
+// Voix TTS : table par défaut + surcharge à chaud via config/voices (voir voices.js)
+const { resolveVoice } = require("./voices");
 
 // ---------------------------------------------------------------
 // Scénarios (source de vérité côté serveur — le client n'envoie qu'un id)
