@@ -17,7 +17,7 @@ export type AvatarController = {
   fallbackReason: string | null;
   offReason: string | null; // pourquoi la vidéo n'a pas démarré (statut "off" silencieux) — diagnostic
   isActive: boolean; // vidéo + WebSocket prêts : l'audio du coach passe par l'avatar
-  start: (scope?: string) => Promise<void>; // scope : id de tentative ou "daily:AAAA-MM-JJ" — passé explicitement, ne dépend pas d'un re-rendu
+  start: (scope?: string, coachId?: string) => Promise<void>; // scope : id de tentative ou "daily:AAAA-MM-JJ" — passé explicitement, ne dépend pas d'un re-rendu
   stop: (reason?: AvatarStopReason) => Promise<void>;
   continueWithoutVideo: () => void;
   speak: (utterances: (string[] | null | undefined)[]) => Promise<void>; // énoncés successifs, chacun = segments PCM
@@ -96,12 +96,15 @@ export function useAvatarSession(opts: {
   const checkReady = useCallback(() => {
     if (roomReadyRef.current && wsReadyRef.current && credsRef.current && statusRef.current === "connecting") {
       set("ready");
+      if (__DEV__) console.log("AVATAR TIMINGS", JSON.stringify({ server_ms: serverMsRef.current, connect_ms: Date.now() - t0Ref.current - serverMsRef.current, total_ms: Date.now() - t0Ref.current }));
       optsRef.current.onReady?.(Date.now() - t0Ref.current);
       armIdle();
     }
   }, [armIdle]);
 
-  const start = useCallback(async (scope?: string) => {
+  const serverMsRef = useRef(0); // durée de l'appel startAvatarSession (diagnostic)
+  // scope : id de tentative ou "daily:…" ; coachId : coach explicite (évite toute course avec le re-rendu après loadProfile)
+  const start = useCallback(async (scope?: string, coachId?: string) => {
     const attemptId = scope ?? optsRef.current.attemptId;
     if (!attemptId) { setOffReason("no_attempt_id"); console.warn("avatar.start: pas d'attemptId au moment de l'appel"); return; }
     if (credsRef.current || statusRef.current === "connecting") return;
@@ -111,7 +114,8 @@ export function useAvatarSession(opts: {
     optsRef.current.onRequested?.();
     let c: AvatarCredentials;
     try {
-      c = await startAvatarSession(optsRef.current.coachId, attemptId);
+      c = await startAvatarSession(coachId ?? optsRef.current.coachId, attemptId);
+      serverMsRef.current = Date.now() - t0Ref.current;
     } catch (e: any) {
       const code = avatarStartError(e);
       optsRef.current.onFailed?.(code);

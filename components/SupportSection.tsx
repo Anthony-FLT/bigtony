@@ -7,7 +7,7 @@ import { auth } from "../lib/firebase";
 import { L } from "./lessonUi";
 
 // À renseigner : adresse de contact
-export const SUPPORT_EMAIL = "contact@declic-anglais.fr";
+export const SUPPORT_EMAIL = "app.declic@proton.me";
 const PLAY_PACKAGE = "fr.elanapp.english";
 const PLAY_URL = `https://play.google.com/store/apps/details?id=${PLAY_PACKAGE}`;
 const PLAY_DEEPLINK = `market://details?id=${PLAY_PACKAGE}`;

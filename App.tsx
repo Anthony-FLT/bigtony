@@ -17,7 +17,7 @@ import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
-import { logOnboardingComplete, logPaywallShown, logRatingShown, logHubCompleteShown } from "./lib/analytics";
+import { logPaywallShown, logRatingShown, logHubCompleteShown } from "./lib/analytics";
 import RatingModal from "./components/RatingModal";
 import HubCompleteModal from "./components/HubCompleteModal";
 import PaywallScreen from "./screens/PaywallScreen";
@@ -130,6 +130,11 @@ function AppInner() {
     if (appState === "ready" && !showPaywall) getAccess().then(setAccess);
   }, [showPaywall]);
 
+  // Onboarding : l'accès est connu dès le départ (un abonné qui réinstalle ne voit aucune offre)
+  useEffect(() => {
+    if (appState === "onboarding") getAccess().then(setAccess).catch(() => {});
+  }, [appState]);
+
   // Après chaque exercice : si un abonné vient de finir les 3 défis du jour pour la 1re fois, on le félicite
   const checkHubComplete = async () => {
     if (!isPremium || hubCelebrated) return;
@@ -156,13 +161,17 @@ function AppInner() {
       <View style={bgCream}>
         <StatusBar style="dark" />
         <OnboardingFlow
-          skipPaywall
+          premium={isPremium}
           onLaunch={() => {
-            logOnboardingComplete();
             setAppState("ready");
-            // La première leçon s'ouvre directement ; le paywall viendra après elle
+            // Après le café (et l'offre) : la présentation s'ouvre directement ; la 2e offre viendra après elle
             const first = LESSONS.find((l) => l.isFreeDiscovery) ?? LESSONS[0];
             if (first) setActiveLessonId(first.id);
+          }}
+          onFinish={() => {
+            // « Terminer pour aujourd'hui » : retour à l'accueil, sans lancer de leçon
+            setAppState("ready");
+            setHomeKey((k) => k + 1);
           }}
         />
       </View>
@@ -200,7 +209,7 @@ function AppInner() {
         <Modal visible={showPaywall} animationType="slide" onRequestClose={() => setShowPaywall(false)}>
           <View style={bgCream}>
             <StatusBar style="dark" />
-            <PaywallScreen dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
+            <PaywallScreen context="after_presentation" dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
           </View>
         </Modal>
       </View>

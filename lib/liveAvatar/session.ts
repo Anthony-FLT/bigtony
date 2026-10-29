@@ -36,6 +36,14 @@ export async function startAvatarSession(coachId: string, scope?: string): Promi
   const res: any = await startAvatarSessionFn(payload);
   return res.data as AvatarCredentials;
 }
+// Préchauffe startAvatarSession et avatarSpeech (démarrage à froid ≈ 3–5 s chacun évité). Sans effet si déjà chaudes.
+let lastWarmAt = 0;
+export function warmAvatar(): void {
+  if (Date.now() - lastWarmAt < 60_000) return; // au plus une fois par minute
+  lastWarmAt = Date.now();
+  startAvatarSessionFn({ warmup: true }).catch(() => {});
+  avatarSpeechFn({ warmup: true }).catch(() => {});
+}
 export async function stopAvatarSession(sessionId: string, reason: "USER_CLOSED" | "USER_DISCONNECTED" | "IDLE_TIMEOUT" | "SERVER_ERROR" = "USER_CLOSED"): Promise<void> {
   try { await stopAvatarSessionFn({ sessionId, reason }); } catch (e) { console.warn("stopAvatarSession échoué:", e); }
 }

@@ -101,29 +101,27 @@ async function stopProvider(sessionId, reason) {
 // ---------------------------------------------------------------
 exports.startAvatarSession = onCall({ region: REGION, maxInstances: 5, secrets: [LIVEAVATAR_API_KEY], timeoutSeconds: 30 }, async (request) => {
   const uid = requireAuth(request);
+  if (request.data?.warmup === true) return { ok: true }; // préchauffage : instance (et modules) prêts avant le vrai démarrage
+  const tStart = Date.now();
   const { coachId = "us_male", attemptId = null, dailyTalkId = null } = request.data || {};
-  const cfg = await readConfig();
+  if (dailyTalkId && !/^\d{4}-\d{2}-\d{2}$/.test(String(dailyTalkId))) throw new HttpsError("invalid-argument", "dailyTalkId invalide");
+  const scopeKey = attemptId ? `attempt:${attemptId}` : dailyTalkId ? `daily:${dailyTalkId}` : "dev";
+  const sessionsCol = db.collection(`users/${uid}/avatarSessions`);
+  // Toutes les lectures en parallèle (config, périmètre, session existante) : ~1 aller-retour Firestore au lieu de 3
+  const [cfg, scopeSnap, existing] = await Promise.all([
+    readConfig(),
+    attemptId ? db.doc(`users/${uid}/attempts/${attemptId}`).get() : dailyTalkId ? db.doc(`users/${uid}/learning/dailyTalk/sessions/${dailyTalkId}`).get() : Promise.resolve(null),
+    sessionsCol.where("scopeKey", "==", scopeKey).where("status", "==", "active").limit(1).get(),
+  ]);
   if (!cfg.enabled) throw new HttpsError("failed-precondition", "avatar_disabled");
   if (cfg.pilotUids.length && !cfg.pilotUids.includes(uid)) throw new HttpsError("permission-denied", "avatar_not_pilot");
   const coach = cfg.coaches[coachId];
   if (!coach || coach.enabled !== true || typeof coach.avatarId !== "string") throw new HttpsError("failed-precondition", "coach_not_configured");
-  const scopeKey = attemptId ? `attempt:${attemptId}` : dailyTalkId ? `daily:${dailyTalkId}` : "dev";
-
-  // Tentative : existante, possédée, active
-  if (attemptId) {
-    const a = (await db.doc(`users/${uid}/attempts/${attemptId}`).get()).data();
-    if (!a || a.active !== true) throw new HttpsError("failed-precondition", "attempt_not_active");
-  }
-  // Point du jour : session du jour existante et active
-  if (!attemptId && dailyTalkId) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dailyTalkId))) throw new HttpsError("invalid-argument", "dailyTalkId invalide");
-    const d = (await db.doc(`users/${uid}/learning/dailyTalk/sessions/${dailyTalkId}`).get()).data();
-    if (!d || d.state !== "active") throw new HttpsError("failed-precondition", "daily_talk_not_active");
-  }
+  // Tentative : existante, possédée, active · Point du jour : session du jour existante et active
+  if (attemptId) { const a = scopeSnap?.data(); if (!a || a.active !== true) throw new HttpsError("failed-precondition", "attempt_not_active"); }
+  if (!attemptId && dailyTalkId) { const d = scopeSnap?.data(); if (!d || d.state !== "active") throw new HttpsError("failed-precondition", "daily_talk_not_active"); }
 
   // Session active déjà ouverte pour ce périmètre → la renvoyer (double appui, reconnexion)
-  const sessionsCol = db.collection(`users/${uid}/avatarSessions`);
-  const existing = await sessionsCol.where("scopeKey", "==", scopeKey).where("status", "==", "active").limit(1).get();
   if (!existing.empty) {
     const s = existing.docs[0].data();
     if (Date.now() < s.expiresAt) return { sessionId: s.sessionId, livekitUrl: s.livekitUrl, livekitClientToken: s.livekitClientToken, wsUrl: s.wsUrl, maxSessionSeconds: s.maxSeconds, coach: { id: coachId, voice: coach.voice || "us-male" }, reused: true };
@@ -150,6 +148,7 @@ exports.startAvatarSession = onCall({ region: REGION, maxInstances: 5, secrets: 
 
   // Création + démarrage fournisseur. En cas d'échec : libération de la réservation.
   let token, started;
+  const tProvider = Date.now();
   try {
     token = await laFetch("/v1/sessions/token", {
       headers: { "X-API-KEY": LIVEAVATAR_API_KEY.value() },
@@ -182,6 +181,7 @@ exports.startAvatarSession = onCall({ region: REGION, maxInstances: 5, secrets: 
     status: "active", startedAt: now, expiresAt: now + maxSeconds * 1000 + 15000, endedAt: null, endReason: null,
   };
   await sessionsCol.doc(doc.sessionId).set(doc);
+  console.log("startAvatarSession timings", JSON.stringify({ reads_ms: tProvider - tStart, provider_ms: now - tProvider, total_ms: Date.now() - tStart }));
   return { sessionId: doc.sessionId, livekitUrl: doc.livekitUrl, livekitClientToken: doc.livekitClientToken, wsUrl: doc.wsUrl, maxSessionSeconds: maxSeconds, coach: { id: coachId, voice: coach.voice || "us-male" }, reused: false };
 });
 
@@ -236,6 +236,7 @@ async function synthesizePcmChunks(text, voice, rate) {
 }
 exports.avatarSpeech = onCall({ region: REGION, maxInstances: 5, timeoutSeconds: 30 }, async (request) => {
   requireAuth(request);
+  if (request.data?.warmup === true) return { ok: true }; // préchauffage (TTS prêt pour l'ouverture)
   const { text, lang = "en", voice = "us-male", speakingRate = 0.95 } = request.data || {};
   if (typeof text !== "string" || !text.trim() || text.length > 600) throw new HttpsError("invalid-argument", "text invalide");
   const v = lang === "fr" ? FR_VOICE : (VOICES[voice] || VOICES["us-male"]);

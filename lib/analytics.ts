@@ -15,7 +15,8 @@ export type PaywallSource =
   | "gift"
   | "learning_path_after_lesson_1" // bilan de la première leçon du parcours (CTA « Débloquer ma prochaine leçon »)
   | "learning_path_map" // carte du parcours : leçon publiée mais réservée à l'abonnement
-  | "daily_talk"; // point du jour : une session gratuite par semaine, puis abonnement
+  | "daily_talk" // point du jour : une session gratuite par semaine, puis abonnement
+  | "onboarding_after_coffee"; // onboarding v2 : première offre, après la conversation café
 
 export type ExerciseType = "reading" | "translation" | "listening";
 export type PlanId = "monthly" | "yearly";
@@ -29,6 +30,13 @@ function log(name: string, params?: Record<string, any>) {
 }
 
 export function logOnboardingComplete() { log("onboarding_complete"); }
+// Onboarding v2 (maquettes du 29/10)
+export function logOnboardingStepViewed(stepId: string) { log("onboarding_step_viewed", { onboarding_version: 2, step_id: stepId }); }
+export function logOnboardingStepCompleted(stepId: string, extra?: Record<string, string>) { log("onboarding_step_completed", { onboarding_version: 2, step_id: stepId, ...(extra ?? {}) }); }
+export function logCoachPreviewPlayed(coachId: string) { log("coach_preview_played", { coach_id: coachId }); }
+export function logSourcePromptViewed() { log("source_prompt_viewed"); }
+export function logSourceAnswered(source: string) { log("source_answered", { source }); }
+export function logSourceSkipped() { log("source_skipped"); }
 export function logOnboardingTestSkipped() { log("onboarding_test_skipped"); }
 
 export function logWelcomeConversationStart() { log("welcome_conversation_start"); }

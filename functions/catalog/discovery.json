@@ -1,0 +1,400 @@
+{
+  "chapters": [
+    {
+      "id": "C00",
+      "order": 0,
+      "titleFr": "Découverte",
+      "published": true
+    }
+  ],
+  "lessons": [
+    {
+      "id": "C00-L01",
+      "chapterId": "C00",
+      "order": 1,
+      "titleFr": "Commander un café",
+      "isCheckpoint": false,
+      "isFreeDiscovery": true,
+      "prerequisiteLessonId": null,
+      "published": true
+    }
+  ],
+  "variants": [
+    {
+      "id": "C00-L01-A1",
+      "lessonId": "C00-L01",
+      "contentVersion": 1,
+      "practiceLevel": "A1",
+      "titleFr": "Commander un café",
+      "objectiveFr": "Commander une boisson au café : dire ce que tu veux, répondre à une question, remercier.",
+      "coachRole": "a friendly barista behind the counter of a small café; the learner is your customer",
+      "userRole": "a customer ordering a drink at a café",
+      "openingEn": "Hi! What would you like to drink?",
+      "followUpsEn": [
+        "Small or large?",
+        "For here or to take away?"
+      ],
+      "difficultyFollowUpEn": "Would you like anything to eat with that?",
+      "easierVariantHintFr": "On refera la même commande avec des phrases encore plus courtes.",
+      "fallbackFeedbackFr": "Tu as commandé ta boisson en anglais : c'est exactement le but de cette première conversation.",
+      "requiredCriteria": [
+        {
+          "id": "order",
+          "descriptionFr": "Dire ce que tu souhaites",
+          "exampleEn": "I'd like a coffee, please."
+        },
+        {
+          "id": "answer",
+          "descriptionFr": "Répondre à une question",
+          "exampleEn": "A small one, to take away."
+        },
+        {
+          "id": "thanks",
+          "descriptionFr": "Remercier simplement",
+          "exampleEn": "Thank you!"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour commander, « I'd like… please » suffit. Ensuite tu réponds en un ou deux mots, et tu remercies.",
+        "examplesEn": [
+          "I'd like a coffee, please.",
+          "A large one, please.",
+          "To take away. Thank you!"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Commande un thé, grand, à emporter.",
+        "expectedSemanticCriteria": [
+          "asks for a tea",
+          "says large",
+          "says to take away"
+        ],
+        "sampleAnswerEn": "I'd like a large tea to take away, please.",
+        "alternativePromptFr": "Commande un chocolat chaud, petit, sur place."
+      },
+      "targetMinutes": 2,
+      "minUsefulTurns": 3,
+      "maxUsefulTurns": 4
+    },
+    {
+      "id": "C00-L01-A2",
+      "lessonId": "C00-L01",
+      "contentVersion": 1,
+      "practiceLevel": "A2",
+      "titleFr": "Commander un café",
+      "objectiveFr": "Commander une boisson au café : dire ce que tu veux, répondre à une question, remercier.",
+      "coachRole": "a friendly barista behind the counter of a small café; the learner is your customer",
+      "userRole": "a customer ordering a drink at a café",
+      "openingEn": "Hi! What would you like to drink?",
+      "followUpsEn": [
+        "Small or large?",
+        "For here or to take away?"
+      ],
+      "difficultyFollowUpEn": "Would you like anything to eat with that?",
+      "easierVariantHintFr": "On refera la même commande avec des phrases encore plus courtes.",
+      "fallbackFeedbackFr": "Tu as commandé ta boisson en anglais : c'est exactement le but de cette première conversation.",
+      "requiredCriteria": [
+        {
+          "id": "order",
+          "descriptionFr": "Dire ce que tu souhaites",
+          "exampleEn": "I'd like a coffee, please."
+        },
+        {
+          "id": "answer",
+          "descriptionFr": "Répondre à une question",
+          "exampleEn": "A small one, to take away."
+        },
+        {
+          "id": "thanks",
+          "descriptionFr": "Remercier simplement",
+          "exampleEn": "Thank you!"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour commander, « I'd like… please » suffit. Ensuite tu réponds en un ou deux mots, et tu remercies.",
+        "examplesEn": [
+          "I'd like a coffee, please.",
+          "A large one, please.",
+          "To take away. Thank you!"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Commande un thé, grand, à emporter.",
+        "expectedSemanticCriteria": [
+          "asks for a tea",
+          "says large",
+          "says to take away"
+        ],
+        "sampleAnswerEn": "I'd like a large tea to take away, please.",
+        "alternativePromptFr": "Commande un chocolat chaud, petit, sur place."
+      },
+      "targetMinutes": 2,
+      "minUsefulTurns": 3,
+      "maxUsefulTurns": 4
+    },
+    {
+      "id": "C00-L01-B1",
+      "lessonId": "C00-L01",
+      "contentVersion": 1,
+      "practiceLevel": "B1",
+      "titleFr": "Commander un café",
+      "objectiveFr": "Commander une boisson au café : dire ce que tu veux, répondre à une question, remercier.",
+      "coachRole": "a friendly barista behind the counter of a small café; the learner is your customer",
+      "userRole": "a customer ordering a drink at a café",
+      "openingEn": "Hi! What would you like to drink?",
+      "followUpsEn": [
+        "Small or large?",
+        "For here or to take away?",
+        "Would you like milk or sugar with that?"
+      ],
+      "difficultyFollowUpEn": "Is it your first time here? What brings you to the neighbourhood?",
+      "easierVariantHintFr": "On refera la même commande avec des phrases encore plus courtes.",
+      "fallbackFeedbackFr": "Tu as commandé ta boisson en anglais : c'est exactement le but de cette première conversation.",
+      "requiredCriteria": [
+        {
+          "id": "order",
+          "descriptionFr": "Dire ce que tu souhaites",
+          "exampleEn": "Could I have a cappuccino, please?"
+        },
+        {
+          "id": "answer",
+          "descriptionFr": "Répondre à une question",
+          "exampleEn": "A large one, for here, please."
+        },
+        {
+          "id": "thanks",
+          "descriptionFr": "Remercier simplement",
+          "exampleEn": "Thanks a lot, have a nice day!"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour commander, « I'd like… please » suffit. Ensuite tu réponds en un ou deux mots, et tu remercies.",
+        "examplesEn": [
+          "I'd like a coffee, please.",
+          "A large one, please.",
+          "To take away. Thank you!"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Commande un thé, grand, à emporter.",
+        "expectedSemanticCriteria": [
+          "asks for a tea",
+          "says large",
+          "says to take away"
+        ],
+        "sampleAnswerEn": "I'd like a large tea to take away, please.",
+        "alternativePromptFr": "Commande un chocolat chaud, petit, sur place."
+      },
+      "targetMinutes": 2,
+      "minUsefulTurns": 3,
+      "maxUsefulTurns": 4
+    },
+    {
+      "id": "C00-L01-B2",
+      "lessonId": "C00-L01",
+      "contentVersion": 1,
+      "practiceLevel": "B2",
+      "titleFr": "Commander un café",
+      "objectiveFr": "Commander une boisson au café : dire ce que tu veux, répondre à une question, remercier.",
+      "coachRole": "a friendly barista behind the counter of a small café; the learner is your customer",
+      "userRole": "a customer ordering a drink at a café",
+      "openingEn": "Hi! What would you like to drink?",
+      "followUpsEn": [
+        "Small or large?",
+        "For here or to take away?",
+        "Would you like milk or sugar with that?"
+      ],
+      "difficultyFollowUpEn": "Is it your first time here? What brings you to the neighbourhood?",
+      "easierVariantHintFr": "On refera la même commande avec des phrases encore plus courtes.",
+      "fallbackFeedbackFr": "Tu as commandé ta boisson en anglais : c'est exactement le but de cette première conversation.",
+      "requiredCriteria": [
+        {
+          "id": "order",
+          "descriptionFr": "Dire ce que tu souhaites",
+          "exampleEn": "Could I have a cappuccino, please?"
+        },
+        {
+          "id": "answer",
+          "descriptionFr": "Répondre à une question",
+          "exampleEn": "A large one, for here, please."
+        },
+        {
+          "id": "thanks",
+          "descriptionFr": "Remercier simplement",
+          "exampleEn": "Thanks a lot, have a nice day!"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour commander, « I'd like… please » suffit. Ensuite tu réponds en un ou deux mots, et tu remercies.",
+        "examplesEn": [
+          "I'd like a coffee, please.",
+          "A large one, please.",
+          "To take away. Thank you!"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Commande un thé, grand, à emporter.",
+        "expectedSemanticCriteria": [
+          "asks for a tea",
+          "says large",
+          "says to take away"
+        ],
+        "sampleAnswerEn": "I'd like a large tea to take away, please.",
+        "alternativePromptFr": "Commande un chocolat chaud, petit, sur place."
+      },
+      "targetMinutes": 2,
+      "minUsefulTurns": 3,
+      "maxUsefulTurns": 4
+    },
+    {
+      "id": "C00-L01-C1",
+      "lessonId": "C00-L01",
+      "contentVersion": 1,
+      "practiceLevel": "C1",
+      "titleFr": "Commander un café",
+      "objectiveFr": "Commander une boisson au café : dire ce que tu veux, répondre à une question, remercier.",
+      "coachRole": "a friendly barista behind the counter of a small café; the learner is your customer",
+      "userRole": "a customer ordering a drink at a café",
+      "openingEn": "Hi! What would you like to drink?",
+      "followUpsEn": [
+        "Small or large?",
+        "For here or to take away?",
+        "Would you like milk or sugar with that?"
+      ],
+      "difficultyFollowUpEn": "Is it your first time here? What brings you to the neighbourhood?",
+      "easierVariantHintFr": "On refera la même commande avec des phrases encore plus courtes.",
+      "fallbackFeedbackFr": "Tu as commandé ta boisson en anglais : c'est exactement le but de cette première conversation.",
+      "requiredCriteria": [
+        {
+          "id": "order",
+          "descriptionFr": "Dire ce que tu souhaites",
+          "exampleEn": "Could I have a cappuccino, please?"
+        },
+        {
+          "id": "answer",
+          "descriptionFr": "Répondre à une question",
+          "exampleEn": "A large one, for here, please."
+        },
+        {
+          "id": "thanks",
+          "descriptionFr": "Remercier simplement",
+          "exampleEn": "Thanks a lot, have a nice day!"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour commander, « I'd like… please » suffit. Ensuite tu réponds en un ou deux mots, et tu remercies.",
+        "examplesEn": [
+          "I'd like a coffee, please.",
+          "A large one, please.",
+          "To take away. Thank you!"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Commande un thé, grand, à emporter.",
+        "expectedSemanticCriteria": [
+          "asks for a tea",
+          "says large",
+          "says to take away"
+        ],
+        "sampleAnswerEn": "I'd like a large tea to take away, please.",
+        "alternativePromptFr": "Commande un chocolat chaud, petit, sur place."
+      },
+      "targetMinutes": 2,
+      "minUsefulTurns": 3,
+      "maxUsefulTurns": 4
+    },
+    {
+      "id": "C00-L01-C2",
+      "lessonId": "C00-L01",
+      "contentVersion": 1,
+      "practiceLevel": "C2",
+      "titleFr": "Commander un café",
+      "objectiveFr": "Commander une boisson au café : dire ce que tu veux, répondre à une question, remercier.",
+      "coachRole": "a friendly barista behind the counter of a small café; the learner is your customer",
+      "userRole": "a customer ordering a drink at a café",
+      "openingEn": "Hi! What would you like to drink?",
+      "followUpsEn": [
+        "Small or large?",
+        "For here or to take away?",
+        "Would you like milk or sugar with that?"
+      ],
+      "difficultyFollowUpEn": "Is it your first time here? What brings you to the neighbourhood?",
+      "easierVariantHintFr": "On refera la même commande avec des phrases encore plus courtes.",
+      "fallbackFeedbackFr": "Tu as commandé ta boisson en anglais : c'est exactement le but de cette première conversation.",
+      "requiredCriteria": [
+        {
+          "id": "order",
+          "descriptionFr": "Dire ce que tu souhaites",
+          "exampleEn": "Could I have a cappuccino, please?"
+        },
+        {
+          "id": "answer",
+          "descriptionFr": "Répondre à une question",
+          "exampleEn": "A large one, for here, please."
+        },
+        {
+          "id": "thanks",
+          "descriptionFr": "Remercier simplement",
+          "exampleEn": "Thanks a lot, have a nice day!"
+        }
+      ],
+      "miniLesson": {
+        "explanationFr": "Pour commander, « I'd like… please » suffit. Ensuite tu réponds en un ou deux mots, et tu remercies.",
+        "examplesEn": [
+          "I'd like a coffee, please.",
+          "A large one, please.",
+          "To take away. Thank you!"
+        ],
+        "optional": true
+      },
+      "supports": [
+        "translate",
+        "listen_model",
+        "text_mode"
+      ],
+      "microExercise": {
+        "promptFr": "Commande un thé, grand, à emporter.",
+        "expectedSemanticCriteria": [
+          "asks for a tea",
+          "says large",
+          "says to take away"
+        ],
+        "sampleAnswerEn": "I'd like a large tea to take away, please.",
+        "alternativePromptFr": "Commande un chocolat chaud, petit, sur place."
+      },
+      "targetMinutes": 2,
+      "minUsefulTurns": 3,
+      "maxUsefulTurns": 4
+    }
+  ]
+}

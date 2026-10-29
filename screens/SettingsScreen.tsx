@@ -21,7 +21,7 @@ const COACH_VOICES: { key: VoiceKey; label: string }[] = [
 ];
 
 // Aide : adresse de contact (à renseigner) et fiche Play Store
-const SUPPORT_EMAIL = "contact@declic-anglais.fr";
+const SUPPORT_EMAIL = "app.declic@proton.me";
 const PLAY_PACKAGE = "fr.elanapp.english";
 const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
 
@@ -281,4 +281,4 @@ const styles = StyleSheet.create({
   wheelWrap: { alignItems: "center", paddingVertical: 8 },
   version: { textAlign: "center", color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 28 },
   overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(250,247,242,0.7)", alignItems: "center", justifyContent: "center" },
-});
+});

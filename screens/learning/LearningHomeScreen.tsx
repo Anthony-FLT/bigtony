@@ -13,6 +13,8 @@ import { loadProfile, saveProfile } from "../../lib/profile";
 import { coachForVoice, COACHES, LessonCoach } from "../../lib/learningPath/coaches";
 import { getDailyTalkStatus } from "../../lib/dailyTalk";
 import { getLearningPath } from "../../lib/learningPath/path";
+import { warmStartOrResumeLesson } from "../../lib/learningPath/attempts";
+import { warmAvatar } from "../../lib/liveAvatar/session";
 import { CHAPTERS } from "../../lib/learningPath/catalog";
 import type { LearningPathView, PathNode } from "../../lib/learningPath/types";
 import { computeStreak } from "../../lib/streak";
@@ -113,7 +115,7 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
     if (exprCache?.day === todayKey() && exprCache.audioPath && exprCache.audioVoice === v) return exprCache.audioPath;
     const res: any = await translateText({ text: e.en, mode: "speak", voice: v, speakingRate: rate });
     if (!res.data?.audioBase64) return null;
-    const path = FileSystem.cacheDirectory + `expr_${todayKey()}_${v}_${Date.now()}.mp3`;
+    const path = FileSystem.cacheDirectory + `expr_${todayKey()}_${v}.mp3`;
     await FileSystem.writeAsStringAsync(path, res.data.audioBase64, { encoding: FileSystem.EncodingType.Base64 });
     if (exprCache?.day === todayKey()) { exprCache.audioPath = path; exprCache.audioVoice = v; }
     return path;
@@ -123,7 +125,7 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
     setExprBusy(true);
     try {
       const path = await prepareExprAudio(expr, voice, speechRate);
-    if (path) { player.replace({ uri: path }); player.seekTo(0); player.play(); }
+      if (path) { player.replace(path); player.play(); }
     } catch (e) { console.warn("Écoute expression échouée:", e); }
     finally { setExprBusy(false); }
   };
@@ -153,6 +155,8 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
     }
   };
   useEffect(() => { load(); }, [refreshKey, premium]);
+  // Préchauffage depuis l'accueil : quand l'utilisateur tape « Reprendre ma leçon », les fonctions sont déjà chaudes
+  useEffect(() => { warmStartOrResumeLesson(); warmAvatar(); }, [refreshKey]);
 
   const toggleExprFav = async () => {
     if (!expr) return;
@@ -206,8 +210,12 @@ export default function LearningHomeScreen({ refreshKey, premium, onOpenLesson, 
       </View>
 
       {/* Mon parcours */}
-        <View style={styles.sectionRow}>
+      <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>Mon parcours</Text>
+        <Pressable onPress={() => setShowAll((v) => !v)} hitSlop={8} style={styles.linkBtn} accessibilityRole="button">
+          <Text style={styles.linkText}>{showAll ? "Réduire" : "Tout voir"}</Text>
+          <Icon name="chevron" size={16} tint={L.primary} style={showAll ? { transform: [{ rotate: "-90deg" }] } : undefined} />
+        </Pressable>
       </View>
 
       <View style={styles.pathCard}>

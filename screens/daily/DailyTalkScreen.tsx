@@ -12,6 +12,7 @@ import { L, ILL, RoundButton, Pill, PrimaryButton, ListenButton, SectionLabel } 
 import LessonConversation from "../lesson/LessonConversation";
 import { dailyTalkStart, dailyTalkEnd, dailyTalkStartError, dailyVariant, dailyTurnsAsAttemptTurns, dailyTurnAsLessonTurn, warmDailyTalk, DailyTalkSession, DailyTalkResult } from "../../lib/dailyTalk";
 import { useAvatarSession } from "../../lib/liveAvatar/useAvatarSession";
+import { warmAvatar } from "../../lib/liveAvatar/session";
 import { coachForVoice } from "../../lib/learningPath/coaches";
 import { logDailyTalkStart, logDailyTalkEnd, logDailyTalkLocked, logAvatarSessionRequested, logAvatarSessionReady, logAvatarSessionFailed, logAvatarSessionStopped, logAvatarFallback } from "../../lib/analytics";
 
@@ -24,7 +25,6 @@ export default function DailyTalkScreen({ onExit, onLocked }: { onExit: () => vo
   const [session, setSession] = useState<DailyTalkSession | null>(null);
   const [result, setResult] = useState<DailyTalkResult | null>(null);
   const [voice, setVoice] = useState("us-male");
-  const [voiceReady, setVoiceReady] = useState(false); // le coach ne s'affiche qu'une fois le profil lu (sinon Sam apparaît 1 s)
   const [speechRate, setSpeechRate] = useState(0.95);
   const [busy, setBusy] = useState(false);
   const player = useAudioPlayer();
@@ -50,15 +50,15 @@ export default function DailyTalkScreen({ onExit, onLocked }: { onExit: () => vo
         const p = await loadProfile();
         if (cancelled) return;
         const v = p?.voice || "us-male";
-        setVoice(v); setVoiceReady(true); if (p?.speechRate) setSpeechRate(p.speechRate);
-        warmDailyTalk();
+        setVoice(v); if (p?.speechRate) setSpeechRate(p.speechRate);
+        warmDailyTalk(); warmAvatar();
         const s = await dailyTalkStart(v);
         if (cancelled) return;
         setSession(s);
         if (s.state === "ended" && s.result) { setResult(s.result); setPhase("result"); return; }
         logDailyTalkStart({ sessionId: s.sessionId, regime: s.regime, coachId: coachForVoice(v).id }, s.resumed);
         // La session vidéo démarre AVANT d'afficher la conversation (sinon l'ouverture est lue en local puis redite par l'avatar)
-        avatar.start(`daily:${s.sessionId}`); // périmètre passé explicitement : pas de dépendance au re-rendu
+        avatar.start(`daily:${s.sessionId}`, coachForVoice(v).id); // périmètre et coach passés explicitement : pas de dépendance au re-rendu
         setPhase("conversation");
       } catch (e: any) {
         if (dailyTalkStartError(e) === "subscription_required") { logDailyTalkLocked(); onLocked(); return; }
@@ -105,9 +105,9 @@ export default function DailyTalkScreen({ onExit, onLocked }: { onExit: () => vo
     return (
       <View style={styles.center}>
         <StatusBar style="dark" />
-        {voiceReady ? <Image source={coach.poster} style={styles.loadingPoster} resizeMode="cover" /> : <View style={styles.loadingPoster} />}
+        <Image source={coach.poster} style={styles.loadingPoster} resizeMode="cover" />
         <ActivityIndicator color={L.primary} style={{ marginTop: 18 }} />
-        <Text style={styles.loadingText}>{phase === "ending" ? "On note ta phrase du jour…" : voiceReady ? `${coach.displayName} arrive…` : "Un instant…"}</Text>
+        <Text style={styles.loadingText}>{phase === "loading" ? `${coach.displayName} arrive…` : "On note ta phrase du jour…"}</Text>
       </View>
     );
   }

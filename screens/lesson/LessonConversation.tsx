@@ -24,7 +24,7 @@ const MIN_RECORDING_MS = 800;
 
 type Msg =
   | { kind: "coach"; id: string; text: string; fr?: string; audio?: string | null; pcm?: string[] | null }
-  | { kind: "user"; id: string; text: string }
+  | { kind: "user"; id: string; text: string; validated?: string[] } // objectifs validés par cette réponse (ligne verte sous la bulle)
   | { kind: "coaching"; id: string; coaching: Coaching; original: string; audioFr?: string | null; audioEn?: string | null; pcmFr?: string[] | null; pcmEn?: string[] | null }
   | { kind: "nothing"; id: string };
 
@@ -73,12 +73,13 @@ function CorrectedPhrase({ original, target }: { original: string; target: strin
   );
 }
 
-export default function LessonConversation({ attemptId, variant, level, initialTurns, initialCovered, initialRetry, voice, speakingRate, validating, onCompleted, onBack, onCoachingShown, onObjectiveCovered, onCoachingRetryDone, avatar, coachId = "us_male", intro, onClosingStarted, daily, openingOverride }: {
+export default function LessonConversation({ attemptId, variant, level, initialTurns, initialCovered, initialRetry, voice, speakingRate, validating, onCompleted, onBack, onCoachingShown, onObjectiveCovered, onCoachingRetryDone, avatar, coachId = "us_male", intro, onClosingStarted, daily, openingOverride, firstQuestion }: {
   attemptId: string;
   avatar?: AvatarController; // coach vidéo (LiveAvatar) — absent ou "off" : leçon audio inchangée
   coachId?: string;
   intro?: string; // première leçon : le coach se présente avant l'ouverture (repli si pas d'ouverture générée)
-  openingOverride?: string; // ouverture générée par le serveur (bonjour + direction de la leçon + première question)
+  openingOverride?: string; // ouverture générée par le serveur (bonjour + direction de la leçon)
+  firstQuestion?: string; // première question reformulée par le serveur (remplace variant.openingEn sur une nouvelle tentative)
   variant: LessonVariant;
   level: string;
   initialTurns: AttemptTurn[];
@@ -102,12 +103,14 @@ export default function LessonConversation({ attemptId, variant, level, initialT
   // Première leçon : l'intro salue et présente déjà le coach → on retire le « Hi, I'm Sam. » de l'ouverture pour ne pas le dire deux fois
   // Le catalogue écrit « Sam » : on y met le prénom du coach choisi
   const coachDisplayName = (COACHES as Record<string, { displayName: string }>)[coachId]?.displayName ?? "Sam";
-  const openingRaw = variant.openingEn.replace(/\bSam\b/g, coachDisplayName);
-  const openingBody = intro ? openingRaw.replace(/^\s*(hi|hello|hey)[\s,!.]*(i'?m|i am|my name is)\s+[A-Z][a-z]+[.!,]?\s*/i, "").replace(/^\s*(hi|hello|hey)[\s,!.]+/i, "") : openingRaw;
   const isFresh = initialTurns.length === 0 && !initialRetry;
+  const stripGreeting = (t: string) => t.replace(/^\s*(hi|hello|hey)[\s,!.]*(i'?m|i am|my name is)\s+[A-Z][a-z]+[.!,]?\s*/i, "").replace(/^\s*(hi|hello|hey)[\s,!.]+/i, "");
+  // Première question : celle reformulée par le serveur si nouvelle tentative, sinon celle du catalogue ; jamais de « Hi, I'm Sam » quand un briefing l'a déjà dit
+  const catalogOpening = variant.openingEn.replace(/\bSam\b/g, coachDisplayName);
+  const openingRaw = firstQuestion && isFresh ? firstQuestion : openingOverride && isFresh ? (stripGreeting(catalogOpening) || catalogOpening) : catalogOpening;
+  const openingBody = intro ? stripGreeting(openingRaw) : openingRaw;
   // Nouvelle tentative avec ouverture générée : deux messages — le contexte de la leçon, puis la première question
-  // Si l'ouverture générée contient déjà la première question (anciennes tentatives), on la retire : elle est dans la 2e bulle
-  const briefingText = openingOverride && isFresh ? (openingOverride.includes(openingRaw) ? openingOverride.replace(openingRaw, "").trim() || null : openingOverride) : null;
+  const briefingText = openingOverride && isFresh ? openingOverride : null;
   const openingText = briefingText
     ? openingRaw
     : intro && isFresh ? `${intro} ${openingBody.charAt(0).toUpperCase()}${openingBody.slice(1)}` : openingRaw;
@@ -117,6 +120,8 @@ export default function LessonConversation({ attemptId, variant, level, initialT
     ? [{ id: "resumed", text: lastResumed }]
     : [...(briefingText ? [{ id: "br", text: briefingText }] : []), { id: "op", text: openingText }];
   const arrivalText = arrivalTexts[arrivalTexts.length - 1].text;
+  const labelOf = (id: string) => variant.requiredCriteria.find((c) => c.id === id)?.descriptionFr ?? id;
+  const firstRemaining = (cov: Set<string>) => variant.requiredCriteria.find((c) => !cov.has(c.id))?.descriptionFr ?? null;
   const [messages, setMessages] = useState<Msg[]>(() => [
     ...(briefingText ? [{ kind: "coach", id: "br", text: briefingText, audio: null } as Msg] : []),
     { kind: "coach", id: "op", text: openingText, audio: null },
@@ -164,6 +169,8 @@ export default function LessonConversation({ attemptId, variant, level, initialT
   const onQueueEndRef = useRef<(() => void) | null>(null);
   const lastCoachAudioRef = useRef<{ text: string; audio: string | null; pcm: string[] | null }>({ text: arrivalText, audio: null, pcm: null });
   const openingSaidRef = useRef(false); // ouverture déjà dite (local ou avatar)
+  // Audio de l'ouverture synthétisé PENDANT la connexion vidéo (et non après « prêt ») : le coach parle dès qu'il apparaît
+  const arrivalPcmRef = useRef<Promise<string[][] | null> | null>(null);
   const avatarOn = !!avatar && avatar.status !== "off";
   const avatarRef = useRef(avatar); avatarRef.current = avatar;
   const avatarActive = () => !!avatarRef.current?.isActive;
@@ -178,6 +185,7 @@ export default function LessonConversation({ attemptId, variant, level, initialT
     // Ouverture lue à voix haute au premier affichage (pas en reprise)
     // À l'arrivée, le coach redit systématiquement sa dernière réplique (ouverture ou reprise) — sauf si l'avatar va le faire
     if (!avatarOn) { openingSaidRef.current = true; speakArrival(); }
+    else arrivalPcmRef.current = Promise.all(arrivalTexts.map((t) => avatarSpeech(t.text, "en", voice, speakingRate))).catch((e) => { console.warn("préchargement ouverture avatar échoué:", e); return null; });
     return () => { try { player.pause(); } catch {} };
   }, []);
   useEffect(() => { if (validating) setComposer("validating"); }, [validating]);
@@ -191,11 +199,13 @@ export default function LessonConversation({ attemptId, variant, level, initialT
     openingSaidRef.current = true;
     (async () => {
       try {
-        const pcms = await Promise.all(arrivalTexts.map((t) => avatarSpeech(t.text, "en", voice, speakingRate)));
+        const tReady = Date.now();
+        const pcms = (await arrivalPcmRef.current) ?? (await Promise.all(arrivalTexts.map((t) => avatarSpeech(t.text, "en", voice, speakingRate))));
+        if (__DEV__) console.log("AVATAR OPENING", JSON.stringify({ wait_after_ready_ms: Date.now() - tReady }));
         const last = pcms[pcms.length - 1];
         lastCoachAudioRef.current = { text: arrivalText, audio: null, pcm: last };
         setMessages((m) => m.map((x) => { const i = arrivalTexts.findIndex((t) => x.kind === "coach" && x.id === t.id); return i >= 0 ? { ...x, pcm: pcms[i] } : x; }));
-        avatarSay(pcms);
+        avatarSay([([] as string[]).concat(...pcms)]); // une seule séquence audio : pas de pause entre le briefing et la question
       } catch (e) { console.warn("ouverture avatar échouée:", e); }
     })();
   }, [avatar?.status]);
@@ -324,7 +334,7 @@ export default function LessonConversation({ attemptId, variant, level, initialT
   // ---------- Tour ----------
   const applyResponse = (d: LessonTurnResponse, wasRetry: boolean) => {
     const idx = d.turnIndex;
-    const add: Msg[] = [{ kind: "user", id: `u${idx}`, text: d.transcript }];
+    const add: Msg[] = [{ kind: "user", id: `u${idx}`, text: d.transcript, validated: daily ? [] : d.coveredCriteria.filter((id) => !covered.has(id)).map(labelOf) }];
     // Le WAV local n'est construit qu'au moment de jouer sans avatar (jamais d'avance : coûteux et inutile en mode vidéo)
     const frLocal = d.coachingAudioFrBase64 ?? null, enLocal = d.coachingAudioEnBase64 ?? null, replyLocal = d.replyAudioBase64 ?? null;
     if (d.coaching) add.push({ kind: "coaching", id: `k${idx}`, coaching: d.coaching, original: d.transcript, audioFr: frLocal, audioEn: enLocal, pcmFr: d.coachingFrPcmChunks, pcmEn: d.coachingEnPcmChunks });
@@ -419,33 +429,6 @@ export default function LessonConversation({ attemptId, variant, level, initialT
 
   // ---------- Rendu ----------
   const objectives = useMemo(() => variant.requiredCriteria.map((c) => ({ id: c.id, label: c.descriptionFr, state: covered.has(c.id) ? "covered" : target === c.id ? "current" : "todo" })), [variant, covered, target]);
-  // Animation quand un objectif passe au vert : le segment pulse et une pastille « Objectif atteint » apparaît un instant
-  const segScale = useRef<Record<string, Animated.Value>>({}).current;
-  const segAnim = (id: string) => (segScale[id] ??= new Animated.Value(1));
-  const toast = useRef(new Animated.Value(0)).current;
-  const [toastText, setToastText] = useState("");
-  const prevCoveredRef = useRef<Set<string>>(new Set(initialCovered));
-  useEffect(() => {
-    const newly = [...covered].filter((id) => !prevCoveredRef.current.has(id));
-    prevCoveredRef.current = new Set(covered);
-    if (newly.length === 0) return;
-    if (reduceMotionRef.current) return;
-    newly.forEach((id) => {
-      const v = segAnim(id);
-      Animated.sequence([
-        Animated.timing(v, { toValue: 1.9, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.spring(v, { toValue: 1, friction: 4, useNativeDriver: true }),
-      ]).start();
-    });
-    const allDone = covered.size >= variant.requiredCriteria.length;
-    setToastText(allDone ? "Tous les objectifs atteints !" : newly.length > 1 ? `${newly.length} objectifs atteints` : "Objectif atteint");
-    toast.setValue(0);
-    Animated.sequence([
-      Animated.spring(toast, { toValue: 1, friction: 6, useNativeDriver: true }),
-      Animated.delay(1400),
-      Animated.timing(toast, { toValue: 0, duration: 250, useNativeDriver: true }),
-    ]).start();
-  }, [covered]);
   const connecting = !!avatar && avatar.status === "connecting";
   const composerLabel =
     connecting ? "Patiente un instant…" :
@@ -495,37 +478,43 @@ export default function LessonConversation({ attemptId, variant, level, initialT
             </View>
           </View>
         )}
-        {/* Barre d'objectifs compacte : 3 segments + objectif en cours, dépliable */}
-        {!daily && <Pressable onPress={() => setObjectivesOpen((v) => !v)} style={[styles.objBar, coveredCount === objectives.length && styles.objBarDone]} accessibilityRole="button" accessibilityLabel={`Objectifs ${coveredCount} sur ${objectives.length}`}>
-          <View style={styles.segments}>
-            {objectives.map((o) => <Animated.View key={o.id} style={[styles.segment, o.state === "covered" && { backgroundColor: L.success }, o.state === "current" && { backgroundColor: L.accentDeep }, { transform: [{ scaleY: segAnim(o.id) }] }]} />)}
-          </View>
-          <Animated.View pointerEvents="none" style={[styles.objToast, { opacity: toast, transform: [{ translateY: toast.interpolate({ inputRange: [0, 1], outputRange: [8, -22] }) }, { scale: toast.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }] }]}>
-            <View style={styles.objToastCheck}><Icon name="check" size={12} tint="#fff" /></View>
-            <Text style={styles.objToastText}>{toastText}</Text>
-          </Animated.View>
-          {!objectivesOpen ? (
-            <View style={styles.objLine}>
-              {coveredCount === objectives.length ? <Icon name="check" size={20} /> : <Icon name="fleche" size={20} tint={L.accentDeep} />}
-              <Text style={[styles.objText, coveredCount === objectives.length && { color: L.success }]} numberOfLines={1}>
-                {coveredCount === objectives.length
-                  ? (closingIn === null ? "Tous les objectifs sont couverts" : closingIn <= 0 ? "Objectifs couverts · dernier échange" : `Objectifs couverts · encore ${closingIn} échange${closingIn > 1 ? "s" : ""}`)
-                  : (objectives.find((o) => o.state === "current") ?? objectives.find((o) => o.state === "todo"))?.label}
-              </Text>
-              <Icon name="chevron" size={18} style={{ transform: [{ rotate: "90deg" }] }} />
-            </View>
-          ) : (
-            <View style={{ gap: 8 }}>
-              {objectives.map((o) => (
-                <View key={o.id} style={styles.objLine} accessibilityLabel={`${o.label} : ${o.state === "covered" ? "couvert" : o.state === "current" ? "en cours" : "à faire"}`}>
-                  {o.state === "covered" ? <Icon name="check" size={20} /> : o.state === "current" ? <Icon name="fleche" size={20} tint={L.accentDeep} /> : <View style={styles.objDot} />}
-                  <Text style={[styles.objText, o.state === "covered" && { color: L.success }, o.state === "todo" && { color: L.textSecondary }]}>{o.label}</Text>
+        {/* Objectif en cours : label, objectif, indice d'exemple ; dépliable pour voir les 3 */}
+        {!daily && (() => {
+          const current = objectives.find((o) => o.state === "current") ?? objectives.find((o) => o.state === "todo");
+          const allDone = coveredCount === objectives.length;
+          const example = current ? variant.requiredCriteria.find((c) => c.id === current.id)?.exampleEn : "";
+          return (
+            <Pressable onPress={() => setObjectivesOpen((v) => !v)} style={[styles.objBar, allDone && styles.objBarDone]} accessibilityRole="button" accessibilityLabel={`Objectifs ${coveredCount} sur ${objectives.length}`}>
+              <View style={styles.segments}>
+                {objectives.map((o) => <View key={o.id} style={[styles.segment, o.state === "covered" && { backgroundColor: L.success }, o.state === "current" && { backgroundColor: L.accentDeep }]} />)}
+              </View>
+              {!objectivesOpen ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.objK, allDone && { color: L.success }]}>{allDone ? "OBJECTIFS ATTEINTS" : "OBJECTIF EN COURS"}</Text>
+                    <Text style={[styles.objTitle, allDone && { color: L.success }]} numberOfLines={2}>
+                      {allDone
+                        ? (closingIn === null ? "Tous les objectifs sont couverts." : closingIn <= 0 ? "Dernier échange avec ton coach." : `Encore ${closingIn} échange${closingIn > 1 ? "s" : ""} avec ton coach.`)
+                        : current?.label}
+                    </Text>
+                    {!allDone && example ? <Text style={styles.objHint} numberOfLines={1}>Ex. « {example} »</Text> : null}
+                  </View>
+                  <Icon name="chevron" size={18} style={{ transform: [{ rotate: "90deg" }] }} />
                 </View>
-              ))}
-              <Icon name="chevron" size={18} style={{ transform: [{ rotate: "-90deg" }], alignSelf: "flex-end" }} />
-            </View>
-          )}
-        </Pressable>}
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {objectives.map((o) => (
+                    <View key={o.id} style={styles.objLine} accessibilityLabel={`${o.label} : ${o.state === "covered" ? "couvert" : o.state === "current" ? "en cours" : "à faire"}`}>
+                      {o.state === "covered" ? <Icon name="check" size={20} /> : o.state === "current" ? <Icon name="fleche" size={20} tint={L.accentDeep} /> : <View style={styles.objDot} />}
+                      <Text style={[styles.objText, o.state === "covered" && { color: L.success }, o.state === "todo" && { color: L.textSecondary }]}>{o.label}</Text>
+                    </View>
+                  ))}
+                  <Icon name="chevron" size={18} style={{ transform: [{ rotate: "-90deg" }], alignSelf: "flex-end" }} />
+                </View>
+              )}
+            </Pressable>
+          );
+        })()}
 
         {error && (
           <View style={styles.errorRow} accessibilityLiveRegion="polite">
@@ -538,7 +527,16 @@ export default function LessonConversation({ attemptId, variant, level, initialT
         <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: !reduceMotionRef.current })}>
           {messages.map((m) => {
             if (m.kind === "coach" && m.id === "op" && connecting) return null;
-            if (m.kind === "user") return <View key={m.id} style={styles.userBubble}><Text style={styles.userText}>{m.text}</Text></View>;
+            if (m.kind === "user") {
+              return (
+                <View key={m.id} style={styles.userWrap}>
+                  <View style={styles.userBubble}><Text style={styles.userText}>{m.text}</Text></View>
+                  {m.validated?.map((t) => (
+                    <View key={t} style={styles.validRow}><View style={styles.validCheck}><Icon name="check" size={11} tint="#fff" /></View><Text style={styles.validText}>{t} : validé</Text></View>
+                  ))}
+                </View>
+              );
+            }
             if (m.kind === "nothing") {
               return (
                 <View key={m.id} style={styles.nothingCard}>
@@ -703,10 +701,14 @@ const styles = StyleSheet.create({
   objBarDone: { backgroundColor: L.successSoft, borderColor: L.successSoft },
   segments: { flexDirection: "row", gap: 6, marginBottom: 6 },
   segment: { flex: 1, height: 5, borderRadius: 3, backgroundColor: L.border },
+  objK: { color: L.accentDeep, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 2 },
+  objTitle: { color: L.textPrimary, fontSize: 15.5, fontWeight: "800", lineHeight: 21 },
+  objHint: { color: L.textSecondary, fontSize: 13, fontWeight: "600", marginTop: 2 },
+  userWrap: { alignSelf: "flex-end", alignItems: "flex-end", marginBottom: 10, marginLeft: 24, maxWidth: "100%" },
+  validRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, marginRight: 4 },
+  validCheck: { width: 18, height: 18, borderRadius: 9, backgroundColor: L.success, alignItems: "center", justifyContent: "center" },
+  validText: { color: L.success, fontSize: 13, fontWeight: "800" },
   objLine: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 28 },
-  objToast: { position: "absolute", top: 0, right: 12, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: L.success, borderRadius: 14, paddingVertical: 5, paddingHorizontal: 10, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
-  objToastCheck: { width: 18, height: 18, borderRadius: 9, backgroundColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
-  objToastText: { color: "#fff", fontSize: 12.5, fontWeight: "800" },
   typingBubble: { paddingVertical: 12, paddingHorizontal: 18, alignSelf: "flex-start" },
   objDot: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: "#C9C2D6" },
   objText: { flex: 1, color: L.textPrimary, fontSize: 15.5, fontWeight: "700", lineHeight: 21 },
@@ -725,7 +727,7 @@ const styles = StyleSheet.create({
   msgActions: { flexDirection: "row", gap: 16, marginTop: 6 },
   msgAction: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 32 },
   msgActionText: { color: L.textSecondary, fontSize: 13.5, fontWeight: "700" },
-  userBubble: { backgroundColor: L.accentSoft, borderRadius: L.radiusCard, borderTopRightRadius: 8, padding: 14, marginBottom: 10, marginLeft: 24, marginRight: 56, alignSelf: "flex-end", maxWidth: "100%" },
+  userBubble: { backgroundColor: L.accentSoft, borderRadius: L.radiusCard, borderTopRightRadius: 8, padding: 14, marginRight: 56, alignSelf: "flex-end", maxWidth: "100%" },
   userText: { color: L.textPrimary, fontSize: 16, fontWeight: "700", lineHeight: 23 },
 
   coachingCard: { backgroundColor: L.lavender, borderRadius: L.radiusCard, padding: 14, marginBottom: 10, marginRight: 56 },

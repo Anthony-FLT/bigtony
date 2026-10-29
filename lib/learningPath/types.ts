@@ -183,6 +183,7 @@ export type LessonAttempt = {
   practiceLevel: PracticeLevel;
   briefingEn?: string; // ouverture parlée générée à la création (bonjour + direction + première question)
   briefingFr?: string;
+  firstQuestionEn?: string; // première question reformulée par le serveur (nouvelle tentative uniquement)
   state: AttemptState;
   active: boolean; // une seule tentative active par leçon ; fermée par J4 (finalizeAttempt) ou "ended_unvalidated"
   coachingUsed?: boolean;

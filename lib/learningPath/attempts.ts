@@ -29,6 +29,10 @@ export function lessonStartError(e: any): LessonStartError {
 }
 
 // voice : coach du profil (prénom/accent de l'ouverture) ; isFirstLesson : le coach se présente dans l'ouverture
+// Préchauffe startOrResumeLesson (appelé depuis l'accueil : l'instance est prête quand l'utilisateur tape « Reprendre »)
+export function warmStartOrResumeLesson(): void {
+  startOrResumeLessonFn({ warmup: true }).catch(() => {});
+}
 export async function startOrResumeLesson(lessonId: string, opts: { voice?: string; isFirstLesson?: boolean } = {}): Promise<StartLessonResult> {
   const res: any = await startOrResumeLessonFn({ lessonId, ...opts });
   return res.data as StartLessonResult;

@@ -12,6 +12,7 @@ import { computeStreak } from "../../lib/streak";
 import { L, ILL, Icon, RoundButton, Pill, PrimaryButton, ListenButton, SectionLabel } from "../../components/lessonUi";
 import LessonConversation, { ConversationEnd } from "./LessonConversation";
 import { startOrResumeLesson, updateAttemptState, finalizeAttempt, syncLearningEntitlement, lessonStartError, LessonStartError, warmLessonTurn, warmFinalizeAttempt } from "../../lib/learningPath/attempts";
+import { warmAvatar } from "../../lib/liveAvatar/session";
 import { getChapter, getLesson, LESSONS, lessonsOfChapter } from "../../lib/learningPath/catalog";
 import type { AttemptResult, AttemptTurn, LessonAttempt, LessonDefinition, LessonVariant } from "../../lib/learningPath/types";
 import {
@@ -22,14 +23,13 @@ import {
 import { useAvatarSession } from "../../lib/liveAvatar/useAvatarSession";
 import { coachForVoice } from "../../lib/learningPath/coaches";
 import { coachIntroEn } from "../../lib/learningPath/intro";
-import { GOALS } from "../../lib/onboardingData";
+import { O, IMAGES, OnbIcon, CoachMedallion, PrimaryCta, SecondaryLink } from "../../components/onbUi";
+import SourceSheet from "../../components/SourceSheet";
 type AttemptResultLike = Awaited<ReturnType<typeof finalizeAttempt>>;
 
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 
-// « plan » : après la 1re leçon (non abonné), synthèse personnalisée avant le paywall
-type Phase = "loading" | "error" | "mission" | "conversation" | "validating" | "success" | "plan";
-const PLAN_BUILD_MS = 2600;
+type Phase = "loading" | "error" | "mission" | "conversation" | "validating" | "success";
 export type LessonExit = { reason: "back" } | { reason: "next_lesson"; nextLessonId: string } | { reason: "done" };
 
 function nextLessonOf(lessonId: string): LessonDefinition | null {
@@ -83,7 +83,8 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   const [speechRate, setSpeechRate] = useState(0.95);
   const [level, setLevel] = useState("B1");
   const [flowVersion, setFlowVersion] = useState("legacy");
-  const [profileBits, setProfileBits] = useState<{ name: string; goals: string[]; interests: string[] }>({ name: "", goals: [], interests: [] });
+  const [profileBits, setProfileBits] = useState<{ name: string; goals: string[]; sourcePromptShown: boolean }>({ name: "", goals: [], sourcePromptShown: true });
+  const [showSource, setShowSource] = useState(false); // écran 13 : question « comment as-tu découvert Déclic », une seule fois
   const [streak, setStreak] = useState(0);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const startedAtRef = useRef(0);
@@ -92,7 +93,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   const reveal = useRef(new Animated.Value(0)).current;
   const reduceMotionRef = useRef(false);
 
-  // Coach vidéo : une session par leçon, démarrée au « C'est parti », arrêtée avant le bilan. Le serveur décide (flag, quotas).
+  // Coach vidéo : une session par leçon, démarrée dès l'écran de mission (le temps de lecture sert à la connexion), arrêtée avant le bilan. Le serveur décide (flag, quotas).
   const coach = coachForVoice(voice);
   const coachId = coach.id;
   const avatarCtx = () => ({ lessonId, attemptId: attempt?.id ?? "", coachId, mode: "unknown" as const });
@@ -119,40 +120,42 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
 
   useEffect(() => {
     let cancelled = false;
+    // Dès l'arrivée : on préchauffe tout ce qui servira dans les secondes qui suivent (vidéo, TTS, premier tour)
+    warmAvatar(); warmLessonTurn(); warmFinalizeAttempt();
     (async () => {
       try {
-        // Le profil (voix → coach vidéo) doit être connu AVANT tout avatar.start(), sinon le coach par défaut part en vidéo
-        let profileVoice = "us-male";
-        try {
-          const p = await loadProfile();
-          if (cancelled) return;
-          if (p?.voice) { setVoice(p.voice); profileVoice = p.voice; }
-          if (p?.speechRate) setSpeechRate(p.speechRate);
-          if (p?.level) setLevel(p.level);
-          if (p?.flowVersion) setFlowVersion(p.flowVersion);
-          setProfileBits({ name: (p?.name ?? "").trim(), goals: Array.isArray(p?.goals) ? p!.goals : [], interests: Array.isArray(p?.interests) ? p!.interests : [] });
-        } catch {}
-        let r;
-        const startOpts = { voice: profileVoice, isFirstLesson: LESSONS[0]?.id === lessonId };
-        try { r = await startOrResumeLesson(lessonId, startOpts); }
-        catch (e: any) {
+        // Profil et démarrage de la leçon EN PARALLÈLE (le serveur lit lui-même la voix du profil pour le briefing) ;
+        // le profil (voix → coach vidéo) reste connu avant tout avatar.start()
+        const startOpts = { isFirstLesson: LESSONS[0]?.id === lessonId };
+        const profileP = loadProfile().catch(() => null);
+        const startP = startOrResumeLesson(lessonId, startOpts).catch(async (e: any) => {
           if (lessonStartError(e) !== "subscription_required") throw e;
           await syncLearningEntitlement(); // juste après un achat, le webhook peut ne pas être passé
-          r = await startOrResumeLesson(lessonId, startOpts);
-        }
+          return startOrResumeLesson(lessonId, startOpts);
+        });
+        const p = await profileP;
         if (cancelled) return;
+        if (p?.voice) setVoice(p.voice);
+        if (p?.speechRate) setSpeechRate(p.speechRate);
+        if (p?.level) setLevel(p.level);
+        if (p?.flowVersion) setFlowVersion(p.flowVersion);
+        setProfileBits({ name: (p?.name ?? "").trim(), goals: Array.isArray(p?.goals) ? p!.goals : [], sourcePromptShown: p?.sourcePromptShown !== false });
+        const r = await startP;
+        if (cancelled) return;
+        const startCoachId = coachForVoice(p?.voice).id;
         setAttempt(r.attempt); setVariant(r.variant); setTurns(r.turns);
-        warmLessonTurn(); warmFinalizeAttempt(); // instances prêtes quand l'utilisateur parle / termine
         const st = r.resumed ? r.attempt.state : "briefing";
         if (st === "validating" || st === "evaluating") { runFinalize(r.attempt.id); return; }
         if (["conversation", "coaching_retry", "paused", "retry", "feedback"].includes(st)) {
           // Reprise : la session vidéo démarre AVANT d'afficher la conversation, sinon la réplique est lue en local sans attendre l'avatar
           startedAtRef.current = Date.now();
-          avatar.start(r.attempt.id); // identifiant passé explicitement : pas de dépendance au re-rendu
+          avatar.start(r.attempt.id, startCoachId); // identifiant et coach passés explicitement : pas de dépendance au re-rendu
           setPhase("conversation");
           return;
         }
         setPhase("mission");
+        // La session vidéo démarre pendant que l'utilisateur lit sa mission : à « C'est parti », le coach est déjà là
+        avatar.start(r.attempt.id, startCoachId);
         logLessonMissionShown({ lessonId, attemptId: r.attempt.id, contentVersion: r.variant.contentVersion, level: r.variant.practiceLevel, flowVersion });
       } catch (e: any) {
         const code = lessonStartError(e);
@@ -249,7 +252,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
       <View style={styles.container}>
         <StatusBar style="dark" />
         <View style={styles.header}>
-          <RoundButton icon="retour" label="Retour" onPress={() => onExit({ reason: "back" })} />
+          <RoundButton icon="retour" label="Retour" onPress={() => { avatar.stop("USER_CLOSED"); onExit({ reason: "back" }); }} />
           <View style={{ flex: 1 }} />
           <Pill>Leçon {lesson.order} sur {chapterLessons.length}</Pill>
         </View>
@@ -320,6 +323,7 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
           coachId={coachId}
           intro={attempt.briefingEn ? undefined : LESSONS[0]?.id === lessonId ? coachIntroEn(coach, variant.practiceLevel) : undefined}
           openingOverride={attempt.briefingEn || undefined}
+          firstQuestion={attempt.firstQuestionEn || undefined}
           onClosingStarted={() => startFinalize(attempt.id)}
           onCompleted={(end) => { endRef.current = end; runFinalize(attempt.id); }}
           onBack={(coveredCount, turn) => { avatar.stop("USER_CLOSED"); logLessonInterrupted(ctx(), attempt.state, coveredCount, turn); updateAttemptState(attempt.id, "paused"); onExit({ reason: "back" }); }}
@@ -340,65 +344,59 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
   const goNext = () => {
     if (!next || !nextPublished) { onExit({ reason: "done" }); return; }
     if (nextAccessible) { logLessonNextClick(ctx(), "lesson"); onExit({ reason: "next_lesson", nextLessonId: next.id }); }
-    else {
-      logLessonNextClick(ctx(), "paywall");
-      // Première leçon : on montre d'abord « ton plan est prêt » (synthèse personnalisée), puis l'offre
-      if (isFirstLesson) setPhase("plan"); else onLocked("subscription_required");
-    }
+    else { logLessonNextClick(ctx(), "paywall"); onLocked("subscription_required"); }
   };
+  // « Terminer pour aujourd'hui » : question provenance (une seule fois), puis retour au parcours sans lancer de leçon
+  const finishForToday = () => { if (!profileBits.sourcePromptShown) setShowSource(true); else onExit({ reason: "done" }); };
 
-  // ---------------- Plan personnalisé (1re leçon → paywall) ----------------
-  if (phase === "plan") {
-    const upcoming = [...chapterLessons.filter((l) => l.order > lesson.order), ...LESSONS.filter((l) => l.chapterId !== lesson.chapterId)].slice(0, 3);
-    const goalTitles = profileBits.goals.map((g) => GOALS.find((x) => x.key === g)?.title).filter((x): x is string => !!x).slice(0, 2);
-    const achievedCount = result.criteria.filter((c) => c.status === "achieved").length;
-    return (
-      <PlanReady
-        name={profileBits.name}
-        coachName={coach.displayName}
-        coachImage={coach.poster}
-        level={variant.practiceLevel}
-        achievedCount={achievedCount}
-        totalCount={result.criteria.length}
-        goals={goalTitles}
-        interests={profileBits.interests.slice(0, 3)}
-        upcoming={upcoming.map((l) => l.titleFr)}
-        focusFr={result.nextFocusFr ?? ""}
-        onContinue={() => onLocked("subscription_required")}
-        onBack={() => setPhase("success")}
-      />
-    );
-  }
-  const ctaLabel = !validated ? "Revoir cette leçon plus tard" : !next || !nextPublished ? "Retour au parcours" : nextAccessible ? "Commencer la prochaine leçon" : "Débloquer ma prochaine leçon";
+  const ctaLabel = !validated ? "Revoir cette leçon plus tard" : !next || !nextPublished ? "Retour au parcours" : "Continuer mon parcours";
   const achieved = result.criteria.filter((c) => c.status === "achieved");
   const remaining = result.criteria.filter((c) => c.status !== "achieved");
 
+  const nextImage = next ? (profileBits.goals[0] === "voyage" ? IMAGES.sceneHotel : IMAGES.scenePresentation) : null;
+  const successTitle = !validated ? "Presque ! On consolide" : isFirstLesson ? "Tu as parlé de toi en anglais." : result.kind === "validated_with_support" ? "Réussi, avec un coup de pouce !" : "Conversation réussie !";
+  const successSub = isFirstLesson
+    ? (profileBits.name ? `Deux conversations réalisées, ${profileBits.name}.` : "Deux conversations réalisées.")
+    : (result.summaryFr || `Une conversation de plus avec ${coach.displayName}.`);
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
-      {header(lesson.titleFr, () => onExit({ reason: "done" }))}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Animated.View style={[styles.successHead, { opacity: reveal, transform: [{ scale: reveal.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }] }]}>
-          <Image source={validated ? ILL.medaille : ILL.cible} style={styles.successIll} resizeMode="contain" />
-          <Text style={styles.successTitle} accessibilityRole="header">
-            {result.kind === "validated" ? "Première rencontre réussie !" : result.kind === "validated_with_support" ? "Réussi, avec un coup de pouce !" : "Presque ! On consolide"}
-          </Text>
+          <CoachMedallion source={coach.poster} check={validated} />
+          <Text style={styles.successTitle} accessibilityRole="header">{successTitle}</Text>
+          <Text style={styles.successSub}>{successSub}</Text>
           <View style={styles.pillRow}>
             {result.xpGained > 0 && <Pill icon="etoile">+{result.xpGained} XP</Pill>}
             <Pill icon="flamme">{streak} jour{streak > 1 ? "s" : ""}</Pill>
           </View>
-          {result.chapterBadge && <Text style={styles.badgeNote}>Badge du chapitre débloqué</Text>}
         </Animated.View>
 
+        <Text style={styles.sectionK}>{validated ? "Ce que tu as réussi" : "Où tu en es"}</Text>
         <View style={styles.card}>
-          <SectionLabel style={{ marginBottom: 12 }}>{validated ? "CE QUE TU AS RÉUSSI" : "OÙ TU EN ES"}</SectionLabel>
           {achieved.map((c) => (
-            <View key={c.id} style={styles.doneRow}><View style={styles.doneIcon}><Icon name="check" size={18} tint="#fff" /></View><Text style={styles.doneText}>{c.doneFr}</Text></View>
+            <View key={c.id} style={styles.doneRow}><View style={styles.doneIcon}><OnbIcon name="check" size={14} tint="#fff" /></View><Text style={styles.doneText}>{c.doneFr}</Text></View>
           ))}
           {remaining.map((c) => (
-            <View key={c.id} style={styles.doneRow}><View style={[styles.doneIcon, { backgroundColor: L.accentSoft }]}><Icon name="fleche" size={16} tint={L.accentDeep} /></View><Text style={[styles.doneText, { color: L.textSecondary }]}>{c.doneFr}</Text></View>
+            <View key={c.id} style={styles.doneRow}><View style={[styles.doneIcon, { backgroundColor: L.border }]}><OnbIcon name="circle" size={14} tint={L.textSecondary} /></View><Text style={[styles.doneText, { color: L.textSecondary }]}>{c.doneFr}</Text></View>
           ))}
         </View>
+
+        {result.keyPhraseEn ? (
+          <View style={styles.phraseCard}>
+            <Text style={styles.phraseK}>Une phrase à réutiliser</Text>
+            <View style={styles.phraseRow}>
+              <Text style={styles.keyPhrase}>{result.keyPhraseEn}</Text>
+              <Pressable onPress={() => speak("key", result.keyPhraseEn)} style={styles.phraseSpeaker} hitSlop={6} accessibilityRole="button" accessibilityLabel="Écouter la phrase">
+                {busy["key"] ? <ActivityIndicator size="small" color={O.lavenderInk} /> : <OnbIcon name="volume" size={18} tint={O.lavenderInk} />}
+              </Pressable>
+            </View>
+            {result.keyPhraseFr ? <Text style={styles.keyPhraseFr}>{result.keyPhraseFr}</Text> : null}
+            <Pressable onPress={() => speak("key", result.keyPhraseEn)} style={styles.replay} hitSlop={6} accessibilityRole="button" accessibilityLabel="Réécouter la phrase">
+              <OnbIcon name="replay" size={14} tint={O.lavenderInk} /><Text style={styles.replayText}>Réécouter</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {result.nextFocusFr ? (
           <View style={[styles.card, { backgroundColor: L.lavender }]}>
@@ -407,167 +405,29 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
           </View>
         ) : null}
 
-        {result.keyPhraseEn ? (
-          <View style={[styles.card, { backgroundColor: L.yellow }]}>
-            <SectionLabel color={L.yellowText} style={{ marginBottom: 8 }}>TA PHRASE À RETENIR</SectionLabel>
-            <Text style={styles.keyPhrase}>{result.keyPhraseEn}</Text>
-            {result.keyPhraseFr ? <Text style={styles.keyPhraseFr}>{result.keyPhraseFr}</Text> : null}
-            <ListenButton onPress={() => speak("key", result.keyPhraseEn)} busy={busy["key"]} style={{ marginTop: 14 }} />
-          </View>
-        ) : null}
-
-        <View style={styles.card}>
-          <SectionLabel style={{ marginBottom: 14 }}>TON PARCOURS</SectionLabel>
-          <View style={styles.pathRow}>
-            <View style={[styles.nodeHalo, validated ? { backgroundColor: L.successSoft } : { backgroundColor: L.accentSoft }]}>
-              <View style={[styles.node, validated ? { backgroundColor: L.successFill } : { backgroundColor: L.accentDeep }]}><Icon name={validated ? "check" : "rejouer"} size={20} tint="#fff" /></View>
+        <Text style={styles.sectionK}>La prochaine étape</Text>
+        <View style={[styles.card, { padding: 10 }]}>
+          {nextImage ? <Image source={nextImage} style={styles.nextImg} resizeMode="cover" /> : null}
+          <View style={{ paddingHorizontal: 6, paddingTop: 10, paddingBottom: 4 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={styles.nextTitle}>{next ? (nextPublished ? next.titleFr : "Bientôt disponible") : "Fin du parcours"}</Text>
+              {next && nextPublished && !nextAccessible ? <OnbIcon name="lock" size={16} tint={L.textSecondary} /> : null}
             </View>
-            <Animated.View style={[styles.segment, { opacity: reveal }]}>
-              {Array.from({ length: 14 }).map((_, i) => <View key={i} style={[styles.dash, validated && { backgroundColor: "#B9B2F0" }]} />)}
-            </Animated.View>
-            <View style={[styles.nodeHalo, { backgroundColor: L.lavender }]}>
-              <View style={[styles.node, { backgroundColor: "#E3E1EE" }]}><Icon name={next && nextAccessible && validated ? "play" : "cadenas"} size={18} /></View>
-            </View>
-          </View>
-          <View style={styles.pathLabels}>
-            <Text style={styles.pathLabel} numberOfLines={2}>{lesson.titleFr}</Text>
-            <Text style={[styles.pathLabel, { textAlign: "right", color: L.textSecondary }]} numberOfLines={2}>{next ? (nextPublished ? next.titleFr : "Bientôt disponible") : "Fin du parcours"}</Text>
+            <Text style={styles.nextDesc}>{next && nextPublished ? `Continue avec ${coach.displayName}, à ton rythme.` : "Reviens bientôt : d'autres situations arrivent."}</Text>
           </View>
         </View>
 
-        <PrimaryButton label={ctaLabel} onPress={validated ? goNext : () => onExit({ reason: "done" })} />
+        <PrimaryCta label={ctaLabel} onPress={validated ? goNext : () => onExit({ reason: "done" })} style={{ marginTop: 18 }} />
         {validated && next && nextPublished && !nextAccessible && <Text style={styles.ctaNote}>Avec l'abonnement</Text>}
+        <SecondaryLink label="Terminer pour aujourd'hui" onPress={finishForToday} />
       </ScrollView>
-    </View>
-  );
-}
-
-// « Ton plan est prêt » : courte construction animée (étapes qui se cochent), puis la synthèse personnalisée.
-function PlanReady({ name, coachName, coachImage, level, achievedCount, totalCount, goals, interests, upcoming, focusFr, onContinue, onBack }: {
-  name: string; coachName: string; coachImage: any; level: string; achievedCount: number; totalCount: number;
-  goals: string[]; interests: string[]; upcoming: string[]; focusFr: string; onContinue: () => void; onBack: () => void;
-}) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const reveal = useRef(new Animated.Value(0)).current;
-  const [pct, setPct] = useState(0);
-  const [built, setBuilt] = useState(false);
-  useEffect(() => {
-    const id = progress.addListener(({ value }) => setPct(Math.round(value * 100)));
-    Animated.timing(progress, { toValue: 1, duration: PLAN_BUILD_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }).start(() => {
-      setBuilt(true);
-      Animated.timing(reveal, { toValue: 1, duration: 450, useNativeDriver: true }).start();
-    });
-    return () => progress.removeListener(id);
-  }, []);
-  const steps = [
-    { label: "Analyse de ta conversation", at: 25 },
-    { label: `Niveau ${level} confirmé`, at: 50 },
-    { label: "Sélection de tes prochaines leçons", at: 75 },
-    { label: `Réglage de ${coachName}`, at: 100 },
-  ];
-  const first = name ? `${name}, ton plan est prêt` : "Ton plan est prêt";
-
-  if (!built) {
-    return (
-      <View style={styles.container}>
-        <StatusBar style="dark" />
-        <View style={styles.planBuildWrap}>
-          <Text style={styles.planPct}>{pct}%</Text>
-          <Text style={styles.planBuildTitle}>On prépare ton plan…</Text>
-          <View style={[styles.card, { alignSelf: "stretch", marginTop: 22 }]}>
-            {steps.map((s) => {
-              const done = pct >= s.at;
-              return (
-                <View key={s.at} style={styles.planStepRow}>
-                  <View style={[styles.doneIcon, { backgroundColor: done ? L.successFill : L.border }]}>{done ? <Icon name="check" size={16} tint="#fff" /> : null}</View>
-                  <Text style={[styles.doneText, !done && { color: L.textSecondary }]}>{s.label}</Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <RoundButton icon="retour" label="Retour" onPress={onBack} />
-        <View style={{ flex: 1 }} />
-        <Pill icon="check" bg={L.successSoft}>Leçon 1 réussie</Pill>
-      </View>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Animated.View style={{ opacity: reveal, transform: [{ translateY: reveal.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-          <View style={styles.planHero}>
-            <Image source={coachImage} style={styles.planCoach} resizeMode="cover" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.planTitle}>{first}</Text>
-              <Text style={styles.planSub}>Construit à partir de ce que tu viens de dire à {coachName}.</Text>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <SectionLabel style={{ marginBottom: 10 }}>TON NIVEAU DE DÉPART</SectionLabel>
-            <View style={styles.planLevelRow}>
-              <View style={styles.planLevelBadge}><Text style={styles.planLevelText}>{level}</Text></View>
-              <Text style={styles.planBody}>{achievedCount}/{totalCount} objectif{totalCount > 1 ? "s" : ""} réussi{achievedCount > 1 ? "s" : ""} à la première leçon. {coachName} ajuste ses phrases sur ce niveau.</Text>
-            </View>
-          </View>
-
-          {(goals.length > 0 || interests.length > 0) && (
-            <View style={styles.card}>
-              <SectionLabel style={{ marginBottom: 10 }}>TON OBJECTIF</SectionLabel>
-              {goals.length > 0 ? <Text style={styles.planBody}>{goals.join(" et ")}.</Text> : null}
-              {interests.length > 0 ? <Text style={[styles.planBody, { color: L.textSecondary, marginTop: 6 }]}>On en parlera à travers {interests.map((i) => i.toLowerCase()).join(", ")}.</Text> : null}
-            </View>
-          )}
-
-          {focusFr ? (
-            <View style={[styles.card, { backgroundColor: L.lavender }]}>
-              <View style={styles.coachingHead}><Icon name="etoile" size={20} /><Text style={styles.coachingTitle}>Ton premier axe de travail</Text></View>
-              <Text style={styles.coachingText}>{focusFr}</Text>
-            </View>
-          ) : null}
-
-          {upcoming.length > 0 && (
-            <View style={styles.card}>
-              <SectionLabel style={{ marginBottom: 14 }}>TES PROCHAINES LEÇONS</SectionLabel>
-              {upcoming.map((t, i) => (
-                <View key={t} style={styles.missionRow}>
-                  <View style={styles.missionNumCol}>
-                    <View style={styles.missionNum}><Text style={styles.missionNumText}>{i + 2}</Text></View>
-                    {i < upcoming.length - 1 && <View style={styles.missionDash} />}
-                  </View>
-                  <Text style={[styles.missionText, { fontSize: 16, paddingBottom: 14 }]}>{t}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <PrimaryButton label="Voir mon offre" onPress={onContinue} />
-          <Text style={styles.ctaNote}>Ton plan est conservé, quoi que tu décides.</Text>
-        </Animated.View>
-      </ScrollView>
+      <SourceSheet visible={showSource} coachAvatar={coach.poster} onDone={() => { setShowSource(false); onExit({ reason: "done" }); }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: L.background, paddingHorizontal: L.gutter, paddingTop: 52 },
-  planBuildWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 60 },
-  planPct: { color: L.accentDeep, fontSize: 64, fontWeight: "800", letterSpacing: -2 },
-  planBuildTitle: { color: L.textPrimary, fontSize: 22, fontWeight: "700", marginTop: 4 },
-  planStepRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 12 },
-  planHero: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16 },
-  planCoach: { width: 72, height: 72, borderRadius: 36 },
-  planTitle: { color: L.textPrimary, fontSize: 26, fontWeight: "700", lineHeight: 31, letterSpacing: -0.4 },
-  planSub: { color: L.textSecondary, fontSize: 14.5, lineHeight: 20, marginTop: 4 },
-  planLevelRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  planLevelBadge: { width: 56, height: 56, borderRadius: 16, backgroundColor: L.accentSoft, alignItems: "center", justifyContent: "center" },
-  planLevelText: { color: L.accentDeep, fontSize: 20, fontWeight: "800" },
-  planBody: { flex: 1, color: L.textPrimary, fontSize: 16, lineHeight: 23 },
   header: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
   headerTitle: { flex: 1, color: L.textSecondary, fontSize: 17, fontWeight: "700" },
   scrollContent: { paddingBottom: 32 },
@@ -600,24 +460,26 @@ const styles = StyleSheet.create({
   error: { color: L.danger, fontSize: 15, fontWeight: "600", marginBottom: 20 },
   ctaNote: { color: L.textSecondary, fontSize: 14, textAlign: "center", marginTop: 10 },
 
-  successHead: { alignItems: "center", marginBottom: 18 },
-  successIll: { width: 170, height: 150, marginBottom: 6 },
-  successTitle: { color: L.textPrimary, fontSize: 30, fontWeight: "700", lineHeight: 36, textAlign: "center", letterSpacing: -0.4 },
-  badgeNote: { color: L.accentText, fontSize: 14, fontWeight: "700", marginTop: 10 },
-  doneRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 },
-  doneIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: L.successFill, alignItems: "center", justifyContent: "center" },
-  doneText: { flex: 1, color: L.textPrimary, fontSize: 17, fontWeight: "700", lineHeight: 24 },
+  successHead: { alignItems: "center", marginBottom: 6, marginTop: 8 },
+  successTitle: { color: L.textPrimary, fontSize: 26, fontWeight: "800", lineHeight: 32, textAlign: "center", letterSpacing: -0.4, marginTop: 8 },
+  successSub: { color: L.textSecondary, fontSize: 15, fontWeight: "600", textAlign: "center", marginTop: 6 },
+  sectionK: { color: L.textPrimary, fontSize: 16, fontWeight: "800", marginTop: 16, marginBottom: 8 },
+  doneRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
+  doneIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: L.successFill, alignItems: "center", justifyContent: "center" },
+  doneText: { flex: 1, color: L.textPrimary, fontSize: 15.5, fontWeight: "600", lineHeight: 21 },
+  phraseCard: { backgroundColor: L.lavender, borderRadius: L.radiusCard, padding: 14, marginBottom: 14 },
+  phraseK: { color: L.textPrimary, fontSize: 15, fontWeight: "800", marginBottom: 8 },
+  phraseRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: L.surface, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 },
+  keyPhrase: { flex: 1, color: L.textPrimary, fontSize: 17, fontWeight: "800", lineHeight: 24 },
+  keyPhraseFr: { color: L.textSecondary, fontSize: 13.5, fontStyle: "italic", marginTop: 8, marginLeft: 4 },
+  phraseSpeaker: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  replay: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", backgroundColor: L.surface, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 12, marginTop: 10, minHeight: 34 },
+  replayText: { color: O.lavenderInk, fontSize: 13, fontWeight: "800" },
+  nextImg: { width: "100%", aspectRatio: 2.6, borderRadius: 14 },
+  nextTitle: { color: L.textPrimary, fontSize: 17, fontWeight: "800" },
+  nextDesc: { color: L.textSecondary, fontSize: 13.5, fontWeight: "600", lineHeight: 19, marginTop: 3 },
   coachingHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   coachingTitle: { color: L.lavenderText, fontSize: 16, fontWeight: "700" },
   coachingText: { color: L.textPrimary, fontSize: 16, lineHeight: 24 },
-  keyPhrase: { color: L.textPrimary, fontSize: 26, fontWeight: "700", lineHeight: 32, letterSpacing: -0.3 },
-  keyPhraseFr: { color: L.textSecondary, fontSize: 16, marginTop: 6 },
 
-  pathRow: { flexDirection: "row", alignItems: "center" },
-  nodeHalo: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
-  node: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
-  segment: { flex: 1, flexDirection: "row", justifyContent: "space-between", marginHorizontal: 10 },
-  dash: { width: 10, height: 4, borderRadius: 2, backgroundColor: L.border },
-  pathLabels: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 10 },
-  pathLabel: { flex: 1, color: L.textPrimary, fontSize: 15, fontWeight: "700", lineHeight: 20 },
 });

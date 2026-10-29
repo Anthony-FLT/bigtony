@@ -13,10 +13,10 @@ export type VoiceKey = "us-male" | "us-female" | "uk-male" | "uk-female";
 export type AgeRange = "18-24" | "25-34" | "35-44" | "45-54" | "55+";
 export type FeedbackStyle = "soft" | "balanced" | "strict";
 // Onboarding : blocages à l'oral, échéance, canal d'acquisition
-export type Blocker = "words" | "mistakes" | "dare" | "accent" | "natives";
+export type Blocker = "words" | "mistakes" | "dare" | "accent" | "natives" | "listening";
 export type DeadlineKind = "interview" | "trip" | "job" | "exam" | "none";
 export type DeadlineHorizon = "1m" | "3m" | "6m" | "none";
-export type AcquisitionSource = "instagram" | "tiktok" | "youtube" | "play_store" | "word_of_mouth" | "facebook" | "other";
+export type AcquisitionSource = "instagram" | "tiktok" | "youtube" | "play_store" | "app_store" | "friend" | "word_of_mouth" | "facebook" | "other";
 
 export type Profile = {
   onboarded: boolean;
@@ -49,6 +49,14 @@ export type Profile = {
   confidence?: number; // aisance déclarée à l'oral, 1 à 5
   deadline?: { kind: DeadlineKind; horizon: DeadlineHorizon }; // échéance (entretien, voyage…)
   acquisition?: AcquisitionSource; // où il a connu l'app
+  // Onboarding v2 (café → offre → présentation)
+  onboardingVersion?: number;
+  onboardingStep?: string; // dernière étape atteinte (reprise)
+  discoveryCompleted?: boolean; // conversation café terminée
+  firstPaywallShown?: boolean;
+  presentationDiscoveryGranted?: boolean; // présentation offerte accordée (offre fermée ou achat)
+  sourcePromptShown?: boolean; // question « comment as-tu découvert Déclic » déjà posée
+  sourceSkipped?: boolean;
 };
 
 export async function loadProfile(): Promise<Profile | null> {
@@ -93,6 +101,13 @@ export async function loadProfile(): Promise<Profile | null> {
       confidence: typeof data.confidence === "number" ? data.confidence : undefined,
       deadline: data.deadline?.kind ? { kind: data.deadline.kind, horizon: data.deadline.horizon ?? "none" } : undefined,
       acquisition: data.acquisition,
+      onboardingVersion: typeof data.onboardingVersion === "number" ? data.onboardingVersion : undefined,
+      onboardingStep: data.onboardingStep,
+      discoveryCompleted: data.discoveryCompleted ?? false,
+      firstPaywallShown: data.firstPaywallShown ?? false,
+      presentationDiscoveryGranted: data.presentationDiscoveryGranted ?? false,
+      sourcePromptShown: data.sourcePromptShown ?? false,
+      sourceSkipped: data.sourceSkipped ?? false,
     };
   } catch (e) {
     console.warn("loadProfile échoué:", e);
@@ -235,4 +250,4 @@ export async function saveMilestone(n: number): Promise<void> {
   } catch (e) {
     console.warn("saveMilestone échoué:", e);
   }
-}
+}

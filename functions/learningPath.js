@@ -51,6 +51,12 @@ const LESSONS = new Map(structure.lessons.map((l) => [l.id, l]));
 const CHAPTERS = new Map(structure.chapters.map((c) => [c.id, c]));
 const VARIANTS = new Map();
 for (const f of chapterFiles) for (const v of f.variants) VARIANTS.set(v.id, v);
+// Leçon découverte de l'onboarding (« Commander un café », C00-L01) : hors parcours, offerte, même moteur que les leçons
+const discovery = require("./catalog/discovery.json");
+for (const c of discovery.chapters) CHAPTERS.set(c.id, c);
+for (const l of discovery.lessons) LESSONS.set(l.id, l);
+for (const v of discovery.variants) VARIANTS.set(v.id, v);
+const DISCOVERY_LESSON_ID = discovery.lessons[0].id;
 
 function getVariant(lessonId, level) {
   return VARIANTS.get(`${lessonId}-${level}`) || null;
@@ -235,9 +241,12 @@ function sanitizeTurn(turn, variant) {
 async function makeLessonBriefing({ variant, lesson, coachVoice, learnerName, isFirstLesson, learner = null }) {
   const who = coachIdentity(coachVoice);
   const name = learnerName ? ` ${learnerName}` : "";
+  // Première question de repli : celle du catalogue, sans son « Hi, I'm Sam » (le briefing a déjà salué et présenté le coach)
+  const stripGreeting = (q) => String(q || "").replace(/^\s*(hi|hello|hey)[\s,!.]*(i'?m|i am|my name is)\s+[A-Z][a-z]+[.!,]?\s*/i, "").replace(/^\s*(hi|hello|hey)[\s,!.]+/i, "").trim();
   const fallback = {
     en: `Hi${name}! ${isFirstLesson ? `I'm ${who.name}, your English coach. ` : ""}Today we'll practise: ${lesson.titleFr}.`,
     fr: `Salut${name} ! ${isFirstLesson ? `Je suis ${who.name}, ton coach d'anglais. ` : ""}Aujourd'hui on travaille : ${lesson.titleFr}.`,
+    question: stripGreeting(variant.openingEn) || variant.openingEn,
   };
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
@@ -250,32 +259,36 @@ async function makeLessonBriefing({ variant, lesson, coachVoice, learnerName, is
 Lesson: "${lesson.titleFr}" — ${variant.objectiveFr || ""}. In the conversation you play: ${variant.coachRole}.
 What the learner must manage to do today (in French, translate into simple English):
 ${objectives}
-${isFirstLesson ? `This is their very first lesson: say who you are in one short sentence ("I'm ${who.name}, your English coach").` : "You already know each other: no self-introduction."}
-${isFirstLesson && learner?.blockers?.length ? `They told us their main blocker: ${learner.blockers.map((b) => BLOCKER_EN[b]).join(", ")}. Add ONE short reassuring sentence about it, in simple English, right after the hello (e.g. "Mistakes are welcome here, that's how we learn.").` : ""}
-Write what you SAY, in this order: (1) hello with their first name; (2) ONE or TWO short sentences giving the direction of the lesson, as a plan ("Today we'll practise… First…, then…, and finally…"), in simple English for ${variant.practiceLevel}; (3) ONE short transition that hands over to the first question WITHOUT asking it ("Let's start.", "Ready? Let's go."). The first question ("${variant.openingEn}") will be said right after as a separate message: do NOT include it, do not ask any question.
-Rules: 5 sentences maximum. Never say "objective", "criteria", "lesson plan". Warm, natural, no emoji.
-Respond ONLY with JSON {"opening_en": "...", "opening_fr": "<French translation>"}.`,
+${isFirstLesson ? `This is their very first lesson: say who you are in the SAME sentence as the hello ("Hi ${learnerName || "there"}, I'm ${who.name}, your English coach.").` : "You already know each other: no self-introduction."}
+Write "opening_en", what you SAY: (1) hello with their first name${isFirstLesson ? " and who you are" : ""}; (2) ONE short sentence giving the direction of the lesson in simple English for ${variant.practiceLevel} ("Today we'll practise introducing yourself: your name, your job, and a question for me."); (3) ONE short transition ("Let's start.", "Ready? Let's go."). 3 sentences maximum, about 25 to 35 words in total: it is spoken, keep it short. No question in opening_en.
+Then write "question_en": the first question of the lesson, said right after as a separate message. Reformulate this reference naturally for a real conversation, same purpose, same simplicity: "${variant.openingEn}" (e.g. "What do you do?" becomes "So, what do you do for a living?"). ONE question, no greeting, no self-introduction, no name of the learner.
+Rules: never say "objective", "criteria", "lesson plan". Warm, natural, no emoji.
+Respond ONLY with JSON {"opening_en": "...", "opening_fr": "<French translation of opening_en>", "question_en": "..."}.`,
         responseMimeType: "application/json",
-        responseSchema: { type: Type.OBJECT, properties: { opening_en: { type: Type.STRING }, opening_fr: { type: Type.STRING } }, required: ["opening_en", "opening_fr"] },
+        responseSchema: { type: Type.OBJECT, properties: { opening_en: { type: Type.STRING }, opening_fr: { type: Type.STRING }, question_en: { type: Type.STRING } }, required: ["opening_en", "opening_fr", "question_en"] },
         temperature: 0.7,
         thinkingConfig: { thinkingLevel: "low" },
       },
     });
     const p = JSON.parse(res.text);
     const en = typeof p.opening_en === "string" ? p.opening_en.trim() : "";
-    if (en.length > 20) return { en: en.replace(/\?+\s*$/, ".").slice(0, 600), fr: String(p.opening_fr || "").slice(0, 600) };
+    const q = typeof p.question_en === "string" ? stripGreeting(p.question_en).slice(0, 300) : "";
+    if (en.length > 20) return { en: en.replace(/\?+\s*$/, ".").slice(0, 600), fr: String(p.opening_fr || "").slice(0, 600), question: /\?\s*$/.test(q) ? q : fallback.question };
     return fallback;
   } catch (e) { console.warn("briefing fallback:", e?.message); return fallback; }
 }
 
 exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_API_KEY], timeoutSeconds: 30 }, async (request) => {
   const uid = requireAuth(request);
-  const { lessonId, voice = "us-male", isFirstLesson = false } = request.data || {};
+  if (request.data?.warmup === true) return { ok: true }; // préchauffage depuis l'accueil : instance prête avant le tap « Reprendre »
+  const { lessonId, isFirstLesson = false } = request.data || {};
   const lesson = typeof lessonId === "string" ? LESSONS.get(lessonId) : null;
   if (!lesson || !isPublished(lessonId)) throw new HttpsError("not-found", "lesson_unavailable");
 
   const userSnap = await db.doc(`users/${uid}`).get();
   const user = userSnap.data() || {};
+  // Voix : celle du profil (le client n'a plus besoin d'attendre loadProfile avant d'appeler), sinon celle envoyée
+  const voice = typeof user.voice === "string" && user.voice ? user.voice : (request.data?.voice || "us-male");
 
   if (lesson.prerequisiteLessonId) {
     const prev = await db.doc(`users/${uid}/progress/${lesson.prerequisiteLessonId}`).get();
@@ -309,6 +322,7 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets:
     practiceLevel,
     briefingEn: briefing.en, // ouverture parlée (bonjour + direction de la leçon + première question)
     briefingFr: briefing.fr,
+    firstQuestionEn: briefing.question, // première question reformulée (sans « Hi, I'm Sam » : le briefing l'a déjà dit)
     coachStyle: coachStyleOf(user), // ton du coach choisi à l'onboarding (doux / équilibré / exigeant + défi)
     learnerContext: learnerContextOf(user), // blocages, aisance, échéance déclarés à l'onboarding
     state: "briefing",
@@ -618,7 +632,8 @@ exports.finalizeAttempt = onCall({ region: REGION, maxInstances: 5, secrets: [GE
     if (kind !== "needs_practice") validatedIds.add(a.lessonId);
     const chapter = CHAPTERS.get(lesson.chapterId);
     let chapterBadge = null;
-    if (chapter && chapterLessonIds.every((id) => validatedIds.has(id)) && !badges.includes(chapter.badgeId)) {
+    // (le chapitre découverte C00 n'a pas de badge : badgeId absent → jamais de valeur undefined écrite dans Firestore)
+    if (chapter && typeof chapter.badgeId === "string" && chapterLessonIds.every((id) => validatedIds.has(id)) && !badges.includes(chapter.badgeId)) {
       chapterBadge = chapter.badgeId;
       badges.push(chapter.badgeId);
     }
@@ -698,7 +713,7 @@ function coachStyleOf(user) {
   return { feedback, challenge };
 }
 // Ce que l'apprenant a dit de lui à l'onboarding (blocages, aisance, échéance) : contexte pour le briefing et les leçons
-const BLOCKER_EN = { words: "struggles to find words", mistakes: "is afraid of making mistakes", dare: "understands but does not dare to speak", accent: "feels self-conscious about their accent", natives: "panics when talking to native speakers" };
+const BLOCKER_EN = { words: "struggles to find words", mistakes: "is afraid of making mistakes", dare: "understands but does not dare to speak", accent: "feels self-conscious about their accent", natives: "panics when talking to native speakers", listening: "has trouble understanding spoken English, especially when people speak fast" };
 const DEADLINE_EN = { interview: "a job interview", trip: "a trip", job: "starting a new job", exam: "an exam" };
 const HORIZON_EN = { "1m": "in less than a month", "3m": "in 1 to 3 months", "6m": "in 3 to 6 months" };
 function learnerContextOf(user) {
@@ -711,7 +726,7 @@ function learnerContextOf(user) {
 function learnerContextLines(ctx) {
   if (!ctx) return "";
   const lines = [];
-  if (ctx.blockers?.length) lines.push(`- Main blockers they named: ${ctx.blockers.map((b) => BLOCKER_EN[b]).join("; ")}.`);
+  if (ctx.blockers?.length) lines.push(`- Main blockers they named: ${ctx.blockers.map((b) => BLOCKER_EN[b]).join("; ")}. The FIRST time you give a coaching card in this lesson, open explanation_fr with one short reassuring clause about that blocker (e.g. "Se tromper ici, c'est normal :" / "Tu as cherché tes mots, c'est le but :"), then the explanation.`);
   if (ctx.confidence) lines.push(`- Self-rated speaking confidence: ${ctx.confidence}/5${ctx.confidence <= 2 ? " (very nervous: reassure, slow down, celebrate every attempt)" : ctx.confidence >= 4 ? " (comfortable: you can be a bit more demanding)" : ""}.`);
   if (ctx.deadline) lines.push(`- They are preparing ${DEADLINE_EN[ctx.deadline.kind]}${ctx.deadline.horizon ? ` ${HORIZON_EN[ctx.deadline.horizon]}` : ""}: when natural, connect the lesson to it.`);
   return lines.length ? `WHAT THE LEARNER TOLD YOU ABOUT THEMSELVES (use it with tact, never recite it back as a list):
