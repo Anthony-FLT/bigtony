@@ -1,6 +1,6 @@
 // OnboardingFlow — onboarding v2 (maquettes du 29/10) : 01 accueil · 02 objectif · 03 blocage · 04 niveau + prénom · 05 coach
-// · 06 brief café · 07 conversation café (DiscoveryCafeScreen) · 08 bilan café · 09 paywall (contexte after_coffee)
-// · 10 présentation offerte (si offre fermée) ou 11 parcours débloqué (si achat) · puis onLaunch → première leçon du parcours.
+// · 06 brief café · 07 conversation café (DiscoveryCafeScreen) · 08 bilan café · 09 « Voici ton parcours » (OnboardingRoadmap, 4 étapes)
+// · puis onLaunch → présentation offerte (première leçon du parcours). Plus de paywall dans l'onboarding (03/11) : il vient après la présentation.
 import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, Image, ActivityIndicator } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
@@ -13,18 +13,17 @@ import { functions } from "../../lib/firebase";
 import { Goal, Blocker, VoiceKey, saveProfile } from "../../lib/profile";
 import type { Level } from "../../lib/level";
 import { COACHES, LessonCoach, coachForVoice, CoachId } from "../../lib/learningPath/coaches";
-import { LESSONS } from "../../lib/learningPath/catalog";
 import { DISCOVERY_TITLE_FR, DISCOVERY_GOALS_FR } from "../../lib/learningPath/discovery";
 import type { AttemptResult } from "../../lib/learningPath/types";
-import { logOnboardingComplete, logOnboardingStepViewed, logOnboardingStepCompleted, logCoachPreviewPlayed, logPaywallShown } from "../../lib/analytics";
-import PaywallScreen from "../PaywallScreen";
+import { logOnboardingComplete, logOnboardingStepViewed, logOnboardingStepCompleted, logCoachPreviewPlayed } from "../../lib/analytics";
 import DiscoveryCafeScreen from "./DiscoveryCafeScreen";
+import OnboardingRoadmap from "./OnboardingRoadmap";
 import { O, IMAGES, OnbIcon, IconDisc, PrimaryCta, SecondaryLink, TopBar, Title, Subtitle, ChoiceCard, CoachNote, InfoLine, Chip, CoachMedallion, s as ui, OnbIconName } from "../../components/onbUi";
 
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 const BRAND_ICON = require("../../assets/icon.png");
 
-type Phase = "welcome" | "goal" | "blocker" | "level" | "coach" | "brief" | "cafe" | "summary" | "paywall" | "offer" | "unlocked";
+type Phase = "welcome" | "goal" | "blocker" | "level" | "coach" | "brief" | "cafe" | "summary" | "roadmap";
 const QUESTION_STEPS = 4; // segments : objectif · blocage · niveau · coach
 
 // 02 — Où aimerais-tu te sentir à l'aise ? (« En entretien » remplacé par « Pour les études », demande du 29/10)
@@ -49,13 +48,12 @@ const LEVELS: { key: string; level: Level; icon: OnbIconName; bg: string; tint: 
   { key: "unknown", level: "A2" as Level, icon: "help", bg: "#E3F0FB", tint: "#2E6BB5", title: "Je ne sais pas encore", desc: "Commençons simplement." },
 ];
 const COACH_ORDER: CoachId[] = ["us_female", "us_male", "uk_female", "uk_male"];
-const PRESENTATION_TITLE = "Fais ta première présentation";
 
 export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = false }: {
   onLaunch: (goals: Goal[]) => void; // lance la première leçon du parcours (présentation)
   onLogin?: () => void;
-  onFinish?: () => void; // « Terminer pour aujourd'hui » : retour à l'app sans lancer de leçon
-  premium?: boolean; // déjà abonné : aucune offre affichée
+  onFinish?: () => void; // conservé pour App.tsx (plus de sortie « Terminer pour aujourd'hui » dans l'onboarding)
+  premium?: boolean; // conservé pour App.tsx ; plus d'offre dans l'onboarding
 }) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("welcome");
@@ -63,7 +61,7 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
   const [blocker, setBlocker] = useState<Blocker | null>(null);
   const [levelKey, setLevelKey] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [coachId, setCoachId] = useState<CoachId>("us_female");
+  const [coachId, setCoachId] = useState<CoachId>("us_male"); // Sam sélectionné par défaut (03/11)
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
@@ -73,7 +71,6 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
   const coach: LessonCoach = COACHES[coachId] ?? coachForVoice(null);
   const goalDef = GOALS.find((g) => g.key === goal) ?? GOALS[0];
   const firstName = name.trim();
-  const firstLessonTitle = LESSONS[0]?.titleFr ?? PRESENTATION_TITLE;
 
   useEffect(() => { logOnboardingStepViewed(phase); }, [phase]);
   useEffect(() => () => { try { player.pause(); } catch {} }, []);
@@ -125,21 +122,17 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
     saveProfile({ discoveryCompleted: true, onboardingStep: "summary" }).catch(() => {});
     setPhase("summary");
   };
-  const toPaywall = () => {
-    if (premium) { finishToLesson(); return; }
-    saveProfile({ firstPaywallShown: true, onboardingStep: "paywall" }).catch(() => {});
-    logPaywallShown("onboarding_after_coffee");
-    setPhase("paywall");
+  const toRoadmap = () => {
+    saveProfile({ onboardingStep: "roadmap" }).catch(() => {});
+    logOnboardingStepCompleted("summary");
+    setPhase("roadmap");
   };
+  // « Faire ma présentation » : présentation offerte, puis le paywall viendra après elle (App.tsx, contexte after_presentation)
   const finishToLesson = () => {
     saveProfile({ presentationDiscoveryGranted: true, onboardingStep: "done" }).catch(() => {});
+    logOnboardingStepCompleted("roadmap");
     logOnboardingComplete();
     onLaunch(goal ? [goal] : []);
-  };
-  const finishForToday = () => {
-    saveProfile({ presentationDiscoveryGranted: true, onboardingStep: "done" }).catch(() => {});
-    logOnboardingComplete();
-    (onFinish ?? (() => onLaunch(goal ? [goal] : [])))();
   };
 
   const pad = { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 };
@@ -233,11 +226,13 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
       <>
         <Title center>On commence{"\n"}à ton niveau.</Title>
         <Subtitle center>Pas de test à réussir. On s'adapte au fil des échanges.</Subtitle>
-        <View style={{ gap: 12, marginTop: 22 }}>
+        {/* Prénom en tête (03/11) : il ne colle plus au bouton, et le coach s'en servira dès la première conversation */}
+        <Text style={[st.label, { marginTop: 18 }]}>Ton prénom ou pseudo</Text>
+        <TextInput value={name} onChangeText={setName} placeholder="Comment on t'appelle ?" placeholderTextColor={O.muted} style={st.input} maxLength={24} returnKeyType="done" accessibilityLabel="Ton prénom ou pseudo" />
+        <Text style={[st.label, { marginTop: 22 }]}>Ton niveau</Text>
+        <View style={{ gap: 12 }}>
           {LEVELS.map((l) => <ChoiceCard key={l.key} selected={levelKey === l.key} onPress={() => setLevelKey(l.key)} title={l.title} desc={l.desc} icon={l.icon} iconBg={l.bg} iconTint={l.tint} />)}
         </View>
-        <Text style={st.label}>Ton prénom ou pseudo</Text>
-        <TextInput value={name} onChangeText={setName} placeholder="Ton prénom" placeholderTextColor={O.muted} style={st.input} maxLength={24} returnKeyType="done" accessibilityLabel="Ton prénom ou pseudo" />
       </>,
       { label: "Choisir mon coach", onPress: () => { logOnboardingStepCompleted("level", { level: levelKey ?? "" }); setPhase("coach"); }, disabled: !levelKey || firstName.length === 0 });
   }
@@ -335,82 +330,19 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
               <PhraseCard phrase={result.keyPhraseEn} voice={coach.voice} rate={speechRate} />
             </>
           ) : null}
-          <Text style={st.sectionTitle}>Ta prochaine situation</Text>
-          <View style={[st.card, st.nextCard]}>
-            <Image source={IMAGES.scenePresentation} style={st.nextImg} resizeMode="cover" />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={st.cardTitle}>{firstLessonTitle}</Text>
-              <Text style={st.nextDesc}>Présente-toi et fais connaissance avec {coach.displayName}.</Text>
-              <View style={{ marginTop: 8, alignSelf: "flex-start" }}><Chip icon="gift" label="Conversation offerte" bg={O.mint} tint={O.success} /></View>
-            </View>
+          <View style={st.progressRow} accessibilityLabel="Découverte : 1 conversation sur 2">
+            <View style={st.progressDots}><View style={[st.progressDot, st.progressDotOn]} /><View style={st.progressDot} /></View>
+            <Text style={st.progressText}>Découverte · 1/2 conversations</Text>
           </View>
         </ScrollView>
-        <PrimaryCta label="Découvrir la suite" onPress={toPaywall} />
+        <PrimaryCta label="Voir mon parcours" onPress={toRoadmap} />
       </View>
     );
   }
 
-  // ---------------- 09 Paywall (contexte after_coffee) ----------------
-  if (phase === "paywall") {
-    return (
-      <PaywallScreen
-        context="after_coffee"
-        onClose={() => { logOnboardingStepCompleted("paywall", { outcome: "closed" }); setPhase("offer"); }}
-        onPurchased={() => { logOnboardingStepCompleted("paywall", { outcome: "purchased" }); setPhase("unlocked"); }}
-      />
-    );
-  }
-
-  // ---------------- 10 Présentation offerte (offre fermée) ----------------
-  if (phase === "offer") {
-    return (
-      <View style={[st.screen, pad]}>
-        <StatusBar style="dark" />
-        <ScrollView contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false}>
-          <View style={{ alignItems: "center", marginTop: 8 }}>
-            <CoachMedallion source={coach.poster} check={false} />
-            <Text style={[ui.title, { textAlign: "center", marginTop: 10 }]}>Faisons un peu{"\n"}connaissance.</Text>
-            <Subtitle center>Une dernière conversation découverte pour parler de toi avec {coach.displayName}.</Subtitle>
-          </View>
-          <View style={[st.card, { marginTop: 18, padding: 0, overflow: "hidden" }]}>
-            <Image source={IMAGES.scenePresentation} style={st.offerImg} resizeMode="cover" />
-            <View style={{ padding: 16 }}>
-              <Text style={st.cardTitle}>{firstLessonTitle}</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                <Chip icon="clock" label="Environ 2 min" />
-                <Chip icon="gift" label="Conversation offerte" bg={O.mint} tint={O.success} />
-              </View>
-              <View style={{ gap: 10, marginTop: 14 }}>
-                {["Présente-toi", "Parle d'un loisir", "Pose une question"].map((g, i) => (
-                  <View key={g} style={st.goalRow}><View style={st.goalNum}><Text style={st.goalNumText}>{i + 1}</Text></View><Text style={st.goalText}>{g}</Text></View>
-                ))}
-              </View>
-            </View>
-          </View>
-          <View style={{ marginTop: 14 }}>
-            <CoachNote icon="lightbulb" title="Pas besoin d'une phrase parfaite." body={`${coach.displayName} t'aide à trouver tes mots.`} />
-          </View>
-        </ScrollView>
-        <PrimaryCta label={`Me présenter à ${coach.displayName}`} onPress={finishToLesson} />
-        <SecondaryLink label="Terminer pour aujourd'hui" onPress={finishForToday} />
-      </View>
-    );
-  }
-
-  // ---------------- 11 Parcours débloqué (achat) ----------------
-  if (phase === "unlocked") {
-    return (
-      <View style={[st.screen, pad, { justifyContent: "center" }]}>
-        <StatusBar style="dark" />
-        <View style={{ alignItems: "center" }}>
-          <CoachMedallion source={coach.poster} />
-          <Text style={[ui.title, { textAlign: "center", marginTop: 10 }]}>Ton parcours{"\n"}est débloqué.</Text>
-          <Subtitle center>{coach.displayName} t'attend pour ta première présentation.</Subtitle>
-        </View>
-        <View style={{ flex: 1 }} />
-        <PrimaryCta label="Commencer ma conversation" onPress={finishToLesson} />
-      </View>
-    );
+  // ---------------- 09 Voici ton parcours ----------------
+  if (phase === "roadmap") {
+    return <OnboardingRoadmap coachId={coach.id} goal={goal} onStart={finishToLesson} />;
   }
 
   return null;
@@ -494,6 +426,11 @@ const st = StyleSheet.create({
   doneRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   doneCheck: { width: 26, height: 26, borderRadius: 13, backgroundColor: O.success, alignItems: "center", justifyContent: "center" },
   doneText: { flex: 1, color: O.ink, fontSize: 15.5, fontWeight: "600", lineHeight: 21 },
+  progressRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 18, alignSelf: "center" },
+  progressDots: { flexDirection: "row", gap: 5 },
+  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: O.border },
+  progressDotOn: { backgroundColor: O.primary },
+  progressText: { color: O.muted, fontSize: 13.5, fontWeight: "700" },
   sectionTitle: { color: O.ink, fontSize: 16, fontWeight: "800", marginTop: 18, marginBottom: 2 },
   phraseCard: { backgroundColor: O.lavender, borderRadius: 20, padding: 14, marginTop: 10 },
   phraseRow: { flexDirection: "row", alignItems: "center", gap: 12 },

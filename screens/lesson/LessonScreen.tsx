@@ -298,6 +298,8 @@ export default function LessonScreen({ lessonId, premium, onExit, onLocked }: {
             label="C'est parti"
             onPress={() => { startedAtRef.current = Date.now(); updateAttemptState(attempt.id, "conversation"); logLessonStarted(ctx()); setPhase("conversation"); avatar.start(attempt.id); }}
           />
+          {/* « Pas maintenant » (03/11) : on peut remettre la conversation à plus tard sans l'entamer ; la leçon reste disponible sur l'accueil */}
+          <SecondaryLink label="Pas maintenant" onPress={() => { avatar.stop("USER_CLOSED"); onExit({ reason: "back" }); }} />
         </ScrollView>
       </View>
     );
