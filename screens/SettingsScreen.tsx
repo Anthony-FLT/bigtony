@@ -21,8 +21,10 @@ const COACH_VOICES: { key: VoiceKey; label: string }[] = [
 ];
 
 // Aide : adresse de contact (à renseigner) et fiche Play Store
-const SUPPORT_EMAIL = "app.declic@proton.me";
+const SUPPORT_EMAIL = "contact@declic-anglais.fr";
 const PLAY_PACKAGE = "fr.elanapp.english";
+// Identifiant numérique de l'app dans App Store Connect (Informations sur l'app → Identifiant Apple), pour la page d'avis iOS
+const APP_STORE_ID = "6831227791";
 const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
 
 export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditProfile: () => void; onDeleted: () => void }) {
@@ -87,8 +89,11 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
 
   // — Abonnement —
   const openManageSub = () => {
-    Linking.openURL("https://play.google.com/store/account/subscriptions?sku=premium&package=fr.elanapp.english")
-      .catch(() => Alert.alert("Impossible d'ouvrir", "Ouvre le Play Store → Abonnements."));
+    const url = Platform.OS === "ios"
+      ? "https://apps.apple.com/account/subscriptions"
+      : "https://play.google.com/store/account/subscriptions?sku=premium&package=fr.elanapp.english";
+    Linking.openURL(url)
+      .catch(() => Alert.alert("Impossible d'ouvrir", Platform.OS === "ios" ? "Ouvre Réglages → ton nom → Abonnements." : "Ouvre le Play Store → Abonnements."));
   };
   const restore = async () => {
     setBusy(true);
@@ -109,10 +114,15 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
   };
   const leaveReview = async () => {
     try {
+      if (Platform.OS === "ios") {
+        // Ouvre directement la fenêtre « Écrire un avis » de l'App Store
+        await Linking.openURL(`itms-apps://itunes.apple.com/app/id${APP_STORE_ID}?action=write-review`);
+        return;
+      }
       const deep = `market://details?id=${PLAY_PACKAGE}`;
-      if (Platform.OS === "android" && (await Linking.canOpenURL(deep))) { await Linking.openURL(deep); return; }
+      if (await Linking.canOpenURL(deep)) { await Linking.openURL(deep); return; }
       await Linking.openURL(`https://play.google.com/store/apps/details?id=${PLAY_PACKAGE}`);
-    } catch { Alert.alert("Donner mon avis", "Impossible d'ouvrir le Play Store pour l'instant."); }
+    } catch { Alert.alert("Donner mon avis", Platform.OS === "ios" ? "Impossible d'ouvrir l'App Store pour l'instant." : "Impossible d'ouvrir le Play Store pour l'instant."); }
   };
 
   // — Suppression du compte —
@@ -236,7 +246,7 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
         <View style={styles.card}>
           <Row icon="mail" label="Nous contacter" sub="Une question, un bug, une idée ? On répond vite." onPress={contactUs} />
           <View style={styles.sep} />
-          <Row icon="star" label="Donner mon avis" sub="Une note sur le Play Store nous aide énormément." onPress={leaveReview} />
+          <Row icon="star" label="Donner mon avis" sub={`Une note sur ${Platform.OS === "ios" ? "l'App Store" : "le Play Store"} nous aide énormément.`} onPress={leaveReview} />
         </View>
 
         <Text style={styles.section}>À PROPOS</Text>
