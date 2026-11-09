@@ -67,8 +67,15 @@ function iso8601ToDays(iso: any): number | null {
 }
 
 // Prix d'appel du mensuel (ex. 4,99 € le 1er mois) : phase payante située avant le prix de base, sur 1 mois.
+// Android : phases de prix des subscriptionOptions. iOS : offre de lancement « pay as you go » (product.introductoryPrice, prix > 0).
 function introPriceFor(pkg: PurchasesPackage | null): { priceString: string; micros: number } | null {
-  const opts = (pkg?.product as any)?.subscriptionOptions;
+  const product: any = pkg?.product;
+  const ios = product?.introductoryPrice;
+  if (ios && Number(ios.price ?? 0) > 0) {
+    const days = periodUnitToDays(ios.periodNumberOfUnits, ios.periodUnit) ?? iso8601ToDays(ios.period);
+    if (days === 30 && Number(ios.cycles ?? 1) === 1) return { priceString: ios.priceString ?? `${Number(ios.price).toFixed(2).replace(".", ",")} €`, micros: Math.round(Number(ios.price) * 1_000_000) };
+  }
+  const opts = product?.subscriptionOptions;
   if (!Array.isArray(opts)) return null;
   for (const o of opts) {
     if (Array.isArray(o?.tags) && o.tags.includes("rc-ignore-offer")) continue;

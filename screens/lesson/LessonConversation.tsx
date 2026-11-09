@@ -2,7 +2,7 @@
 // bulles, carte « Le conseil de Sam », carte « Je n'ai rien entendu », aides (Aide-moi à dire / Un exemple),
 // composer : clavier · micro · rejouer. Chaque réponse envoyée = un tour (lessonTurn), le serveur décide de la suite.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Linking, AccessibilityInfo, Modal, Keyboard, Animated, Easing } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Linking, AccessibilityInfo, Modal, Keyboard, Animated, Easing, Platform } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useAudioRecorder, useAudioRecorderState, useAudioPlayer, RecordingPresets, AudioModule, setAudioModeAsync } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
@@ -11,6 +11,7 @@ import { functions } from "../../lib/firebase";
 import { L, Icon, RoundButton, ListenButton } from "../../components/lessonUi";
 import { lessonTurn } from "../../lib/learningPath/attempts";
 import { avatarSpeech } from "../../lib/liveAvatar/session";
+import { applyAvatarAudioSession, IOS_RECONNECT_AFTER_RECORDING } from "../../lib/liveAvatar/audioSessionIos";
 import type { AttemptTurn, Coaching, LessonTurnResponse, LessonVariant } from "../../lib/learningPath/types";
 import CoachVideo from "../../components/CoachVideo";
 import TypingDots from "../../components/TypingDots";
@@ -97,7 +98,10 @@ export default function LessonConversation({ attemptId, variant, level, initialT
   onObjectiveCovered?: (criterionId: string, turn: number, support: string) => void;
   onCoachingRetryDone?: (covered: boolean) => void;
 }) {
-  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  // iOS : 48 kHz mono, comme la session WebRTC du coach vidéo (44,1 kHz stéréo changeait la fréquence de la session et coupait le son du coach)
+  const recorder = useAudioRecorder(Platform.OS === "ios"
+    ? { ...RecordingPresets.HIGH_QUALITY, sampleRate: 48000, numberOfChannels: 1, bitRate: 64000, isMeteringEnabled: true }
+    : { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
   const recorderState = useAudioRecorderState(recorder, 80);
   const player = useAudioPlayer();
   // Première leçon : l'intro salue et présente déjà le coach → on retire le « Hi, I'm Sam. » de l'ouverture pour ne pas le dire deux fois
@@ -399,13 +403,33 @@ export default function LessonConversation({ attemptId, variant, level, initialT
     if (avatarActive()) { avatarRef.current?.interrupt(); avatarRef.current?.startListening(); avatarRef.current?.setBusy(true); }
     stopAudio(); setError(null);
     try {
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      // iOS + coach vidéo : le mode d'enregistrement est déjà posé par applyAvatarAudioSession, on ne touche plus à la session
+      if (!(Platform.OS === "ios" && avatarActive())) await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      else console.log("[AUDIO iOS] début d'enregistrement sans modification de la session");
       await recorder.prepareToRecordAsync(); recorder.record();
+      console.log("[AUDIO iOS] enregistrement démarré");
       recordStartRef.current = Date.now(); setComposer("recording");
     } catch (e: any) { setError(friendlyError(e)); }
   };
+  // Fin d'enregistrement : sur iOS avec le coach vidéo, on ne repasse PAS en lecture seule (ça coupe le son WebRTC),
+  // on ré-applique la session audio de l'avatar ; sinon comportement d'origine.
+  const endRecordingAudio = async () => {
+    console.log("[AUDIO iOS] fin d'enregistrement : plateforme =", Platform.OS, "avatar actif =", avatarActive(), "statut =", avatarRef.current?.status);
+    if (Platform.OS === "ios" && avatarActive()) {
+      await applyAvatarAudioSession();
+      if (IOS_RECONNECT_AFTER_RECORDING) { avatarRef.current?.reconnectRoom(); console.log("[AUDIO iOS] salle remontée après enregistrement"); }
+      else {
+        // L'enregistreur iOS libère son unité audio APRÈS le retour de stop() : on laisse ce délai passer avant de relancer WebRTC,
+        // sinon la nouvelle unité est tuée à son tour. On a 2 à 4 s de marge pendant que la réponse se calcule.
+        setTimeout(() => { avatarRef.current?.refreshAudio(); console.log("[AUDIO iOS] relance audio demandée 600 ms après l'enregistrement"); }, 600);
+      }
+      return;
+    }
+    console.log("[AUDIO iOS] branche standard : setAudioModeAsync(allowsRecording:false)");
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+  };
   const cancelRecording = async () => {
-    try { await recorder.stop(); await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch {}
+    try { await recorder.stop(); await endRecordingAudio(); } catch {}
     avatarRef.current?.stopListening(); avatarRef.current?.setBusy(false);
     setComposer(retryPendingRef.current ? "retry" : "ready");
   };
@@ -413,7 +437,7 @@ export default function LessonConversation({ attemptId, variant, level, initialT
     if (composer !== "recording") return;
     setComposer("processing");
     try {
-      await recorder.stop(); await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      await recorder.stop(); await endRecordingAudio();
       if (Date.now() - recordStartRef.current < MIN_RECORDING_MS) { setComposer(retryPendingRef.current ? "retry" : "ready"); return; }
       const uri = recorder.uri; if (!uri) throw new Error("Aucun enregistrement produit");
       const audioBase64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });

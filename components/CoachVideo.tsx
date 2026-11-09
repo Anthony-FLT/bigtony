@@ -7,6 +7,7 @@ import { Track } from "livekit-client";
 import { L, ILL, Icon } from "./lessonUi";
 import type { AvatarController, AvatarStatus } from "../lib/liveAvatar/useAvatarSession";
 import { COACHES } from "../lib/learningPath/coaches";
+import AvatarAudioRefresh from "./AvatarAudioRefresh";
 
 const STATE: Record<AvatarStatus, { label: string; dot: string }> = {
   connecting: { label: "Connexion…", dot: "#B9B2C7" },
@@ -34,6 +35,7 @@ export default function CoachVideo({ avatar, coachId, reduced, onToggle, hidden 
   // La salle LiveKit reste montée dans les deux tailles (pas de reconnexion au passage grand ↔ réduit)
   const media = showVideo ? (
     <LiveKitRoom
+      key={avatar.roomEpoch}
       serverUrl={avatar.creds!.livekitUrl!}
       token={avatar.creds!.livekitClientToken!}
       connect
@@ -43,6 +45,8 @@ export default function CoachVideo({ avatar, coachId, reduced, onToggle, hidden 
       onDisconnected={() => avatar.onRoomFailed("room_disconnected")}
       onError={(e: any) => avatar.onRoomFailed(`room_error:${e?.message ?? ""}`)}
     >
+      {/* iOS : réabonne la piste audio du coach après chaque enregistrement (son coupé sinon), sans toucher à la vidéo */}
+      <AvatarAudioRefresh avatar={avatar} />
       <RemoteAvatarTrack poster={coach.poster} />
     </LiveKitRoom>
   ) : (

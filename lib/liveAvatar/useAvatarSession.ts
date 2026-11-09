@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { startAvatarSession, stopAvatarSession, avatarStartError, AvatarCommandClient, AvatarCredentials } from "./session";
+import { applyAvatarAudioSession, releaseAvatarAudioSession } from "./audioSessionIos";
 
 export type AvatarStatus = "off" | "connecting" | "ready" | "listening" | "thinking" | "talking" | "audio_only";
 export type AvatarStopReason = "USER_CLOSED" | "USER_DISCONNECTED" | "IDLE_TIMEOUT" | "SERVER_ERROR";
@@ -28,6 +29,10 @@ export type AvatarController = {
   setBusy: (on: boolean) => void; // enregistrement / traitement en cours : pas de coupure pour inactivité
   onRoomConnected: () => void;
   onRoomFailed: (reason: string) => void;
+  roomEpoch: number; // clé de la salle LiveKit : l'incrémenter la remonte (reconnexion ~300 ms, session HeyGen inchangée)
+  reconnectRoom: () => void; // iOS, solution de repli : remonte toute la salle (l'image saute)
+  audioEpoch: number; // iOS : chaque incrément fait réabonner la piste audio du coach (AvatarAudioRefresh), vidéo intacte
+  refreshAudio: () => void;
 };
 
 export function useAvatarSession(opts: {
@@ -54,6 +59,9 @@ export function useAvatarSession(opts: {
   const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusRef = useRef<AvatarStatus>("off");
   const tearingDownRef = useRef(false);
+  const [roomEpoch, setRoomEpoch] = useState(0);
+  const [audioEpoch, setAudioEpoch] = useState(0);
+  const reconnectingRef = useRef(false);
   const optsRef = useRef(opts); optsRef.current = opts;
 
   const set = (s: AvatarStatus) => { statusRef.current = s; setStatus(s); };
@@ -75,6 +83,7 @@ export function useAvatarSession(opts: {
     clientRef.current = null; credsRef.current = null; setCreds(null);
     roomReadyRef.current = false; wsReadyRef.current = false;
     try { client?.close(); } catch {}
+    releaseAvatarAudioSession();
     tearingDownRef.current = false;
     if (fallback) { setFallbackReason(fallback); set("audio_only"); optsRef.current.onFallback?.(fallback); }
     else set("off");
@@ -142,6 +151,8 @@ export function useAvatarSession(opts: {
       }
     });
     try {
+      console.log("[AUDIO iOS] start() : configuration de la session avant connexion");
+      await applyAvatarAudioSession(); // iOS : playAndRecord + haut-parleur avant que la piste audio du coach n'arrive
       await client.connect();
       wsReadyRef.current = true;
       checkReady();
@@ -185,13 +196,35 @@ export function useAvatarSession(opts: {
   const stopListening = useCallback(() => { if (!clientRef.current) return; clientRef.current.stopListening(); if (statusRef.current === "listening") set("ready"); armIdle(); }, [armIdle]);
   const setThinking = useCallback((on: boolean) => { if (!credsRef.current) return; if (on) set("thinking"); else if (statusRef.current === "thinking") set("ready"); }, []);
   const setBusy = useCallback((on: boolean) => { busyRef.current = on; if (!on) armIdle(); }, [armIdle]);
-  const onRoomConnected = useCallback(() => { roomReadyRef.current = true; checkReady(); }, [checkReady]);
-  const onRoomFailed = useCallback((reason: string) => { if (credsRef.current) teardown("SERVER_ERROR", reason); }, [teardown]);
+  const onRoomConnected = useCallback(() => { if (reconnectingRef.current) console.log("[AUDIO iOS] salle LiveKit reconnectée"); reconnectingRef.current = false; roomReadyRef.current = true; checkReady(); }, [checkReady]);
+  const onRoomFailed = useCallback((reason: string) => {
+    if (reconnectingRef.current && reason === "room_disconnected") return; // déconnexion provoquée par notre remontage : attendue
+    if (credsRef.current) teardown("SERVER_ERROR", reason);
+  }, [teardown]);
+  const refreshAudio = useCallback(() => {
+    if (!credsRef.current || !isActiveNow()) return;
+    console.log("[AUDIO iOS] refreshAudio : demande de réabonnement de la piste audio");
+    setAudioEpoch((e) => e + 1);
+  }, []);
+  // Remonte la salle LiveKit sans toucher à CoachVideo : creds → null (la salle se démonte, la piste audio est détruite)
+  // puis creds restaurés au tick suivant (nouvelle salle, nouvelle piste → WebRTC recrée son unité audio avec la session courante).
+  // credsRef reste renseigné pendant l'opération, donc rien d'autre (WS, timers, statut) ne bouge.
+  const reconnectRoom = useCallback(() => {
+    const c = credsRef.current;
+    if (!c || !isActiveNow()) { console.log("[AUDIO iOS] reconnectRoom ignoré (pas de session active)"); return; }
+    console.log("[AUDIO iOS] reconnectRoom : remontage de la salle LiveKit");
+    reconnectingRef.current = true;
+    roomReadyRef.current = false;
+    setRoomEpoch((e) => e + 1);
+    setCreds(null);
+    setTimeout(() => { if (credsRef.current === c) setCreds(c); }, 50);
+  }, []);
 
   return useMemo(() => ({
     status, creds, fallbackReason, offReason, isActive,
     start, stop, continueWithoutVideo, speak, interrupt, startListening, stopListening, setThinking, setBusy, onRoomConnected, onRoomFailed,
-  }), [status, creds, fallbackReason, offReason, isActive, start, stop, continueWithoutVideo, speak, interrupt, startListening, stopListening, setThinking, setBusy, onRoomConnected, onRoomFailed]);
+    roomEpoch, reconnectRoom, audioEpoch, refreshAudio,
+  }), [status, creds, fallbackReason, offReason, isActive, start, stop, continueWithoutVideo, speak, interrupt, startListening, stopListening, setThinking, setBusy, onRoomConnected, onRoomFailed, roomEpoch, reconnectRoom, audioEpoch, refreshAudio]);
 }
 
 // PCM 16 bits 24 kHz mono (segments base64) → WAV base64, pour la lecture locale (fallback) avec expo-audio.

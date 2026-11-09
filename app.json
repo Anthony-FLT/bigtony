@@ -7,7 +7,18 @@
     "icon": "./assets/favicon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "fr.elanapp.english",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Déclic Anglais utilise le micro pour que tu parles avec ton coach.",
+        "NSCameraUsageDescription": "La caméra n'est pas utilisée.",
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "softwareKeyboardLayoutMode": "pan",
@@ -37,13 +48,15 @@
           "color": "#1c2b46"
         }
       ],
-      [
-        "@react-native-firebase/app"
-      ],
+      "@react-native-firebase/app",
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc",
-      "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc"
+      [
+        "expo-build-properties",
+        {
+          "ios": { "useFrameworks": "dynamic" }
+        }
+      ]
     ],
     "extra": {
       "eas": {
