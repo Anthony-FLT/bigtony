@@ -7,8 +7,9 @@ export type LearningWeekStats = {
   weekLessons: number;        // leçons terminées (validées ou non) depuis lundi
   weekLessonsValidated: number;
   weekDailyTalks: number;     // points du jour terminés depuis lundi
+  weekNewsTalks: number;      // actus racontées au coach depuis lundi (discussions d'actu terminées)
   weekXp: number;             // XP gagnés depuis lundi (leçons + points du jour + exercices + scènes)
-  weekExercises: number;      // exercices du jour faits depuis lundi (écoute, lecture, traduction)
+  weekExercises: number;      // quiz d'actu faits depuis lundi (même source XP que les anciens exercices du jour)
   weekScenes: number;         // scènes terminées depuis lundi
   xpTotal: number;            // learning/state.xp
   reviewDue: number;          // cartes de révision dues (à replacer au prochain point du jour)
@@ -30,7 +31,7 @@ const dayIndex = (ms: number, monday: Date) => Math.floor((ms - monday.getTime()
 const dateKeyToMs = (key: string) => { const [y, m, d] = key.split("-").map(Number); return new Date(y, m - 1, d, 12).getTime(); };
 
 export async function getLearningWeekStats(): Promise<LearningWeekStats> {
-  const empty: LearningWeekStats = { weekLessons: 0, weekLessonsValidated: 0, weekDailyTalks: 0, weekXp: 0, weekExercises: 0, weekScenes: 0, xpTotal: 0, reviewDue: 0, reviewTotal: 0, minutesPerDay: [0, 0, 0, 0, 0, 0, 0], totalMinutes: 0 };
+  const empty: LearningWeekStats = { weekLessons: 0, weekLessonsValidated: 0, weekDailyTalks: 0, weekNewsTalks: 0, weekXp: 0, weekExercises: 0, weekScenes: 0, xpTotal: 0, reviewDue: 0, reviewTotal: 0, minutesPerDay: [0, 0, 0, 0, 0, 0, 0], totalMinutes: 0 };
   const uid = auth.currentUser?.uid;
   if (!uid) return empty;
   const monday = mondayOf();
@@ -45,13 +46,16 @@ export async function getLearningWeekStats(): Promise<LearningWeekStats> {
       getDocs(query(collection(db, "users", uid, "learning", "xp", "ledger"), where("at", ">=", mondayMs))),
     ]);
     const s = { ...empty, minutesPerDay: [0, 0, 0, 0, 0, 0, 0] };
-    // Leçons clôturées cette semaine
+    // Leçons et discussions d'actu clôturées cette semaine
     for (const d of attemptsSnap.docs) {
       const a = d.data() as any;
       const endAt = typeof a.result?.at === "number" ? a.result.at : null;
       if (!endAt || endAt < mondayMs) continue;
-      s.weekLessons++;
-      if (a.result?.kind === "validated" || a.result?.kind === "validated_with_support") s.weekLessonsValidated++;
+      if (a.kind === "news") s.weekNewsTalks++; // discussion d'une actu : comptée à part des leçons du parcours
+      else {
+        s.weekLessons++;
+        if (a.result?.kind === "validated" || a.result?.kind === "validated_with_support") s.weekLessonsValidated++;
+      }
       s.weekXp += Number(a.result?.xpGained) || 0;
       const startAt = typeof a.createdAt === "number" ? a.createdAt : endAt;
       const min = Math.min(MAX_ATTEMPT_MIN, Math.max(1, Math.round((endAt - startAt) / 60_000)));

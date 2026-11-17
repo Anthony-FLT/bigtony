@@ -16,7 +16,8 @@ export type PaywallSource =
   | "learning_path_after_lesson_1" // bilan de la première leçon du parcours (CTA « Débloquer ma prochaine leçon »)
   | "learning_path_map" // carte du parcours : leçon publiée mais réservée à l'abonnement
   | "daily_talk" // point du jour : une session gratuite par semaine, puis abonnement
-  | "onboarding_after_coffee"; // onboarding v2 : première offre, après la conversation café
+  | "onboarding_after_coffee" // onboarding v2 : première offre, après la conversation café
+  | "news_discussion"; // actu du jour : « En discuter avec ton coach » (réservé aux abonnés)
 
 export type ExerciseType = "reading" | "translation" | "listening";
 export type PlanId = "monthly" | "yearly";
@@ -120,3 +121,18 @@ export function logDailyTalkTurn(c: DailyCtx, turn: number, modality: "voice" | 
 export function logDailyTalkReuseOk(c: DailyCtx, turn: number) { log("daily_talk_reuse_ok", { ...c, turn }); }
 export function logDailyTalkEnd(c: DailyCtx, turns: number, coaching: boolean, reused: number) { log("daily_talk_end", { ...c, turns, coaching: coaching ? 1 : 0, reused }); }
 export function logDailyTalkLocked() { log("daily_talk_locked", {}); }
+
+// ---- L'actu du jour (lecture, quiz, discussion) — jamais le texte de l'actu ni les réponses dans les events ----
+type NewsCtx = { news_id: string; rubrique: string; level: string; position: number };
+export function logNewsCarouselShown(date: string, count: number) { log("news_carousel_shown", { date, count }); }
+export function logNewsOpened(c: NewsCtx) { log("news_opened", c); }
+export function logNewsAudioPlayed(c: NewsCtx) { log("news_audio_played", c); }
+export function logNewsWordTapped(c: NewsCtx) { log("news_word_tapped", c); }
+export function logNewsQuizStarted(c: NewsCtx) { log("news_quiz_started", c); }
+export function logNewsQuizDone(c: NewsCtx, score: number, total: number) { log("news_quiz_done", { ...c, score, total }); }
+export function logNewsDiscussClick(c: NewsCtx, destination: "discussion" | "paywall") { log("news_discuss_click", { ...c, destination }); }
+export function logNewsDiscussionStarted(c: NewsCtx, resumed: boolean) { log("news_discussion_started", { ...c, resumed: resumed ? 1 : 0 }); }
+export function logNewsDiscussionEnd(c: NewsCtx, kind: string, turns: number, activeSeconds: number) {
+  log("news_discussion_end", { ...c, kind, turns, active_seconds: Math.round(activeSeconds) });
+}
+export function logNewsDiscussionInterrupted(c: NewsCtx, coveredCount: number, turn: number) { log("news_discussion_interrupted", { ...c, covered_count: coveredCount, turn }); }

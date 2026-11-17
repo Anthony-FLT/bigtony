@@ -6,11 +6,10 @@ import { Feather } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { loadProfile, Profile, saveVoice, VoiceKey, saveSpeechRate } from "../lib/profile";
 import { SPEECH_RATES, DEFAULT_RATE } from "../lib/speech";
-import { getReminderSetting, scheduleDailyReminder, cancelDailyReminder, requestNotifPermission, getExpressionReminderEnabled, scheduleExpressionReminder, cancelExpressionReminder } from "../lib/notifications";
+import { requestNotifPermission, hasNotifPermission, getExpressionReminderEnabled, scheduleExpressionReminder, cancelExpressionReminder, getNewsReminderEnabled, scheduleNewsReminder, cancelNewsReminder } from "../lib/notifications";
 import { getAccess } from "../lib/entitlement";
 import { restorePurchasesFlow } from "../lib/purchases";
 import { deleteAccount } from "../lib/account";
-import TimeWheel from "../components/TimeWheel";
 import { SkeletonHeader, SkeletonBox } from "../components/Skeleton";
 
 const COACH_VOICES: { key: VoiceKey; label: string }[] = [
@@ -31,48 +30,39 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
   const [profile, setProfile] = useState<Profile | null>(null);
   const [voice, setVoice] = useState<VoiceKey>("us-male");
   const [speechRate, setSpeechRate] = useState<number>(DEFAULT_RATE);
-  const [on, setOn] = useState(false);
-  const [hour, setHour] = useState(19);
-  const [minute, setMinute] = useState(0);
-  const [exprOn, setExprOn] = useState(true);
+  const [newsOn, setNewsOn] = useState(false);
+  const [exprOn, setExprOn] = useState(false);
   const [premium, setPremium] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [p, r, ex, acc] = await Promise.all([loadProfile(), getReminderSetting(), getExpressionReminderEnabled(), getAccess()]);
+      const [p, nw, ex, granted, acc] = await Promise.all([loadProfile(), getNewsReminderEnabled(), getExpressionReminderEnabled(), hasNotifPermission(), getAccess()]);
       setProfile(p);
       if (p?.voice) setVoice(p.voice);
       if (p?.speechRate) setSpeechRate(p.speechRate);
-      setOn(r.on); setHour(r.hour); setMinute(r.minute);
-      setExprOn(ex);
+      // Sans autorisation du système, aucun rappel ne sort : les interrupteurs le montrent
+      setNewsOn(nw && granted);
+      setExprOn(ex && granted);
       setPremium(acc.premium);
       setLoading(false);
     })();
   }, []);
 
-  // — Rappel de discussion (logique d'origine, intacte) —
-  const toggle = async (val: boolean) => {
-    if (val) {
-      const granted = await requestNotifPermission();
-      if (!granted) return;
-      await scheduleDailyReminder(hour, minute);
-      setOn(true);
-    } else {
-      await cancelDailyReminder();
-      setOn(false);
-    }
+  // — Rappels : actus du jour et expression du jour. Activer l'un des deux demande l'autorisation du système si besoin. —
+  const askPermission = async (): Promise<boolean> => {
+    const granted = await requestNotifPermission();
+    if (!granted) Alert.alert("Notifications désactivées", "Autorise les notifications de Déclic Anglais dans les réglages de ton téléphone pour recevoir ce rappel.", [{ text: "Plus tard", style: "cancel" }, { text: "Ouvrir les réglages", onPress: () => Linking.openSettings().catch(() => {}) }]);
+    return granted;
   };
-  const changeTime = async (h: number, m: number) => {
-    setHour(h); setMinute(m);
-    if (on) await scheduleDailyReminder(h, m);
+  const toggleNews = async (val: boolean) => {
+    if (val) { if (!(await askPermission())) return; await scheduleNewsReminder(); setNewsOn(true); }
+    else { await cancelNewsReminder(); setNewsOn(false); }
   };
-
-  // — Expression du jour —
   const toggleExpr = async (val: boolean) => {
-    setExprOn(val);
-    if (val) await scheduleExpressionReminder(); else await cancelExpressionReminder();
+    if (val) { if (!(await askPermission())) return; await scheduleExpressionReminder(); setExprOn(true); }
+    else { await cancelExpressionReminder(); setExprOn(false); }
   };
 
   // — Voix du coach —
@@ -205,24 +195,19 @@ export default function SettingsScreen({ onEditProfile, onDeleted }: { onEditPro
         <Text style={styles.section}>RAPPELS</Text>
         <View style={styles.card}>
           <View style={styles.row}>
-            <Feather name="clock" size={19} color={T.night} />
+            <Feather name="file-text" size={19} color={T.night} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Rappel de discussion</Text>
-              <Text style={styles.rowSub}>Un petit coup de pouce quotidien</Text>
+              <Text style={styles.rowLabel}>Actus du jour</Text>
+              <Text style={styles.rowSub}>Chaque matin</Text>
             </View>
-            <Switch value={on} onValueChange={toggle} trackColor={{ true: T.abricot }} />
+            <Switch value={newsOn} onValueChange={toggleNews} trackColor={{ true: T.abricot }} />
           </View>
-          {on && (
-            <View style={styles.wheelWrap}>
-              <TimeWheel hour={hour} minute={minute} onChange={changeTime} />
-            </View>
-          )}
           <View style={styles.sep} />
           <View style={styles.row}>
             <Feather name="book-open" size={19} color={T.night} />
             <View style={{ flex: 1 }}>
               <Text style={styles.rowLabel}>Expression du jour</Text>
-              <Text style={styles.rowSub}>Chaque matin à 9h00</Text>
+              <Text style={styles.rowSub}>Chaque fin de journée</Text>
             </View>
             <Switch value={exprOn} onValueChange={toggleExpr} trackColor={{ true: T.abricot }} />
           </View>
@@ -288,7 +273,6 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 15.5, fontWeight: "700", color: T.night },
   rowSub: { fontSize: 12.5, fontWeight: "600", color: T.inkSoft, marginTop: 2 },
   sep: { height: 1, backgroundColor: T.creamLine, marginLeft: 50 },
-  wheelWrap: { alignItems: "center", paddingVertical: 8 },
   version: { textAlign: "center", color: T.inkSoft, fontSize: 12, fontWeight: "600", marginTop: 28 },
   overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(250,247,242,0.7)", alignItems: "center", justifyContent: "center" },
 });

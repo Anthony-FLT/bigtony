@@ -74,13 +74,14 @@ function CorrectedPhrase({ original, target }: { original: string; target: strin
   );
 }
 
-export default function LessonConversation({ attemptId, variant, level, initialTurns, initialCovered, initialRetry, voice, speakingRate, validating, onCompleted, onBack, onCoachingShown, onObjectiveCovered, onCoachingRetryDone, avatar, coachId = "us_male", intro, onClosingStarted, daily, openingOverride, firstQuestion }: {
+export default function LessonConversation({ attemptId, variant, level, initialTurns, initialCovered, initialRetry, voice, speakingRate, validating, onCompleted, onBack, onCoachingShown, onObjectiveCovered, onCoachingRetryDone, avatar, coachId = "us_male", intro, onClosingStarted, daily, openingOverride, firstQuestion, belowObjectives }: {
   attemptId: string;
   avatar?: AvatarController; // coach vidéo (LiveAvatar) — absent ou "off" : leçon audio inchangée
   coachId?: string;
   intro?: string; // première leçon : le coach se présente avant l'ouverture (repli si pas d'ouverture générée)
   openingOverride?: string; // ouverture générée par le serveur (bonjour + direction de la leçon)
   firstQuestion?: string; // première question reformulée par le serveur (remplace variant.openingEn sur une nouvelle tentative)
+  belowObjectives?: React.ReactNode; // élément affiché sous la barre d'objectif (actu du jour : pastille « Revoir l'actu »)
   variant: LessonVariant;
   level: string;
   initialTurns: AttemptTurn[];
@@ -539,6 +540,7 @@ export default function LessonConversation({ attemptId, variant, level, initialT
             </Pressable>
           );
         })()}
+        {!keyboardOpen ? belowObjectives : null}
 
         {error && (
           <View style={styles.errorRow} accessibilityLiveRegion="polite">

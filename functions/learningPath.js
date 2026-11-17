@@ -66,6 +66,14 @@ function isPublished(lessonId) {
   return !!l && l.published && !!CHAPTERS.get(l.chapterId)?.published;
 }
 
+// Actus du jour (dailyNews.js) : « En discuter avec ton coach » passe par le même moteur que les leçons.
+// L'identifiant de leçon est celui de l'actu (NEWS-AAAAMMJJ-n) ; la variante de discussion n'est pas dans le catalogue :
+// elle est copiée sur la tentative à sa création (attempt.newsVariant), pour rester stable quand l'édition change.
+const isNewsLessonId = (id) => typeof id === "string" && /^NEWS-\d{8}-\d{1,2}$/.test(id);
+const variantOfAttempt = (a) => (a && a.newsVariant) || VARIANTS.get(a?.variantId) || null;
+const newsLevelFor = (practiceLevel) => (practiceLevel === "A1" || practiceLevel === "A2" ? "A2" : practiceLevel === "B1" ? "B1" : "B2");
+const NEWS_XP = { validated: 20, validated_with_support: 15, needs_practice: 5 }; // une seule fois par actu
+
 // Vérification au chargement : un catalogue incohérent empêche le déploiement de servir du faux
 (function checkCatalog() {
   const problems = [];
@@ -282,6 +290,7 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets:
   const uid = requireAuth(request);
   if (request.data?.warmup === true) return { ok: true }; // préchauffage depuis l'accueil : instance prête avant le tap « Reprendre »
   const { lessonId, isFirstLesson = false } = request.data || {};
+  if (isNewsLessonId(lessonId)) return startNewsDiscussion(uid, lessonId);
   const lesson = typeof lessonId === "string" ? LESSONS.get(lessonId) : null;
   if (!lesson || !isPublished(lessonId)) throw new HttpsError("not-found", "lesson_unavailable");
 
@@ -350,6 +359,62 @@ exports.startOrResumeLesson = onCall({ region: REGION, maxInstances: 5, secrets:
 });
 
 // ---------------------------------------------------------------
+// Discussion d'une actu du jour : même contrat que startOrResumeLesson ({ attempt, turns, variant, resumed }).
+// Réservée aux abonnés. Pas de prérequis, pas de progression de parcours, pas d'ouverture générée :
+// la première réplique du coach est celle écrite avec l'actu (variant.openingEn).
+// ---------------------------------------------------------------
+async function startNewsDiscussion(uid, lessonId) {
+  const date = `${lessonId.slice(5, 9)}-${lessonId.slice(9, 11)}-${lessonId.slice(11, 13)}`;
+  const [userSnap, currentSnap, datedSnap, entitled] = await Promise.all([
+    db.doc(`users/${uid}`).get(), db.doc("dailyNews/current").get(), db.doc(`dailyNews/${date}`).get(), hasEntitlement(uid),
+  ]);
+  if (!entitled) throw new HttpsError("permission-denied", "subscription_required");
+  const attemptsCol = db.collection(`users/${uid}/attempts`);
+  // Reprise : au plus une tentative active par actu (la variante est celle copiée à la création)
+  const activeSnap = await attemptsCol.where("lessonId", "==", lessonId).where("active", "==", true).limit(1).get();
+  if (!activeSnap.empty) {
+    const doc = activeSnap.docs[0];
+    const { newsVariant, ...rest } = doc.data();
+    if (newsVariant) {
+      const turnsSnap = await doc.ref.collection("turns").orderBy("index").get();
+      return { attempt: { ...rest, id: doc.id }, turns: turnsSnap.docs.map((d) => d.data()), variant: newsVariant, resumed: true };
+    }
+  }
+  // dailyNews/current fait foi tant qu'il porte cette date (c'est là qu'un sujet est masqué en urgence), sinon l'archive du jour
+  const edition = currentSnap.data()?.date === date ? currentSnap.data() : datedSnap.data();
+  const item = (Array.isArray(edition?.items) ? edition.items : []).find((i) => i && i.id === lessonId && i.hidden !== true);
+  if (!item) throw new HttpsError("not-found", "lesson_unavailable");
+  const user = userSnap.data() || {};
+  const practiceLevel = await resolvePracticeLevel(uid, user);
+  const variant = item.levels?.[newsLevelFor(practiceLevel)]?.discussion;
+  if (!variant || typeof variant.openingEn !== "string" || !Array.isArray(variant.requiredCriteria) || variant.requiredCriteria.length < 2 || !Array.isArray(variant.followUpsEn)) {
+    throw new HttpsError("not-found", "variant_missing");
+  }
+  const now = Date.now();
+  const ref = attemptsCol.doc();
+  const attempt = {
+    id: ref.id,
+    lessonId,
+    kind: "news",
+    variantId: variant.id,
+    contentVersion: Number(variant.contentVersion) || 1,
+    practiceLevel,
+    coachStyle: coachStyleOf(user),
+    learnerContext: learnerContextOf(user),
+    state: "conversation",
+    active: true,
+    modalityUsed: [],
+    turnCount: 0,
+    transfer: null,
+    result: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set({ ...attempt, newsVariant: variant, newsTitleFr: str(item.titleFr, 200) });
+  return { attempt, turns: [], variant, resumed: false };
+}
+
+// ---------------------------------------------------------------
 // recordLessonTurn({ attemptId, turn }) — idempotent sur turn.id (un ré-envoi écrase le même document).
 // ---------------------------------------------------------------
 exports.recordLessonTurn = onCall({ region: REGION, maxInstances: 5 }, async (request) => {
@@ -363,7 +428,7 @@ exports.recordLessonTurn = onCall({ region: REGION, maxInstances: 5 }, async (re
     const snap = await tx.get(ref);
     const a = snap.data();
     if (!a || a.active !== true) throw new HttpsError("failed-precondition", "attempt_not_active");
-    const clean = sanitizeTurn(turn, VARIANTS.get(a.variantId));
+    const clean = sanitizeTurn(turn, variantOfAttempt(a));
     tx.set(ref.collection("turns").doc(clean.id), clean);
     tx.set(
       ref,
@@ -541,7 +606,7 @@ exports.finalizeAttempt = onCall({ region: REGION, maxInstances: 5, secrets: [GE
   const a = snap.data();
   if (!a) throw new HttpsError("not-found", "attempt_not_found");
   if (a.result && a.active !== true) return a.result; // déjà clôturée
-  const variant = VARIANTS.get(a.variantId);
+  const variant = variantOfAttempt(a);
   if (!variant) throw new HttpsError("failed-precondition", "variant_missing");
   const lesson = LESSONS.get(a.lessonId);
 
@@ -597,9 +662,29 @@ exports.finalizeAttempt = onCall({ region: REGION, maxInstances: 5, secrets: [GE
     at: now,
   };
 
+  const stateRef = db.doc(`users/${uid}/learning/state`);
+  // Discussion d'une actu : ni progression de parcours ni badge. XP une seule fois par actu (une tentative déjà récompensée → 0).
+  if (a.kind === "news") {
+    const pastSnap = await db.collection(`users/${uid}/attempts`).where("lessonId", "==", a.lessonId).where("active", "==", false).limit(10).get();
+    const alreadyRewarded = pastSnap.docs.some((d) => Number(d.data()?.result?.xpGained) > 0);
+    await db.runTransaction(async (tx) => {
+      const [aSnap, sSnap] = await Promise.all([tx.get(ref), tx.get(stateRef)]);
+      const cur = aSnap.data();
+      if (!cur || cur.active !== true) { result.xpGained = 0; return; }
+      const state = sSnap.data() || {};
+      const xp = alreadyRewarded ? 0 : NEWS_XP[kind];
+      result.xpGained = xp;
+      result.xpTotal = (state.xp || 0) + xp;
+      if (xp > 0) tx.set(stateRef, { xp: result.xpTotal, updatedAt: now }, { merge: true });
+      tx.set(ref, { state: kind === "needs_practice" ? "needs_practice" : "completed", active: false, result, updatedAt: now }, { merge: true });
+      writeReviewCards(tx, uid, reviewCardsForResult(attemptId, a.lessonId, turns, result, now)); // les corrections nourrissent aussi le point du jour
+    });
+    console.log("finalizeAttempt timings", JSON.stringify({ news: true, read_ms: tRead, eval_ms: evalMs, total_ms: Date.now() - tStart, evaluatedBy: result.evaluatedBy }));
+    return result;
+  }
+
   // Écriture atomique : tentative, progression, XP et badge (idempotence garantie par active=true → false dans la transaction)
   const progRef = db.doc(`users/${uid}/progress/${a.lessonId}`);
-  const stateRef = db.doc(`users/${uid}/learning/state`);
   const chapterLessonIds = [...LESSONS.values()].filter((l) => l.chapterId === lesson.chapterId).map((l) => l.id);
   const chapterProgRefs = chapterLessonIds.map((id) => db.doc(`users/${uid}/progress/${id}`));
 
@@ -755,7 +840,7 @@ function buildLessonSystemPrompt(variant, state, isText, voice = "us-male", styl
   const who = coachIdentity(voice);
   return `You are ${who.name}, a warm English coach who speaks ${who.english}. In the conversation you play: ${variant.coachRole}. The learner plays: ${variant.userRole}. Learner level: ${variant.practiceLevel} — keep your English simple and natural for that level, 1 to 2 short sentences per reply, ONE question at a time. The learner is French and hesitant: be kind, never condescending. You already said hello and introduced yourself when the lesson started: never introduce yourself again, never restart with "Hi".
 ${coachStyleRules(style)}
-${learnerContextLines(learner)}${isText ? "The learner TYPED their answer (do not comment on pronunciation)." : "The learner's answer is in the attached audio. First transcribe it verbatim in \"transcript\" (keep their mistakes). If the audio has no intelligible speech, set transcript to \"\" exactly and never invent words."}
+${variant.newsContextEn ? `NEWS CONTEXT — the story the learner is explaining. These are the ONLY facts you may rely on: never add a fact, number, name or date that is not written here. Do not tell the story yourself; let the learner explain it, and help only when they are stuck or clearly wrong about a fact.\n"${String(variant.newsContextEn).slice(0, 1200)}"\n` : ""}${learnerContextLines(learner)}${isText ? "The learner TYPED their answer (do not comment on pronunciation)." : "The learner's answer is in the attached audio. First transcribe it verbatim in \"transcript\" (keep their mistakes). If the audio has no intelligible speech, set transcript to \"\" exactly and never invent words."}
 
 LESSON OBJECTIVES (the only thing that matters — each question you ask must serve a REMAINING objective):
 ${criteriaLines}
@@ -795,7 +880,7 @@ exports.lessonTurn = onCall({ region: REGION, maxInstances: 5, secrets: [GEMINI_
   const [snap, turnsSnap, genCfg] = await Promise.all([ref.get(), ref.collection("turns").orderBy("index").get(), readLessonConfig()]);
   const a = snap.data();
   if (!a || a.active !== true || !ACTIVE_CONVERSATION_STATES.has(a.state)) throw new HttpsError("failed-precondition", "attempt_not_active");
-  const variant = VARIANTS.get(a.variantId);
+  const variant = variantOfAttempt(a);
   if (!variant) throw new HttpsError("failed-precondition", "variant_missing");
 
   const turns = turnsSnap.docs.map((d) => d.data());
@@ -1100,7 +1185,7 @@ exports.purgeLearningData = onCall({ region: REGION, maxInstances: 5, timeoutSec
 
 // Exposé hors de la vue du chargeur Firebase
 Object.defineProperty(module.exports, "_internal", {
-  value: { db, LESSONS, CHAPTERS, VARIANTS, getVariant, isPublished, readFlags, requireAuth, hasEntitlement,
+  value: { db, LESSONS, CHAPTERS, VARIANTS, getVariant, isPublished, readFlags, requireAuth, hasEntitlement, isNewsLessonId, variantOfAttempt, newsLevelFor, buildLessonSystemPrompt,
     // partagé avec dailyTalk.js
     VOICES, FR_VOICE, refreshVoices, synthesize, coachIdentity, genWithRetry, MAX_AUDIO_BASE64_LENGTH, REVIEW_INTERVALS_DAYS, DAY_MS, readLessonConfig },
   enumerable: false,

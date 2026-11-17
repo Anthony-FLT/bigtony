@@ -1,9 +1,13 @@
 // ScenariosScreen — maquette du 26/10 : liste verticale par catégorie (image à gauche, titre, sous-titre, cadenas),
-// carte « Crée ta propre scène », rappel en bas. Pas de barre de recherche. Logique (premium, scène perso, sélection) inchangée.
-import { useRef } from "react";
+// cartes « Le point du jour » et « Crée ta propre scène » en tête (maquette du 17/11), rappel en bas. Pas de barre de recherche. Logique (premium, scène perso, sélection) inchangée.
+import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, Animated, Image } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { SCENARIOS, Scenario, ScenarioCategory } from "../lib/scenarios";
 import { L, Icon, RoundButton } from "../components/lessonUi";
+import { getDailyTalkStatus } from "../lib/dailyTalk";
+import { loadProfile } from "../lib/profile";
+import { coachForVoice } from "../lib/learningPath/coaches";
 
 // Illustrations (.png) — chemins statiques exigés par Metro
 const ILLUSTRATIONS: Record<string, any> = {
@@ -42,10 +46,10 @@ const ILLUSTRATIONS: Record<string, any> = {
   "mot-oublie": require("../assets/scenes/mot-oublie.png"),
 };
 
-const CATEGORIES: { key: ScenarioCategory; label: string; emoji: string; bg: string }[] = [
-  { key: "voyage", label: "En voyage", emoji: "✈️", bg: L.lavender },
-  { key: "pro", label: "Au travail", emoji: "💼", bg: L.accentSoft },
-  { key: "quotidien", label: "Au quotidien", emoji: "🏠", bg: L.successSoft },
+const CATEGORIES: { key: ScenarioCategory; label: string; icon: any }[] = [
+  { key: "voyage", label: "En voyage", icon: require("../assets/icons/ic_voyage.png") },
+  { key: "pro", label: "Au travail", icon: require("../assets/icons/ic_travail.png") },
+  { key: "quotidien", label: "Au quotidien", icon: require("../assets/icons/ic_quotidien.png") },
 ];
 
 // Léger effet de pression
@@ -69,7 +73,7 @@ function SceneRow({ s, premium, onPress }: { s: Scenario; premium: boolean; onPr
         <Text style={styles.rowTitle} numberOfLines={1}>{s.title}</Text>
         <Text style={styles.rowDesc} numberOfLines={2}>{s.description}</Text>
       </View>
-      <View style={styles.rowBadge}>{premium ? <Icon name="chevron" size={16} /> : <Icon name="cadenas" size={16} />}</View>
+      {premium ? <Feather name="chevron-right" size={22} color={L.textPrimary} /> : <Icon name="cadenas" size={16} />}
     </Pressy>
   );
 }
@@ -80,13 +84,21 @@ export default function ScenariosScreen({
   onCreateCustom,
   onBack,
   onLocked,
+  onGoDailyTalk,
 }: {
   premium: boolean;
   onSelect: (s: Scenario) => void;
   onCreateCustom: () => void;
   onBack: () => void;
   onLocked: () => void;
+  onGoDailyTalk: () => void; // « Le point du jour » : ouvert à tous, le serveur décide de l'accès (1 par semaine sans abonnement)
 }) {
+  const [dailyStatus, setDailyStatus] = useState<"todo" | "in_progress" | "done">("todo");
+  const [coachName, setCoachName] = useState(coachForVoice(null).displayName);
+  useEffect(() => {
+    getDailyTalkStatus().then(setDailyStatus).catch(() => {});
+    loadProfile().then((p) => setCoachName(coachForVoice(p?.voice).displayName)).catch(() => {});
+  }, []);
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
       <View style={styles.head}>
@@ -95,25 +107,37 @@ export default function ScenariosScreen({
         <Text style={styles.sub}>Entraîne-toi pour les moments qui comptent.</Text>
       </View>
 
-      {/* Scène personnalisée */}
-      <Pressy onPress={premium ? onCreateCustom : onLocked} style={styles.customCard} label="Crée ta propre scène">
-        <View style={styles.customIcon}><Text style={styles.customPlus}>+</Text></View>
+      {/* Le point du jour : discussion quotidienne avec le coach, ouverte à tous (le serveur décide de l'accès) */}
+      <Pressy onPress={onGoDailyTalk} style={[styles.topCard, { backgroundColor: dailyStatus === "done" ? L.successSoft : "#FDE0C6" }]} label={`Le point du jour avec ${coachName}`}>
+        <View style={styles.topIcon}><Feather name="mic" size={26} color={L.textPrimary} /></View>
+        <View style={[styles.topDivider, { backgroundColor: dailyStatus === "done" ? "#BFE3CF" : "#F2B98A" }]} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.customTitle}>Crée ta propre scène</Text>
-          <Text style={styles.customDesc}>Une situation à toi, un échange sur mesure.</Text>
+          <Text style={styles.topTitle}>Le point du jour</Text>
+          <Text style={styles.topDesc}>{dailyStatus === "done" ? "Fait pour aujourd'hui" : dailyStatus === "in_progress" ? "En cours · reprendre" : `3 min de discussion libre avec ${coachName}`}</Text>
         </View>
-        <View style={[styles.rowBadge, { backgroundColor: "rgba(255,255,255,0.7)" }]}>{premium ? <Icon name="chevron" size={16} /> : <Icon name="cadenas" size={16} />}</View>
+        <View style={styles.topBadge}><Feather name={dailyStatus === "done" ? "check" : "chevron-right"} size={20} color={L.textPrimary} /></View>
       </Pressy>
 
-      {CATEGORIES.map(({ key, label, emoji, bg }) => {
+      {/* Scène personnalisée */}
+      <Pressy onPress={premium ? onCreateCustom : onLocked} style={[styles.topCard, { backgroundColor: L.lavender }]} label="Crée ta propre scène">
+        <View style={[styles.topIcon, styles.customIcon]}><Feather name="plus" size={26} color="#fff" /></View>
+        <View style={[styles.topDivider, { backgroundColor: "#CFC8F0" }]} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.topTitle}>Crée ta propre scène</Text>
+          <Text style={styles.topDesc}>Une situation à toi, un échange sur mesure.</Text>
+        </View>
+        <View style={styles.topBadge}>{premium ? <Feather name="chevron-right" size={20} color={L.textPrimary} /> : <Icon name="cadenas" size={16} />}</View>
+      </Pressy>
+
+      {CATEGORIES.map(({ key, label, icon }) => {
         const items = SCENARIOS.filter((s) => s.category === key);
         if (items.length === 0) return null;
         return (
           <View key={key} style={{ marginTop: 18 }}>
             <View style={styles.grpRow}>
-              <View style={[styles.grpIcon, { backgroundColor: bg }]}><Text style={styles.grpEmoji}>{emoji}</Text></View>
+              <Image source={icon} style={styles.grpIcon} resizeMode="contain" />
               <Text style={styles.grp}>{label}</Text>
-              <Text style={styles.grpCount}>{items.length} scène{items.length > 1 ? "s" : ""}</Text>
+              <View style={styles.grpCount}><Text style={styles.grpCountText}>{items.length} scène{items.length > 1 ? "s" : ""}</Text></View>
             </View>
             {items.map((s) => (
               <SceneRow key={s.id} s={s} premium={premium} onPress={() => (premium ? onSelect(s) : onLocked())} />
@@ -136,24 +160,26 @@ const styles = StyleSheet.create({
   h1: { fontSize: 26, fontWeight: "800", color: L.textPrimary, letterSpacing: -0.4 },
   sub: { color: L.textSecondary, fontSize: 15, lineHeight: 21, marginTop: 6 },
 
-  customCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.accentSoft, borderRadius: 18, padding: 12, marginHorizontal: L.gutter },
-  customIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: L.accentDeep, alignItems: "center", justifyContent: "center" },
-  customPlus: { color: "#fff", fontSize: 26, fontWeight: "700", lineHeight: 30 },
-  customTitle: { color: L.textPrimary, fontSize: 15.5, fontWeight: "800" },
-  customDesc: { color: L.textSecondary, fontSize: 12.5, marginTop: 2 },
+  // Cartes du haut : point du jour (pêche) et scène personnalisée (lavande)
+  topCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, padding: 14, minHeight: 78, marginHorizontal: 12, marginBottom: 10 },
+  topIcon: { width: 46, height: 46, alignItems: "center", justifyContent: "center" },
+  customIcon: { borderRadius: 13, backgroundColor: L.accentDeep },
+  topDivider: { width: 1, alignSelf: "stretch", marginVertical: 4 },
+  topTitle: { color: L.textPrimary, fontSize: 18, fontWeight: "800" },
+  topDesc: { color: L.textSecondary, fontSize: 14, lineHeight: 19, marginTop: 2 },
+  topBadge: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
 
-  grpRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: L.gutter, marginBottom: 10 },
-  grpIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  grpEmoji: { fontSize: 15 },
-  grp: { flex: 1, color: L.textPrimary, fontSize: 16, fontWeight: "800" },
-  grpCount: { color: L.textSecondary, fontSize: 12.5, fontWeight: "600" },
+  grpRow: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: L.gutter, marginTop: 6, marginBottom: 12 },
+  grpIcon: { width: 28, height: 28 },
+  grp: { flex: 1, color: L.textPrimary, fontSize: 22, fontWeight: "800", letterSpacing: -0.3 },
+  grpCount: { backgroundColor: L.accentSoft, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 },
+  grpCountText: { color: L.accentText, fontSize: 13, fontWeight: "800" },
 
-  row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.surface, borderRadius: 18, padding: 10, marginHorizontal: L.gutter, marginBottom: 10, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
-  rowImg: { width: 86, height: 68, borderRadius: 12, overflow: "hidden", backgroundColor: L.border },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: L.surface, borderRadius: 20, borderWidth: 1, borderColor: L.border, padding: 10, paddingRight: 14, marginHorizontal: 12, marginBottom: 10 },
+  rowImg: { width: 108, height: 76, borderRadius: 14, overflow: "hidden", backgroundColor: L.border },
   fill: { width: "100%", height: "100%" },
-  rowTitle: { color: L.textPrimary, fontSize: 15.5, fontWeight: "800" },
-  rowDesc: { color: L.textSecondary, fontSize: 12.5, lineHeight: 17, marginTop: 2 },
-  rowBadge: { width: 32, height: 32, borderRadius: 10, backgroundColor: L.background, alignItems: "center", justifyContent: "center" },
+  rowTitle: { color: L.textPrimary, fontSize: 16.5, fontWeight: "800" },
+  rowDesc: { color: L.textSecondary, fontSize: 13.5, lineHeight: 18, marginTop: 3 },
 
   hint: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: L.lavender, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, marginHorizontal: L.gutter, marginTop: 10 },
   hintEmoji: { fontSize: 14 },

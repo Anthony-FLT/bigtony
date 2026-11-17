@@ -1,34 +1,70 @@
-// PracticeHubScreen — onglet « Pratiquer » de la cohorte learning_path_v1 : scènes, Labo, révision.
+// PracticeHubScreen — onglet « Pratiquer » (maquette du 17/11) : les entraînements libres.
+// « À toi de parler » ouvre la page des situations (scénarios, scène perso, point du jour) ;
+// « Travaille les mots qui comptent » regroupe le labo de prononciation et le dictionnaire personnel.
+// Les actus du jour sont sur l'accueil, pas ici.
 import React from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, Image } from "react-native";
-import { L, ILL, Icon } from "../../components/lessonUi";
+import { Feather } from "@expo/vector-icons";
+import { L } from "../../components/lessonUi";
 
-export default function PracticeHubScreen({ premium, laboCount, onGoScenarios, onGoLabo, onGoFavorites }: {
-  premium: boolean;
+const THEMES: { icon: any; label: string }[] = [
+  { icon: require("../../assets/icons/ic_voyage.png"), label: "Voyage" },
+  { icon: require("../../assets/icons/ic_travail.png"), label: "Travail" },
+  { icon: require("../../assets/icons/ic_quotidien.png"), label: "Quotidien" },
+];
+
+export default function PracticeHubScreen({ laboCount, onGoScenarios, onGoLabo, onGoFavorites }: {
+  premium?: boolean; // conservé pour App.tsx ; l'accès se décide dans la page des situations
   laboCount: number; // mots à travailler au Labo
   onGoScenarios: () => void;
   onGoLabo: () => void;
   onGoFavorites: () => void;
 }) {
-  const rows = [
-    { key: "scenes", img: ILL.micro, bg: "#FDE7D2", title: "Une scène au choix", sub: "Entretien, voyage, quotidien… ou ta propre scène", onPress: onGoScenarios, lock: !premium },
-    { key: "labo", img: ILL.cible, bg: "#E7E3FB", title: "Labo de prononciation", sub: laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""} à polir` : "Polis la prononciation d'un mot", onPress: onGoLabo, lock: false },
-    { key: "words", img: ILL.crayon, bg: "#FBE4A8", title: "Réviser mes mots", sub: "Ton dictionnaire personnel", onPress: onGoFavorites, lock: false },
-  ];
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Pratiquer</Text>
-      <Text style={styles.sub}>Entre deux leçons, entraîne-toi comme tu veux.</Text>
-      {rows.map((r) => (
-        <Pressable key={r.key} onPress={r.onPress} style={[styles.row, { backgroundColor: r.bg }]} accessibilityRole="button" accessibilityLabel={r.title}>
-          <Image source={r.img} style={styles.img} resizeMode="contain" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>{r.title}</Text>
-            <Text style={styles.rowSub}>{r.sub}</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <Text style={styles.title} accessibilityRole="header">Pratiquer</Text>
+      <Text style={styles.sub}>Un peu d'anglais, à ta façon.</Text>
+
+      <Text style={styles.section} accessibilityRole="header">À toi de parler</Text>
+      <Pressable onPress={onGoScenarios} style={styles.talkCard} accessibilityRole="button" accessibilityLabel="Choisir une situation : voyage, travail ou quotidien">
+        <View style={styles.talkHead}>
+          <View style={[styles.iconBox, { backgroundColor: "#FDDCBE" }]}><Feather name="mic" size={26} color={L.textPrimary} /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.talkTitle}>Une situation, à toi de parler.</Text>
+            <Text style={styles.rowSub}>Voyage, travail, quotidien… entraîne-toi avec ton coach.</Text>
           </View>
-          {r.lock ? <View style={styles.lock}><Icon name="cadenas" size={12} tint="#fff" /></View> : <Icon name="chevron" size={20} />}
-        </Pressable>
-      ))}
+        </View>
+        <View style={styles.themes}>
+          {THEMES.map((t, i) => (
+            <View key={t.label} style={[styles.theme, i > 0 && styles.themeDivider]}>
+              <Image source={t.icon} style={styles.themeIcon} resizeMode="contain" />
+              <Text style={styles.themeLabel} maxFontSizeMultiplier={1.3}>{t.label}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.cta}>
+          <Text style={styles.ctaText} maxFontSizeMultiplier={1.3}>Choisir une situation</Text>
+          <Feather name="arrow-right" size={18} color={L.textPrimary} />
+        </View>
+      </Pressable>
+
+      <Text style={[styles.section, { marginTop: 30 }]} accessibilityRole="header">Travaille les mots qui comptent</Text>
+      <Pressable onPress={onGoLabo} style={styles.row} accessibilityRole="button" accessibilityLabel="Mieux prononcer">
+        <View style={[styles.iconBox, { backgroundColor: L.lavender }]}><Feather name="volume-2" size={24} color={L.textPrimary} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.rowTitle}>Mieux prononcer</Text>
+          <Text style={styles.rowSub}>{laboCount > 0 ? `${laboCount} mot${laboCount > 1 ? "s" : ""} à travailler.` : "Écoute un mot, puis entraîne-toi à le dire."}</Text>
+        </View>
+        <Feather name="chevron-right" size={22} color={L.textPrimary} />
+      </Pressable>
+      <Pressable onPress={onGoFavorites} style={styles.row} accessibilityRole="button" accessibilityLabel="Revoir mes mots">
+        <View style={[styles.iconBox, { backgroundColor: L.yellow }]}><Feather name="bookmark" size={24} color={L.textPrimary} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.rowTitle}>Revoir mes mots</Text>
+          <Text style={styles.rowSub}>Retrouve et révise ton vocabulaire enregistré.</Text>
+        </View>
+        <Feather name="chevron-right" size={22} color={L.textPrimary} />
+      </Pressable>
     </ScrollView>
   );
 }
@@ -36,11 +72,23 @@ export default function PracticeHubScreen({ premium, laboCount, onGoScenarios, o
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: L.background },
   content: { paddingHorizontal: L.gutter, paddingTop: 52, paddingBottom: 32 },
-  title: { fontSize: 30, fontWeight: "700", color: L.textPrimary, letterSpacing: -0.5 },
-  sub: { fontSize: 15, color: L.textSecondary, marginTop: 4, marginBottom: 20 },
-  row: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 22, padding: 16, marginBottom: 12, minHeight: 96 },
-  img: { width: 64, height: 58 },
-  rowTitle: { color: L.textPrimary, fontSize: 17, fontWeight: "700" },
-  rowSub: { color: L.textSecondary, fontSize: 13.5, marginTop: 3, lineHeight: 18 },
-  lock: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(25,41,71,0.85)", alignItems: "center", justifyContent: "center" },
+  title: { fontSize: 32, fontWeight: "800", color: L.textPrimary, letterSpacing: -0.6 },
+  sub: { fontSize: 16, color: L.textSecondary, marginTop: 4, marginBottom: 26 },
+  section: { color: L.textPrimary, fontSize: 20, fontWeight: "800", letterSpacing: -0.3, marginBottom: 14 },
+
+  talkCard: { backgroundColor: L.surface, borderRadius: 22, borderWidth: 1, borderColor: L.border, padding: 14 },
+  talkHead: { flexDirection: "row", alignItems: "center", gap: 14 },
+  talkTitle: { color: L.textPrimary, fontSize: 18, fontWeight: "800", lineHeight: 23 },
+  themes: { flexDirection: "row", marginTop: 16, marginBottom: 16 },
+  theme: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 4 },
+  themeDivider: { borderLeftWidth: 1, borderLeftColor: L.border },
+  themeIcon: { width: 30, height: 30 },
+  themeLabel: { color: L.textSecondary, fontSize: 14.5, fontWeight: "500" },
+  cta: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: L.accentDeep, borderRadius: 16, minHeight: 50, paddingHorizontal: 16 },
+  ctaText: { color: L.textPrimary, fontSize: 16.5, fontWeight: "800" },
+
+  row: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: L.surface, borderRadius: 20, borderWidth: 1, borderColor: L.border, padding: 14, minHeight: 88, marginBottom: 12 },
+  iconBox: { width: 54, height: 54, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  rowTitle: { color: L.textPrimary, fontSize: 17, fontWeight: "800" },
+  rowSub: { color: L.textSecondary, fontSize: 14, lineHeight: 19, marginTop: 3 },
 });

@@ -3,7 +3,6 @@ import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { T } from "../lib/theme";
 import { computeStreak, getWeekActivity, getWeeklyGoalStatus, STREAK_MILESTONES } from "../lib/streak";
-import { getChallengeStats } from "../lib/dailyChallenges";
 import { getWeekSpeakingMinutes } from "../lib/speakingTime";
 import { getProgressStats, TroubleWord } from "../lib/progressstats";
 import { getLearningWeekStats, LearningWeekStats } from "../lib/learningStats";
@@ -17,15 +16,13 @@ type Data = {
   streak: number;
   weekActivity: boolean[];
   weeklyGoal: number;
-  todayDone: number;
-  weekDone: number;
   weekConversations: number;
   weekNewWords: number;
   dictionaryTotal: number;
   speakingPerDay: number[];
   speakingTotalMinutes: number;
   topTroubleWord: TroubleWord;
-  learning: LearningWeekStats; // leçons, points du jour, XP, cartes à replacer
+  learning: LearningWeekStats; // leçons, points du jour, actus, XP, cartes à replacer
 };
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -54,11 +51,10 @@ export default function ProgressScreen({
       monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
       monday.setHours(0, 0, 0, 0);
 
-      const [profile, streak, weekActivity, challengeStats, speaking, progressStats, favorites, learning] = await Promise.all([
+      const [profile, streak, weekActivity, speaking, progressStats, favorites, learning] = await Promise.all([
         loadProfile(),
         computeStreak(),
         getWeekActivity(),
-        getChallengeStats(),
         getWeekSpeakingMinutes(),
         getProgressStats(),
         listFavorites(),
@@ -75,12 +71,10 @@ export default function ProgressScreen({
         streak,
         weekActivity,
         weeklyGoal: goalStatus.goal,
-        todayDone: challengeStats.todayDone,
-        weekDone: challengeStats.weekDone,
         weekConversations: progressStats.weekConversations,
         weekNewWords,
         dictionaryTotal: favorites.length,
-        // Temps de parole : conversations libres + leçons + points du jour
+        // Temps de parole : conversations libres + leçons + points du jour + actus racontées
         speakingPerDay: speaking.perDay.map((m, i) => m + (learning.minutesPerDay[i] ?? 0)),
         speakingTotalMinutes: speaking.totalMinutes + learning.totalMinutes,
         topTroubleWord: progressStats.topTroubleWord,
@@ -163,8 +157,8 @@ export default function ProgressScreen({
             </View>
             <View style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: T.chipAbricot }]}><Feather name="message-circle" size={17} color={T.abricotDeep} /></View>
-              <Text style={styles.statNum}>{data.learning.weekDailyTalks}</Text>
-              <Text style={styles.statLabel}>point{data.learning.weekDailyTalks > 1 ? "s" : ""} du jour</Text>
+              <Text style={styles.statNum}>{data.learning.weekNewsTalks}<Text style={styles.statDenom}> + {data.learning.weekDailyTalks}</Text></Text>
+              <Text style={styles.statLabel}>actu{data.learning.weekNewsTalks > 1 ? "s" : ""} racontée{data.learning.weekNewsTalks > 1 ? "s" : ""} · point{data.learning.weekDailyTalks > 1 ? "s" : ""} du jour</Text>
             </View>
             <View style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: "#DFF3E4" }]}><Feather name="zap" size={17} color="#2E7D53" /></View>
@@ -172,9 +166,9 @@ export default function ProgressScreen({
               <Text style={styles.statLabel}>XP cette semaine · {data.learning.xpTotal} au total</Text>
             </View>
             <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: "#E9E3FB" }]}><Feather name="headphones" size={17} color="#5B3FA6" /></View>
+              <View style={[styles.statIcon, { backgroundColor: "#E9E3FB" }]}><Feather name="book-open" size={17} color="#5B3FA6" /></View>
               <Text style={styles.statNum}>{data.learning.weekExercises}<Text style={styles.statDenom}> + {data.learning.weekScenes}</Text></Text>
-              <Text style={styles.statLabel}>exercice{data.learning.weekExercises > 1 ? "s" : ""} · scène{data.learning.weekScenes > 1 ? "s" : ""}</Text>
+              <Text style={styles.statLabel}>quiz d'actu · scène{data.learning.weekScenes > 1 ? "s" : ""}</Text>
             </View>
           </View>
 

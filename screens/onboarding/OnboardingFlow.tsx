@@ -1,8 +1,8 @@
 // OnboardingFlow — onboarding v2 (maquettes du 29/10) : 01 accueil · 02 objectif · 03 blocage · 04 niveau + prénom · 05 coach
-// · 06 brief café · 07 conversation café (DiscoveryCafeScreen) · 08 bilan café · 09 « Voici ton parcours » (OnboardingRoadmap, 4 étapes)
+// · 06 brief café · 07 conversation café (DiscoveryCafeScreen) · 08 bilan café · 09 « Voici ton parcours » (OnboardingRoadmap, 4 étapes) · 10 notifications
 // · puis onLaunch → présentation offerte (première leçon du parcours). Plus de paywall dans l'onboarding (03/11) : il vient après la présentation.
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, Image, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, TextInput, Image, ActivityIndicator, Switch } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -16,6 +16,7 @@ import { COACHES, LessonCoach, coachForVoice, CoachId } from "../../lib/learning
 import { DISCOVERY_TITLE_FR, DISCOVERY_GOALS_FR } from "../../lib/learningPath/discovery";
 import type { AttemptResult } from "../../lib/learningPath/types";
 import { logOnboardingComplete, logOnboardingStepViewed, logOnboardingStepCompleted, logCoachPreviewPlayed } from "../../lib/analytics";
+import { applyReminderChoices } from "../../lib/notifications";
 import DiscoveryCafeScreen from "./DiscoveryCafeScreen";
 import OnboardingRoadmap from "./OnboardingRoadmap";
 import { O, IMAGES, OnbIcon, IconDisc, PrimaryCta, SecondaryLink, TopBar, Title, Subtitle, ChoiceCard, CoachNote, InfoLine, Chip, CoachMedallion, s as ui, OnbIconName } from "../../components/onbUi";
@@ -23,7 +24,7 @@ import { O, IMAGES, OnbIcon, IconDisc, PrimaryCta, SecondaryLink, TopBar, Title,
 const translateText = httpsCallable(functions, "translateText", { timeout: 25000 });
 const BRAND_ICON = require("../../assets/icon.png");
 
-type Phase = "welcome" | "goal" | "blocker" | "level" | "coach" | "brief" | "cafe" | "summary" | "roadmap";
+type Phase = "welcome" | "goal" | "blocker" | "level" | "coach" | "brief" | "cafe" | "summary" | "roadmap" | "notifs";
 const QUESTION_STEPS = 4; // segments : objectif · blocage · niveau · coach
 
 // 02 — Où aimerais-tu te sentir à l'aise ? (« En entretien » remplacé par « Pour les études », demande du 29/10)
@@ -63,6 +64,10 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
   const [name, setName] = useState("");
   const [coachId, setCoachId] = useState<CoachId>("us_male"); // Sam sélectionné par défaut (03/11)
   const [saving, setSaving] = useState(false);
+  const [notifNews, setNotifNews] = useState(true); // 10 — rappels proposés, activés par défaut
+  const [notifExpr, setNotifExpr] = useState(true);
+  const [notifBusy, setNotifBusy] = useState(false);
+  const [cafeSkipped, setCafeSkipped] = useState(false); // « Pas maintenant » sur l'écran du café (17/11)
   const [saveError, setSaveError] = useState<string | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [previewBusy, setPreviewBusy] = useState<string | null>(null);
@@ -92,7 +97,9 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
   };
 
   // Profil enregistré avant la première conversation (le serveur lit la voix et le niveau dans le profil)
-  const persistAndStartCafe = async () => {
+  // skip = true : « Pas maintenant » — le profil est enregistré de la même façon, puis l'onboarding continue sans la conversation ni son bilan
+  const persistAndStartCafe = async (skip = false) => {
+    if (saving) return;
     setSaving(true); setSaveError(null);
     try {
       const lvl = LEVELS.find((l) => l.key === levelKey)?.level ?? ("A2" as Level);
@@ -106,11 +113,12 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
         feedbackStyle: "balanced",
         challenge: true,
         onboardingVersion: 2,
-        onboardingStep: "cafe",
+        onboardingStep: skip ? "roadmap" : "cafe",
       });
       try { player.pause(); } catch {}
-      logOnboardingStepCompleted("brief", { goal: goal ?? "", blocker: blocker ?? "", coach_id: coach.id });
-      setPhase("cafe");
+      logOnboardingStepCompleted("brief", { goal: goal ?? "", blocker: blocker ?? "", coach_id: coach.id, skipped: skip ? "1" : "0" });
+      if (skip) { logOnboardingStepCompleted("cafe_skipped", { goal: goal ?? "", coach_id: coach.id }); setCafeSkipped(true); setPhase("roadmap"); }
+      else setPhase("cafe");
     } catch (e) {
       console.warn("Sauvegarde onboarding échouée:", e);
       setSaveError("Impossible d'enregistrer tes choix. Vérifie ta connexion et réessaie.");
@@ -128,9 +136,23 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
     setPhase("roadmap");
   };
   // « Faire ma présentation » : présentation offerte, puis le paywall viendra après elle (App.tsx, contexte after_presentation)
+  const toNotifs = () => {
+    saveProfile({ onboardingStep: "notifs" }).catch(() => {});
+    logOnboardingStepCompleted("roadmap");
+    setPhase("notifs");
+  };
+  // 10 — « Activer » : enregistre les choix et demande l'autorisation du système ; « Plus tard » : rien n'est demandé ni programmé
+  const finishNotifs = async (activate: boolean) => {
+    if (notifBusy) return;
+    setNotifBusy(true);
+    let granted = false;
+    try { granted = await applyReminderChoices(activate ? { news: notifNews, expression: notifExpr } : { news: false, expression: false }); }
+    finally { setNotifBusy(false); }
+    logOnboardingStepCompleted("notifs", { activated: activate ? "1" : "0", news: activate && notifNews ? "1" : "0", expression: activate && notifExpr ? "1" : "0", granted: granted ? "1" : "0" });
+    finishToLesson();
+  };
   const finishToLesson = () => {
     saveProfile({ presentationDiscoveryGranted: true, onboardingStep: "done" }).catch(() => {});
-    logOnboardingStepCompleted("roadmap");
     logOnboardingComplete();
     onLaunch(goal ? [goal] : []);
   };
@@ -295,8 +317,9 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
           </View>
           {saveError ? <Text style={st.error}>{saveError}</Text> : null}
         </ScrollView>
-        <PrimaryCta label="Commencer ma conversation" onPress={persistAndStartCafe} busy={saving} />
+        <PrimaryCta label="Commencer ma conversation" onPress={() => persistAndStartCafe(false)} busy={saving} />
         <View style={st.micNote}><OnbIcon name="mic" size={14} tint={O.muted} /><Text style={st.micNoteText}>Tu parles, ou tu écris si tu préfères.</Text></View>
+        <SecondaryLink label="Pas maintenant" onPress={() => persistAndStartCafe(true)} />
       </View>
     );
   }
@@ -342,7 +365,37 @@ export default function OnboardingFlow({ onLaunch, onLogin, onFinish, premium = 
 
   // ---------------- 09 Voici ton parcours ----------------
   if (phase === "roadmap") {
-    return <OnboardingRoadmap coachId={coach.id} goal={goal} onStart={finishToLesson} />;
+    return <OnboardingRoadmap coachId={coach.id} goal={goal} cafeSkipped={cafeSkipped} onStart={toNotifs} />;
+  }
+
+  // ---------------- 10 Notifications ----------------
+  if (phase === "notifs") {
+    const rows: { key: string; icon: OnbIconName; bg: string; tint: string; title: string; desc: string; value: boolean; set: (v: boolean) => void }[] = [
+      { key: "news", icon: "clock", bg: "#E3F0FB", tint: "#2E6BB5", title: "Les actus du jour", desc: "Chaque matin : quelques actus à lire en anglais.", value: notifNews, set: setNotifNews },
+      { key: "expr", icon: "sparkles", bg: "#FFE4CC", tint: O.primary, title: "L'expression du jour", desc: "Chaque fin de journée : une expression utile, en 30 secondes.", value: notifExpr, set: setNotifExpr },
+    ];
+    return (
+      <View style={[st.screen, pad]}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={[st.scroll, { paddingTop: 24 }]} showsVerticalScrollIndicator={false}>
+          <View style={{ alignItems: "center" }}><CoachMedallion source={coach.poster} /></View>
+          <Title center>Reste dans le rythme</Title>
+          <Subtitle center>Un petit rappel chaque jour, c'est ce qui fait progresser. Tu choisis ce que tu reçois.</Subtitle>
+          <View style={{ gap: 12, marginTop: 22 }}>
+            {rows.map((r) => (
+              <View key={r.key} style={st.notifRow}>
+                <IconDisc name={r.icon} bg={r.bg} tint={r.tint} size={48} iconSize={24} />
+                <View style={{ flex: 1 }}><Text style={st.featureT}>{r.title}</Text><Text style={st.featureD}>{r.desc}</Text></View>
+                <Switch value={r.value} onValueChange={r.set} trackColor={{ true: O.primary, false: O.border }} thumbColor="#fff" accessibilityLabel={r.title} />
+              </View>
+            ))}
+          </View>
+          <View style={{ marginTop: 18 }}><InfoLine text="Tu pourras changer d'avis dans ton profil." /></View>
+        </ScrollView>
+        <PrimaryCta label="Activer les notifications" onPress={() => finishNotifs(true)} busy={notifBusy} disabled={!notifNews && !notifExpr} />
+        <SecondaryLink label="Plus tard" onPress={() => finishNotifs(false)} />
+      </View>
+    );
   }
 
   return null;
@@ -398,6 +451,7 @@ const st = StyleSheet.create({
   heroTitle: { color: O.ink, fontSize: 38, fontWeight: "800", lineHeight: 44, letterSpacing: -1, marginTop: 10 },
   heroBody: { color: O.muted, fontSize: 17, lineHeight: 25, fontWeight: "600", marginTop: 12 },
   feature: { flexDirection: "row", alignItems: "center", gap: 14 },
+  notifRow: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: O.surface, borderRadius: O.radiusCard, padding: 14 },
   featureT: { color: O.ink, fontSize: 17, fontWeight: "800" },
   featureD: { color: O.muted, fontSize: 14, fontWeight: "600", marginTop: 2 },
   label: { color: O.ink, fontSize: 14, fontWeight: "800", marginTop: 22, marginBottom: 8 },

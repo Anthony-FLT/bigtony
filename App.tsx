@@ -6,8 +6,7 @@ import { Feather } from "@expo/vector-icons";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import { T } from "./lib/theme";
-import { loadProfile, markRatingAsked, markHubCelebrated } from "./lib/profile";
-import { getChallengesDone, HUB_CHALLENGES } from "./lib/dailyChallenges";
+import { loadProfile, markRatingAsked } from "./lib/profile";
 import ScenariosScreen from "./screens/ScenariosScreen";
 import LaboScreen from "./screens/LaboScreen";
 import OnboardingFlow from "./screens/onboarding/OnboardingFlow";
@@ -17,19 +16,14 @@ import ProgressScreen from "./screens/ProgressScreen";
 import CustomSceneScreen from "./screens/CustomSceneScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import DictionaryScreen from "./screens/DictionaryScreen";
-import { logPaywallShown, logRatingShown, logHubCompleteShown } from "./lib/analytics";
+import { logPaywallShown, logRatingShown } from "./lib/analytics";
 import RatingModal from "./components/RatingModal";
-import HubCompleteModal from "./components/HubCompleteModal";
 import PaywallScreen from "./screens/PaywallScreen";
 import { getAccess, Access } from "./lib/entitlement";
 import { configurePurchases } from "./lib/purchases";
 import Purchases from "react-native-purchases";
-import { scheduleExpressionReminder, getExpressionReminderEnabled } from "./lib/notifications";
+import { syncReminders } from "./lib/notifications";
 import EditProfileScreen from "./screens/EditProfileScreen";
-import DailyHubScreen from "./screens/DailyHubScreen";
-import TranslationScreen from "./screens/TranslationScreen";
-import ReadingScreen from "./screens/ReadingScreen";
-import ListeningScreen from "./screens/ListeningScreen";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import LessonScreen from "./screens/lesson/LessonScreen";
 import DailyTalkScreen from "./screens/daily/DailyTalkScreen";
@@ -41,6 +35,8 @@ import { listPracticeWords } from "./lib/practiceWords";
 import { Icon as LessonIcon, IconName as LessonIconName } from "./components/lessonUi";
 import { registerGlobals } from "@livekit/react-native";
 import AvatarTestScreen from "./screens/dev/AvatarTestScreen";
+import NewsScreen from "./screens/news/NewsScreen";
+import type { NewsEdition } from "./lib/news";
 
 // LiveKit (coach vidéo) : globals WebRTC, à appeler une fois au chargement
 registerGlobals();
@@ -54,9 +50,6 @@ const TABS: { key: Tab; png: LessonIconName; label: string }[] = [
   { key: "progres", png: "progres", label: "Progrès" },
   { key: "settings", png: "profil", label: "Profil" },
 ];
-
-// Plus d'essai gratuit à l'unité : la leçon 1 est offerte, tout le reste est dans l'abonnement.
-const NO_TRIAL = { reading: true, translation: true, listening: true };
 
 function AppInner() {
   const [appState, setAppState] = useState<AppState>("loading");
@@ -74,16 +67,11 @@ function AppInner() {
   const [showPaywall, setShowPaywall] = useState(false);
   const [access, setAccess] = useState<Access | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [showDailyHub, setShowDailyHub] = useState(false);
   const [showDailyTalk, setShowDailyTalk] = useState(false); // « Le point du jour »
-  const [showTranslation, setShowTranslation] = useState(false);
-  const [showReading, setShowReading] = useState(false);
-  const [showListening, setShowListening] = useState(false);
   const [ratingAsked, setRatingAsked] = useState(true); // true tant que le profil n'est pas chargé : on ne demande rien
   const [showRating, setShowRating] = useState(false);
-  const [hubCelebrated, setHubCelebrated] = useState(true); // true tant que le profil n'est pas chargé
-  const [showHubDone, setShowHubDone] = useState(false);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
+  const [activeNews, setActiveNews] = useState<{ edition: NewsEdition; index: number } | null>(null); // actu du jour ouverte depuis l'accueil
   const [showAvatarTest, setShowAvatarTest] = useState(false); // écran de test LiveAvatar (dev uniquement)
   const isPremium = access?.premium === true;
   const insets = useSafeAreaInsets();
@@ -116,12 +104,11 @@ function AppInner() {
   useEffect(() => {
     if (appState !== "ready") return;
     (async () => {
-      getExpressionReminderEnabled().then((on) => { if (on) scheduleExpressionReminder(); });
+      syncReminders(); // rappels des actus et de l'expression du jour ; annule l'ancien rappel de discussion
       const a = await getAccess();
       setAccess(a);
       const p = await loadProfile();
       setRatingAsked(!!p?.ratingAsked);
-      setHubCelebrated(!!p?.hubCelebrated);
       listPracticeWords().then((ws: any[]) => setLaboCount(ws.filter((w) => !w.mastered).length)).catch(() => {});
     })();
   }, [appState, homeKey]);
@@ -135,21 +122,6 @@ function AppInner() {
     if (appState === "onboarding") getAccess().then(setAccess).catch(() => {});
   }, [appState]);
 
-  // Après chaque exercice : si un abonné vient de finir les 3 défis du jour pour la 1re fois, on le félicite
-  const checkHubComplete = async () => {
-    if (!isPremium || hubCelebrated) return;
-    try {
-      const done = await getChallengesDone();
-      if (!HUB_CHALLENGES.every((c) => done[c])) return;
-      setHubCelebrated(true);
-      markHubCelebrated();
-      logHubCompleteShown();
-      setShowHubDone(true);
-    } catch (e) {
-      console.warn("checkHubComplete échoué:", e);
-    }
-  };
-  const hubDoneModal = <HubCompleteModal visible={showHubDone} count={HUB_CHALLENGES.length} onClose={() => setShowHubDone(false)} />;
   const openPaywall = (source: Parameters<typeof logPaywallShown>[0]) => { logPaywallShown(source); setShowPaywall(true); };
 
   if (appState === "loading") {
@@ -210,6 +182,28 @@ function AppInner() {
           <View style={bgCream}>
             <StatusBar style="dark" />
             <PaywallScreen context="after_presentation" dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
+  if (activeNews) {
+    return (
+      <View style={bgPath}>
+        <StatusBar style="dark" />
+        <NewsScreen
+          edition={activeNews.edition}
+          startIndex={activeNews.index}
+          premium={isPremium}
+          onExit={() => { setActiveNews(null); setHomeKey((k) => k + 1); }}
+          onLocked={() => openPaywall("news_discussion")}
+        />
+        {/* Paywall par-dessus l'actu : le résultat du quiz reste affiché derrière */}
+        <Modal visible={showPaywall} animationType="slide" onRequestClose={() => setShowPaywall(false)}>
+          <View style={bgCream}>
+            <StatusBar style="dark" />
+            <PaywallScreen context="news_discussion" dismissable onClose={() => setShowPaywall(false)} onPurchased={() => { setShowPaywall(false); syncLearningEntitlement(); }} />
           </View>
         </Modal>
       </View>
@@ -286,6 +280,7 @@ function AppInner() {
             onCreateCustom={() => { setShowScenarios(false); setCreatingScene(true); }}
             onBack={() => setShowScenarios(false)}
             onLocked={() => openPaywall("scenarios")}
+            onGoDailyTalk={() => { setShowScenarios(false); setShowDailyTalk(true); }}
           />
         </View>
       </View>
@@ -299,51 +294,8 @@ function AppInner() {
         <DictionaryScreen
           onBack={() => setShowFavorites(false)}
           onStartConversation={() => { setShowFavorites(false); if (isPremium) setDailyActive(true); else openPaywall("daily_conversation"); }}
-          onOpenReading={() => { setShowFavorites(false); if (isPremium) setShowReading(true); else openPaywall("daily_hub"); }}
+          onOpenReading={() => { setShowFavorites(false); setTab("home"); }} // les exercices de lecture ont disparu : retour à l'accueil, où sont les actus
         />
-      </View>
-    );
-  }
-
-  if (showTranslation) {
-    return (
-      <View style={bgCream}>
-        <StatusBar style="dark" />
-        <TranslationScreen onBack={() => { setShowTranslation(false); setHomeKey((k) => k + 1); checkHubComplete(); }} />
-      </View>
-    );
-  }
-  if (showReading) {
-    return (
-      <View style={bgCream}>
-        <StatusBar style="dark" />
-        <ReadingScreen onBack={() => { setShowReading(false); setHomeKey((k) => k + 1); checkHubComplete(); }} />
-      </View>
-    );
-  }
-  if (showListening) {
-    return (
-      <View style={bgCream}>
-        <StatusBar style="dark" />
-        <ListeningScreen onBack={() => { setShowListening(false); setHomeKey((k) => k + 1); checkHubComplete(); }} />
-      </View>
-    );
-  }
-
-  if (showDailyHub) {
-    return (
-      <View style={bgCream}>
-        <StatusBar style="dark" />
-        <DailyHubScreen
-          onBack={() => setShowDailyHub(false)}
-          onOpenTranslation={() => setShowTranslation(true)}
-          onOpenReading={() => setShowReading(true)}
-          onOpenListening={() => setShowListening(true)}
-          premium={isPremium}
-          trialExercisesDone={NO_TRIAL}
-          onLocked={() => openPaywall("daily_hub")}
-        />
-        {hubDoneModal}
       </View>
     );
   }
@@ -385,11 +337,8 @@ function AppInner() {
             premium={isPremium}
             onOpenLesson={(id) => setActiveLessonId(id)}
             onLocked={() => openPaywall("learning_path_map")}
-            onStartFreeConversation={() => setDailyActive(true)}
-            onGoDailyHub={() => setShowDailyHub(true)}
+            onOpenNews={(edition, index) => setActiveNews({ edition, index })}
             onShowPaywall={openPaywall}
-            onGoProfile={() => setTab("settings")}
-            onGoDailyTalk={() => setShowDailyTalk(true)}
           />
         )}
         {tab === "pratiquer" && (
@@ -419,6 +368,7 @@ function AppInner() {
               setShowFavorites(false);
               setShowScenarios(false);
               setActiveLessonId(null);
+              setActiveNews(null);
               setTab("home");
             }}
           />
@@ -426,7 +376,6 @@ function AppInner() {
       </View>
 
       <RatingModal visible={showRating} onClose={() => setShowRating(false)} />
-      {hubDoneModal}
 
       <View style={styles.tabBar}>
         {TABS.map((t) => (

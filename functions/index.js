@@ -1940,3 +1940,4 @@ Respond ONLY with JSON:
 Object.assign(exports, require("./learningPath"));
 Object.assign(exports, require("./liveAvatar"));
 Object.assign(exports, require("./dailyTalk"));
+Object.assign(exports, require("./dailyNews"));

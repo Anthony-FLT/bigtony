@@ -60,27 +60,24 @@ const ROUTE = (() => {
   return { total, targets, pointAt };
 })();
 const MARKER = 30;
+const PODIUM_ANCHOR = 0.93; // position verticale du checkpoint dans l'illustration (0 = haut, 1 = bas)
 
 const ILLU = {
   cafe: require("../../assets/onboarding2/roadmap/illu-cafe.png"),
   progression: require("../../assets/onboarding2/roadmap/illu-progression.png"),
-  voyage: require("../../assets/onboarding2/roadmap/illu-voyage.png"),
+  actus: require("../../assets/onboarding2/roadmap/illu-actus.png"),
 };
 // Slide 2 : portrait du coach choisi. Seul Sam est livré dans le pack ; les autres coachs retombent sur lui tant que leurs PNG n'existent pas.
 const ILLU_PRESENTATION: Partial<Record<CoachId, any>> = {
   us_male: require("../../assets/onboarding2/roadmap/illu-presentation-us_male.png"),
 };
-// Slide 3 : variante selon l'objectif. Seule « voyage » est livrée ; les autres objectifs l'utilisent en attendant leurs PNG.
-const ILLU_GOAL: Partial<Record<Goal, any>> = {
-  voyage: ILLU.voyage,
-};
-
 type Slide = { id: string; title: string; subtitle: string; illustration: any; cta: string };
 
-export default function OnboardingRoadmap({ coachId, goal, onStart }: {
+export default function OnboardingRoadmap({ coachId, goal, cafeSkipped = false, onStart }: {
   coachId: CoachId;
-  goal: Goal | null;
-  onStart: () => void; // « Faire ma présentation » → conversation gratuite de présentation
+  goal: Goal | null; // conservé pour OnboardingFlow (l'étape 3 présente désormais les actus, plus le thème)
+  cafeSkipped?: boolean; // l'utilisateur a passé la conversation café : la 1re étape ne le félicite pas pour un échange qu'il n'a pas eu
+  onStart: () => void; // « Continuer » → écran des notifications, puis la présentation offerte
 }) {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
@@ -92,11 +89,13 @@ export default function OnboardingRoadmap({ coachId, goal, onStart }: {
 
   // slides.json (textes validés)
   const slides: Slide[] = useMemo(() => [
-    { id: "cafe", title: "Félicitations pour ce premier échange", subtitle: "C'est comme ça qu'on avance.", illustration: ILLU.cafe, cta: "Et ensuite ?" },
+    cafeSkipped
+      ? { id: "cafe", title: "Ici, on apprend en parlant", subtitle: "Une situation réelle à la fois, à ton rythme.", illustration: ILLU.cafe, cta: "Et ensuite ?" }
+      : { id: "cafe", title: "Félicitations pour ce premier échange", subtitle: "C'est comme ça qu'on avance.", illustration: ILLU.cafe, cta: "Et ensuite ?" },
     { id: "presentation", title: "On fait quoi ensuite ?", subtitle: "Parle-nous un peu de toi, on fait connaissance !", illustration: ILLU_PRESENTATION[coachId] ?? ILLU_PRESENTATION.us_male, cta: "Et ensuite ?" },
-    { id: "parcours", title: "Découvre ton parcours d'apprentissage", subtitle: "Celui qui va répondre à TES objectifs", illustration: (goal && ILLU_GOAL[goal]) ?? ILLU.voyage, cta: "Et ensuite ?" },
-    { id: "progression", title: "Chaque conversation compte", subtitle: "Un peu tous les jours", illustration: ILLU.progression, cta: "Faire ma présentation" },
-  ], [coachId, goal]);
+    { id: "actus", title: "Chaque matin, l'actu en anglais", subtitle: "Lis, écoute, puis raconte-la à ton coach.", illustration: ILLU.actus, cta: "Et ensuite ?" },
+    { id: "progression", title: "Chaque conversation compte", subtitle: "Un peu tous les jours", illustration: ILLU.progression, cta: "Continuer" },
+  ], [coachId, cafeSkipped]);
   const last = slides.length - 1;
 
   const [index, setIndex] = useState(0);
@@ -207,8 +206,9 @@ export default function OnboardingRoadmap({ coachId, goal, onStart }: {
               <Animated.View
                 key={s.id}
                 style={{
-                  // podium centré sur son checkpoint : l'ellipse du podium est vers 80 % de la hauteur du PNG
-                  position: "absolute", left: cp.x * scale - illuW / 2, top: cp.y * scale - illuH * 0.8, width: illuW, height: illuH,
+                  // Le checkpoint (marqueur orange) tombe sur le bord avant du podium, vers 93 % de la hauteur du PNG :
+                  // juste sous l'étiquette bleu nuit (qui finit vers 84 %), pour ne plus la masquer
+                  position: "absolute", left: cp.x * scale - illuW / 2, top: cp.y * scale - illuH * PODIUM_ANCHOR, width: illuW, height: illuH,
                   opacity: active ? enter.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] }) : 0.35,
                   transform: active ? [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }, { scale: enter.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }) }] : [{ scale: 0.86 }],
                 }}

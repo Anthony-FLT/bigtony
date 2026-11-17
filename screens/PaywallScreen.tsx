@@ -1,6 +1,6 @@
 // PaywallScreen — maquette du 29/10 (écrans 09 et 14) : logo, « Continue à prendre la parole. », encart coach + 3 promesses,
 // « À suivre » (présentation après le café, prochaine leçon après la présentation), offres Annuel / Mensuel, CTA, mentions.
-// Un seul composant, deux contextes (after_coffee | after_presentation). Logique RevenueCat inchangée (offres, essai réel, cadeau, achat, restauration).
+// Un seul composant, trois contextes (after_coffee | after_presentation | news_discussion : titre et première promesse sur les actus). Logique RevenueCat inchangée (offres, essai réel, cadeau, achat, restauration).
 import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Alert, Animated, Image, Linking, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,7 +17,7 @@ import { coachForVoice, LessonCoach } from "../lib/learningPath/coaches";
 import { O, IMAGES, OnbIcon, Chip } from "../components/onbUi";
 
 type PlanId = "monthly" | "yearly";
-export type PaywallContext = "after_coffee" | "after_presentation";
+export type PaywallContext = "after_coffee" | "after_presentation" | "news_discussion"; // news_discussion : ouvert depuis « En discuter avec ton coach » (actu du jour)
 
 // Prix de secours si le store est injoignable (affichage seulement, l'achat exige le vrai package)
 const FALLBACK = { monthly: "4,99 €", yearly: "49,99 €" };
@@ -162,7 +162,8 @@ export default function PaywallScreen({
     }
     getLearningPath(false).then((view) => {
       const n = view.nodes.find((x) => x.access === "subscription_required" && x.pedagogical !== "hidden_preview" && x.pedagogical !== "validated");
-      if (n) setNextLesson({ title: n.lesson.titleFr, sub: n.variant ? n.variant.objectiveFr : "" });
+      // Pas de sous-texte tiré du catalogue : objectiveFr est une consigne d'évaluation, pas une phrase à lire par l'utilisateur
+      if (n) setNextLesson({ title: n.lesson.titleFr, sub: "" });
     }).catch(() => {});
   }, [context]);
 
@@ -283,7 +284,7 @@ export default function PaywallScreen({
     : `${price("monthly")} facturés par mois. Renouvellement automatique. Résiliable dans les réglages du store.`;
 
   const nextImage = context === "after_coffee" ? IMAGES.scenePresentation : goalKey === "voyage" ? IMAGES.sceneHotel : IMAGES.scenePresentation;
-  const nextCaption = context === "after_coffee" ? `Présente-toi et fais connaissance avec ${coach.displayName}.` : (nextLesson?.sub || `Continue avec ${coach.displayName}, à ton rythme.`);
+  const nextCaption = context === "after_coffee" ? `Présente-toi et fais connaissance avec ${coach.displayName}.` : (nextLesson?.sub || `Ta prochaine conversation avec ${coach.displayName}, dans la suite de ton parcours.`);
 
   return (
     <View style={styles.container}>
@@ -308,21 +309,25 @@ export default function PaywallScreen({
             <View style={styles.giftPill}><OnbIcon name="gift" size={14} tint={O.primary} /><Text style={styles.giftText}>Ton cadeau · expire dans {giftClock}</Text></View>
           )}
 
-          <Text style={styles.h1}>{isGift ? `Ton cadeau : -${giftDiscount} % sur ta 1re année` : "Continue à prendre la parole."}</Text>
-          <Text style={styles.sub}>Retrouve {coach.displayName} dans les situations de {where}.</Text>
+          <Text style={styles.h1}>{isGift ? `Ton cadeau : -${giftDiscount} % sur ta 1re année` : context === "news_discussion" ? `Raconte cette actu à ${coach.displayName}.` : "Continue à prendre la parole."}</Text>
+          <Text style={styles.sub}>{context === "news_discussion" ? "Chaque matin, de nouvelles actus à lire, puis à raconter en anglais." : `Retrouve ${coach.displayName} dans les situations de ${where}.`}</Text>
 
           {/* Encart coach + promesses */}
           <View style={styles.promise}>
             <Image source={coach.poster} style={styles.promiseAvatar} resizeMode="cover" />
             <View style={{ flex: 1, gap: 8 }}>
-              {["Un parcours adapté à ton objectif", "Des conseils sur tes propres phrases", "Des aides quand tu bloques"].map((t) => (
+              {(context === "news_discussion"
+                ? ["L'actu du jour à raconter à ton coach", "Des conseils sur tes propres phrases", "Un parcours adapté à ton objectif", "Des aides quand tu bloques"]
+                : ["Un parcours adapté à ton objectif", "L'actu du jour à raconter à ton coach", "Des conseils sur tes propres phrases", "Des aides quand tu bloques"]
+              ).map((t) => (
                 <View key={t} style={styles.promiseRow}><View style={styles.promiseCheck}><OnbIcon name="check" size={12} tint="#fff" /></View><Text style={styles.promiseText}>{t}</Text></View>
               ))}
             </View>
           </View>
 
           {/* À suivre */}
-          {nextLesson ? (
+          {/* Masqué quand on vient d'une actu : la prochaine leçon du parcours n'a rien à voir avec ce que l'utilisateur veut faire */}
+          {nextLesson && context !== "news_discussion" ? (
             <>
               <Text style={styles.nextK}>À suivre : {nextLesson.title.charAt(0).toLowerCase() + nextLesson.title.slice(1)}</Text>
               <View style={styles.nextCard}>
