@@ -8,6 +8,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/text-to-speech": "^6.0.0",
     "@google/genai": "^1.9.0",
+    "@napi-rs/canvas": "^1.1.1",
     "an-array-of-english-words": "^2.0.0",
     "firebase-admin": "^13.10.0",
     "firebase-functions": "^6.4.0"

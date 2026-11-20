@@ -1,8 +1,10 @@
 // Suivi des events produit (Firebase Analytics) — usage pendant l'essai freemium,
 // atterrissages sur le paywall (avec leur source), et conversion.
 import { getAnalytics, logEvent } from "@react-native-firebase/analytics";
+import { initTikTok, tiktokEvent } from "./tiktok";
 
 const analyticsInstance = getAnalytics();
+initTikTok(); // suivi des campagnes TikTok (installation, inscription, abonnement) — voir lib/tiktok.ts
 
 export type PaywallSource =
   | "scenarios"
@@ -30,7 +32,7 @@ function log(name: string, params?: Record<string, any>) {
   }
 }
 
-export function logOnboardingComplete() { log("onboarding_complete"); }
+export function logOnboardingComplete() { log("onboarding_complete"); tiktokEvent("Registration"); }
 // Onboarding v2 (maquettes du 29/10)
 export function logOnboardingStepViewed(stepId: string) { log("onboarding_step_viewed", { onboarding_version: 2, step_id: stepId }); }
 export function logOnboardingStepCompleted(stepId: string, extra?: Record<string, string>) { log("onboarding_step_completed", { onboarding_version: 2, step_id: stepId, ...(extra ?? {}) }); }
@@ -42,7 +44,7 @@ export function logOnboardingTestSkipped() { log("onboarding_test_skipped"); }
 
 export function logWelcomeConversationStart() { log("welcome_conversation_start"); }
 export function logWelcomeConversationAbandon() { log("welcome_conversation_abandon"); }
-export function logWelcomeConversationComplete() { log("welcome_conversation_complete"); }
+export function logWelcomeConversationComplete() { log("welcome_conversation_complete"); tiktokEvent("CompleteTutorial"); }
 
 export function logTrialExerciseStart(type: ExerciseType) { log("trial_exercise_start", { type }); }
 
@@ -78,7 +80,10 @@ function purchaseParams(plan: PlanId, extra?: PurchaseExtra) {
 }
 
 export function logPurchaseStart(plan: PlanId, extra?: PurchaseExtra) { log("purchase_start", purchaseParams(plan, extra)); }
-export function logPurchaseComplete(plan: PlanId, extra?: PurchaseExtra) { log("purchase_complete", purchaseParams(plan, extra)); }
+export function logPurchaseComplete(plan: PlanId, extra?: PurchaseExtra) {
+  log("purchase_complete", purchaseParams(plan, extra));
+  if (!extra?.sandbox) tiktokEvent("Subscribe"); // pas les achats de test
+}
 export function logPurchaseFailed(plan: PlanId, reason?: string, extra?: PurchaseExtra) {
   log("purchase_failed", { ...purchaseParams(plan, extra), reason: cut(reason ?? "unknown") });
 }

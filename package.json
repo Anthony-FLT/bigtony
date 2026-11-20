@@ -28,6 +28,7 @@
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
+    "react-native-tiktok-business-sdk": "^1.7.1",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {

@@ -663,6 +663,10 @@ async function runDailyNews(deps, now = new Date()) {
   await batch.commit();
   console.log(`[actus] édition ${win.date} publiée : ${items.length} sujets (${items.map((i) => i.rubrique).join(", ")})`);
 
+  // Kit TikTok (carrousel d'images du jour, voir newsSocial.js) : un échec ici ne touche pas l'édition, déjà publiée
+  try { await require("./newsSocial").buildSocialKit({ db, bucket, edition: { date: win.date, items } }); }
+  catch (e) { console.warn("[actus] kit TikTok en échec:", e?.message || e); }
+
   // Ménage : fichiers des éditions sorties de la période de conservation (les documents Firestore, légers, sont gardés)
   for (let k = 1; k <= 3; k++) {
     const old = shiftDate(win.date, -(cfg.keepDays + k));

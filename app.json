@@ -55,7 +55,8 @@
       [
         "expo-build-properties",
         {
-          "ios": { "useFrameworks": "dynamic" }
+          "ios": { "useFrameworks": "dynamic" },
+          "android": { "extraMavenRepos": ["https://jitpack.io"] }
         }
       ]
     ],
